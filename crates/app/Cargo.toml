@@ -16,3 +16,9 @@ ytm-core = { version = "0.1.0", path = "../ytm-core" }
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "clipboard"] }
 # Same egui as eframe's; only here to turn on the bundled symbol fonts for the player icons.
 egui = { version = "0.37.0", default-features = false, features = ["monochrome_emoji_fonts"] }
+# Thumbnail fetches on the thumbs worker threads; same build as the player crate's.
+ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
+# Thumbnail decoding; only the formats YouTube serves, no rayon.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+# The allocator under `mimalloc`; `extended` only adds `mi_collect`, which the thumbs workers call after each image.
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
