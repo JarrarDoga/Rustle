@@ -132,7 +132,9 @@ branch compiles on its own.
    `#[serde(default)] pub entry_ids: Vec<Option<String>>` to `Playlist`,
    parallel to `tracks` (same length when present). It breaks the least
    code. Changing `tracks` to a `Vec<PlaylistEntry>` is cleaner but touches
-   every view.
+   every view. Fix every `Playlist { .. }` construction site in the same
+   commit (`ytm-core/src/rustypipe_backend.rs` `map_playlist`, the fixture
+   backend, `store/src/tests.rs`).
 2. `MusicBackend`: add `like(track_id)`, `unlike(track_id)`,
    `add_to_playlist(playlist_id, &[track_id]) -> Vec<entry id>`,
    `remove_from_playlist(playlist_id, &[(track_id, entry_id)])`,
@@ -159,7 +161,14 @@ branch compiles on its own.
    `needs_radio() -> bool` and `extend_radio(tracks)` as stubs.
 6. Create the empty module `crates/app/src/art_color.rs` and register it in
    `main.rs`.
-7. Run `scripts/check.sh > /tmp/b3-int.log 2>&1; echo $?`. Commit only on
+7. Fix the art-to-store interface, because `art` and `wiring` cannot see
+   each other's files: add `Event::ArtColors(Vec<(TrackId, [u8; 3])>)` (art
+   sends computed colors; wiring stores them with `set_art_color`) and
+   `Effect::NeedArtColors(Vec<TrackId>)` (wiring sends the main-playlist
+   tracks with no stored color; art computes them). Add the matching
+   entry point in `thumbs.rs`, for example `thumbs::request_colors(ids,
+   tx)`, as a stub with the final signature.
+8. Run `scripts/check.sh > /tmp/b3-int.log 2>&1; echo $?`. Commit only on
    exit 0. Message ends with
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
@@ -272,6 +281,9 @@ your paths.
 
 ### store — `crates/store/`
 
+- Persist `Playlist::entry_ids`: add an `entry_id` column to
+  `playlist_tracks` and round-trip it in `save_playlist` and `playlist`.
+  Without it, removing a song after an offline start has no `setVideoId`.
 - New migration (next `user_version`) for: settings (main playlist id),
   `plays` (track_id, played_at, played_ms), `art_colors` (track_id, r, g,
   b), `fetched_at` (key, unix time). Indexes for last-played lookups.
@@ -301,8 +313,8 @@ your paths.
   `#E0B767`; tints `#1E2C30`, `#222B33`, `#32262A`, `#2E2920`.
 - Compute once per track, off the UI thread, when the thumbnail is first
   decoded; hand the result to the backend to store (`set_art_color`). The
-  spine needs a color for every playlist track, so add a low-priority
-  background pass that fetches the smallest thumbnail for tracks without a
+  spine needs a color for every playlist track, so on
+  `Effect::NeedArtColors` run a low-priority background pass that fetches the smallest thumbnail for tracks without a
   color, at most 4 at a time, without keeping the images.
 - Thumbnail disk cache: cap it (about 100 MB), evict least recently used.
 - RSS: the color pass must not grow peak RSS by more than 3 MB. Measure with
@@ -322,9 +334,12 @@ your paths.
   rule. No network must not show "session expired".
 - Guest (logged out): liked songs and library show "Sign in to see your
   library" state, not "Loading…".
-- Logout: call `clear_cookies`, delete the keyring entry (through
-  `auth.rs` functions; if a change in `auth.rs` is needed, report it), clear
-  cached user data from `State`.
+- Logout: call the backend's `clear_cookies`, delete the keyring entry
+  with the existing `auth::clear_cookies()`, and clear cached user data from
+  `State`.
+- Art colors: on start and after a main-playlist fetch, send
+  `Effect::NeedArtColors` for tracks without a stored color; store each
+  `Event::ArtColors` batch with `set_art_color`.
 - Buffering: show `Buffering` only after 250 ms of continuous buffering, so
   seeks within buffered audio do not flicker.
 - Autoplay: when `Queue::needs_radio()` is true, fetch `radio` for the last
@@ -402,6 +417,8 @@ your reply with its absolute path.
 
 ## 10. Known traps
 
+- The T3 shell resets its working directory to the scratch directory after
+  every command. Use absolute paths or `git -C ~/Coding/Rustle`.
 - `pkill -f <pattern>` matches your own bash command line when the pattern
   appears in it (exit 144). Use `pgrep` with a pattern that is not in the
   command, or kill by PID.
