@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use dbus::blocking::{BlockingSender, Connection};
 use player::PlaybackStatus;
 use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
@@ -22,6 +23,7 @@ const SEEK_STEP: Duration = Duration::from_secs(5);
 /// A position this far from where the last publish predicts counts as a seek.
 /// `sync_position` nudges the shown position by less than this.
 const JUMP_TOLERANCE: Duration = Duration::from_secs(1);
+const BUS_NAME: &str = "org.mpris.MediaPlayer2.rustle";
 
 pub struct MediaKeys {
     ctx: egui::Context,
@@ -151,7 +153,9 @@ fn serve(events: Sender<MediaControlEvent>, updates: Receiver<Update>, ctx: egui
         }
     };
     // souvlaki's service loop takes one update per wake-up, and a wake-up can
-    // wait a second for D-Bus traffic, so send only the newest of each kind.
+    // wait a second for D-Bus traffic, so send only the newest of each kind
+    // and ping the service after each one to wake it at once.
+    let waker = Connection::new_session().ok();
     while let Ok(first) = updates.recv() {
         for update in coalesce(first, updates.try_iter()) {
             let result = match update {
@@ -169,7 +173,23 @@ fn serve(events: Sender<MediaControlEvent>, updates: Receiver<Update>, ctx: egui
                 eprintln!("rustle: media keys off: {e}");
                 return;
             }
+            if let Some(conn) = &waker {
+                wake(conn);
+            }
         }
+    }
+}
+
+/// Sends souvlaki's service a call so its `process` returns and it drains
+/// the update just queued. The reply (an unknown-interface error) is read
+/// and dropped so nothing piles up on this connection.
+fn wake(conn: &Connection) {
+    let path = "/org/mpris/MediaPlayer2";
+    if let Ok(ping) =
+        dbus::Message::new_method_call(BUS_NAME, path, "org.freedesktop.DBus.Peer", "Ping")
+    {
+        conn.send_with_reply_and_block(ping, Duration::from_millis(200))
+            .ok();
     }
 }
 

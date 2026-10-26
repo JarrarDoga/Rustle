@@ -3239,6 +3239,7 @@ dependencies = [
 name = "rustle"
 version = "0.1.0"
 dependencies = [
+ "dbus",
  "eframe",
  "egui",
  "mimalloc",
