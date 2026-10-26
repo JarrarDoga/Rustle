@@ -101,8 +101,10 @@ allow = [
     "ISC",
     "LGPL-2.1-or-later",
     "MPL-2.0",
+    "OFL-1.1",
     "MIT",
     "Unicode-3.0",
+    "Ubuntu-font-1.0",
     "Unlicense",
     "Zlib",
 ]
