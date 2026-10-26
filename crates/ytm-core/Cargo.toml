@@ -9,12 +9,14 @@ publish = false
 model = { version = "0.1.0", path = "../model" }
 rustypipe = { version = "0.11.4", default-features = false, features = ["userdata", "rustls-tls-webpki-roots"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "process", "time"] }
 # Already in the tree via rustypipe; strips cookies from its cache file and loads fixtures.
 serde_json = "1.0.138"
+# Already in the tree via rustypipe; deserializes yt-dlp's JSON output.
+serde = { version = "1.0.229", features = ["derive"] }
+# Already in the tree via rustypipe; logs why a stream fell back to another path.
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 # Shows rustypipe's warnings (e.g. client fallbacks) when running the spike example.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
-# Already in the tree via model; derives the recorded-search shape in tests.
-serde = { version = "1.0.229", features = ["derive"] }
