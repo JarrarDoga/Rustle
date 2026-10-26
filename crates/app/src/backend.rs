@@ -168,6 +168,9 @@ fn execute<B: MusicBackend, P: Playback>(
         Effect::Stop => playback.stop(),
         Effect::Seek(to) => playback.seek(to),
         Effect::Volume(v) => playback.set_volume(v),
+        // Batch 2 wiring worker: call `set_cookies`, save through `crate::auth`,
+        // and report the result as a session change.
+        Effect::Login(_) | Effect::Logout => {}
     }
 }
 

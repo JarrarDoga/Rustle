@@ -7,6 +7,7 @@ use egui::{CentralPanel, Frame, Key, Margin, Panel, RichText};
 use tokio::runtime::Handle;
 
 use crate::backend::{self, Client};
+use crate::media_keys::MediaKeys;
 use crate::playback::SimulatedPlayback;
 use crate::state::{Command, State, apply};
 use crate::theme;
@@ -25,6 +26,7 @@ pub struct RustleApp {
     /// Print `rustle: first frame` once the first frame is on screen.
     perf: bool,
     first_frame_done: bool,
+    media_keys: MediaKeys,
 }
 
 impl RustleApp {
@@ -48,6 +50,7 @@ impl RustleApp {
             cookies: String::new(),
             perf,
             first_frame_done: false,
+            media_keys: MediaKeys::new(cc.egui_ctx.clone()),
         };
         if app.client.is_some() {
             app.send(Command::Refresh);
@@ -168,12 +171,21 @@ impl RustleApp {
 impl eframe::App for RustleApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.pull();
+        let from_keys = self.media_keys.poll();
+        for command in from_keys {
+            self.send(command);
+        }
+        self.media_keys.sync(&self.state);
         if self.client.is_some() {
             self.shell(ui);
         } else {
             CentralPanel::default()
                 .frame(Frame::NONE.fill(theme::BG).inner_margin(Margin::same(24)))
-                .show(ui, |ui| views::login(ui, &mut self.cookies));
+                .show(ui, |ui| {
+                    let mut out = Vec::new();
+                    views::login(ui, &self.state, &mut self.cookies, &mut out);
+                    self.act(out);
+                });
         }
 
         // Repaint only on input or new state, plus once a second for the

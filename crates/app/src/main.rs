@@ -4,11 +4,14 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod app;
+mod auth;
 mod backend;
+mod media_keys;
 mod playback;
 mod queue;
 mod state;
 mod theme;
+mod thumbs;
 mod views;
 mod widgets;
 

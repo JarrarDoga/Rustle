@@ -28,6 +28,18 @@ pub trait Playback: Send + 'static {
     fn events(&self) -> Receiver<PlayerEvent>;
 }
 
+/// The real audio output. Batch 2 playback worker: make this `player::Player`
+/// (or a thin wrapper) once `Player` is `Send` and implements [`Playback`].
+#[allow(dead_code)] // used by the batch 2 wiring worker
+pub type SystemPlayback = SimulatedPlayback;
+
+/// Opens the system audio output. The wiring worker calls this for non-demo
+/// runs; the playback worker replaces the body.
+#[allow(dead_code)] // used by the batch 2 wiring worker
+pub fn system_playback() -> Result<SystemPlayback, String> {
+    Ok(SimulatedPlayback::new())
+}
+
 /// Used when a stream reports no duration.
 const FALLBACK_DURATION: Duration = Duration::from_secs(180);
 

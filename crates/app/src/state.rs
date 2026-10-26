@@ -107,6 +107,22 @@ pub struct State {
     pub playback: Playback,
     /// One message at the top of the window, e.g. "session expired".
     pub banner: Option<String>,
+    pub session: Session,
+}
+
+/// Login state. Demo mode starts `LoggedIn`.
+#[allow(dead_code)] // constructed by the batch 2 wiring and auth workers
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Session {
+    /// Checking the keyring for saved cookies at startup.
+    #[default]
+    Starting,
+    LoggedOut,
+    /// Cookies sent to the backend, waiting for `set_cookies`.
+    LoggingIn,
+    LoggedIn,
+    /// The last login attempt failed; the message is shown on the login screen.
+    Failed(String),
 }
 
 /// Search results with tracks behind `Arc`s, so playing from them is cheap.
@@ -166,6 +182,11 @@ pub enum Command {
     },
     CycleRepeat,
     DismissBanner,
+    /// Log in with a pasted Cookie header or cookies.txt body.
+    #[allow(dead_code)] // sent by the batch 2 login screen
+    Login(String),
+    #[allow(dead_code)] // sent by the batch 2 login screen
+    Logout,
 }
 
 /// Work the backend does after a reducer step. The UI ignores these.
@@ -185,6 +206,10 @@ pub enum Effect {
     Stop,
     Seek(Duration),
     Volume(f32),
+    /// Validate cookies with `MusicBackend::set_cookies`, then save them.
+    Login(String),
+    /// Forget the saved cookies.
+    Logout,
 }
 
 /// What the backend learns from YouTube Music and the player.
@@ -360,6 +385,14 @@ pub fn apply(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> {
             let next = state.queue.repeat().cycle();
             state.queue.set_repeat(next);
             Vec::new()
+        }
+        Command::Login(cookies) => {
+            state.session = Session::LoggingIn;
+            vec![Effect::Login(cookies.clone())]
+        }
+        Command::Logout => {
+            state.session = Session::LoggedOut;
+            vec![Effect::Logout]
         }
         Command::DismissBanner => {
             state.banner = None;
