@@ -22,6 +22,8 @@ fn main() -> eframe::Result {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("rustle-rt")
+        // Timers for the queue-save debounce; IO for rustypipe's HTTP client.
+        .enable_all()
         .build()
         .expect("tokio runtime");
 
@@ -37,12 +39,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Rustle",
         options,
-        Box::new(move |cc| {
-            Ok(Box::new(app::RustleApp::new(
-                cc,
-                demo.then_some(&handle),
-                perf,
-            )))
-        }),
+        Box::new(move |cc| Ok(Box::new(app::RustleApp::new(cc, &handle, demo, perf)))),
     )
 }

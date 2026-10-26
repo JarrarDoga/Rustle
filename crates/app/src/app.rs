@@ -6,16 +6,15 @@ use std::time::{Duration, Instant};
 use egui::{CentralPanel, Frame, Key, Margin, Panel, RichText};
 use tokio::runtime::Handle;
 
-use crate::backend::{self, Client};
+use crate::backend::{self, Client, Keyring, Setup};
 use crate::media_keys::MediaKeys;
-use crate::playback::SimulatedPlayback;
-use crate::state::{Command, State, apply};
+use crate::playback::{self, SimulatedPlayback};
+use crate::state::{Command, Session, State, apply};
 use crate::theme;
 use crate::views::{self, Action, Route, View};
 
 pub struct RustleApp {
-    /// `None` until the user is logged in; then the login screen shows.
-    client: Option<Client>,
+    client: Client,
     /// The newest backend snapshot with pending commands re-applied on top.
     state: State,
     /// Commands sent but not yet included in a snapshot, with their seq.
@@ -23,6 +22,8 @@ pub struct RustleApp {
     seq: u64,
     view: View,
     cookies: String,
+    /// The user chose to browse without logging in.
+    guest: bool,
     /// Print `rustle: first frame` once the first frame is on screen.
     perf: bool,
     first_frame_done: bool,
@@ -30,48 +31,65 @@ pub struct RustleApp {
 }
 
 impl RustleApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, demo: Option<&Handle>, perf: bool) -> Self {
+    /// Starts the backend task and returns at once. Building the real backend
+    /// reads files and runs a helper binary, so it happens on `rt`.
+    pub fn new(cc: &eframe::CreationContext<'_>, rt: &Handle, demo: bool, perf: bool) -> Self {
         theme::apply(&cc.egui_ctx);
-        let client = demo.map(|rt| {
-            let ctx = cc.egui_ctx.clone();
-            backend::spawn(
-                rt,
-                ytm_core::FixtureBackend::new(),
-                SimulatedPlayback::new(),
-                Box::new(move || ctx.request_repaint()),
-            )
-        });
-        let mut app = Self {
+        let ctx = cc.egui_ctx.clone();
+        let notify: backend::Notify = Box::new(move || ctx.request_repaint());
+        let mut initial = State::default();
+        let client = if demo {
+            initial.session = Session::LoggedIn;
+            let setup = Setup {
+                initial: initial.clone(),
+                make: || Ok((ytm_core::FixtureBackend::new(), SimulatedPlayback::new())),
+                store: Box::new(|| store::Store::open_in_memory().map_err(|e| e.to_string())),
+                keyring: None,
+            };
+            backend::spawn(rt, setup, notify)
+        } else {
+            let setup = Setup {
+                initial: initial.clone(),
+                make: || {
+                    let music = ytm_core::RustyPipeBackend::new()
+                        .map_err(|e| format!("Could not start YouTube Music access: {e}"))?;
+                    let audio = playback::system_playback()
+                        .map_err(|e| format!("Could not open the audio output: {e}"))?;
+                    Ok((music, audio))
+                },
+                store: Box::new(backend::open_library_db),
+                keyring: Some(Keyring::SYSTEM),
+            };
+            backend::spawn(rt, setup, notify)
+        };
+        Self {
             client,
-            state: State::default(),
+            state: initial,
             pending: Vec::new(),
             seq: 0,
             view: View::default(),
             cookies: String::new(),
+            guest: false,
             perf,
             first_frame_done: false,
             media_keys: MediaKeys::new(cc.egui_ctx.clone()),
-        };
-        if app.client.is_some() {
-            app.send(Command::Refresh);
         }
-        app
     }
 
     /// Applies `command` locally at once and sends it to the backend.
     fn send(&mut self, command: Command) {
-        let Some(client) = &self.client else {
-            return;
-        };
+        if matches!(command, Command::Logout) {
+            self.guest = false;
+        }
         self.seq += 1;
         apply(&mut self.state, &command, Instant::now());
-        client.send(self.seq, command.clone());
+        self.client.send(self.seq, command.clone());
         self.pending.push((self.seq, command));
     }
 
     /// Takes the newest snapshot, if any, and replays what it has not seen.
     fn pull(&mut self) {
-        let Some(snapshot) = self.client.as_mut().and_then(Client::latest) else {
+        let Some(snapshot) = self.client.latest() else {
             return;
         };
         self.pending.retain(|(seq, _)| *seq > snapshot.acked);
@@ -96,30 +114,86 @@ impl RustleApp {
         }
     }
 
+    /// The one-line message at the top of the window, if any.
+    fn banner(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
+        let Some(banner) = &self.state.banner else {
+            return;
+        };
+        Panel::top("banner")
+            .frame(
+                Frame::NONE
+                    .fill(theme::ACCENT)
+                    .inner_margin(Margin::symmetric(16, 6)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(banner).color(egui::Color32::BLACK).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Dismiss").clicked() {
+                            out.push(Action::Cmd(Command::DismissBanner));
+                        }
+                    });
+                });
+            });
+    }
+
+    /// Shown while the backend starts and checks the keyring.
+    fn starting(ui: &mut egui::Ui) {
+        CentralPanel::default()
+            .frame(Frame::NONE.fill(theme::BG))
+            .show(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.label(RichText::new("Loading…").color(theme::TEXT_DIM));
+                });
+            });
+    }
+
+    fn login(&mut self, ui: &mut egui::Ui) {
+        let mut out = Vec::new();
+        self.banner(ui, &mut out);
+        let mut skip = false;
+        CentralPanel::default()
+            .frame(Frame::NONE.fill(theme::BG).inner_margin(Margin::same(24)))
+            .show(ui, |ui| {
+                views::login(ui, &self.state, &mut self.cookies, &mut out);
+                ui.add_space(16.0);
+                ui.vertical_centered(|ui| {
+                    // Search and public playlists work without an account.
+                    skip = ui
+                        .link(RichText::new("Continue without logging in").color(theme::TEXT_DIM))
+                        .clicked();
+                });
+            });
+        if skip {
+            self.guest = true;
+        }
+        self.act(out);
+    }
+
     fn shell(&mut self, ui: &mut egui::Ui) {
         let now = Instant::now();
         let mut out = Vec::new();
-        let state = &self.state;
-        let view = &mut self.view;
-
-        if let Some(banner) = &state.banner {
-            Panel::top("banner")
+        self.banner(ui, &mut out);
+        if self.state.session != Session::LoggedIn {
+            let mut log_in = false;
+            Panel::top("guest")
                 .frame(
                     Frame::NONE
-                        .fill(theme::ACCENT)
+                        .fill(theme::SIDEBAR)
                         .inner_margin(Margin::symmetric(16, 6)),
                 )
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(banner).color(egui::Color32::BLACK).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Dismiss").clicked() {
-                                out.push(Action::Cmd(Command::DismissBanner));
-                            }
-                        });
+                        ui.label(RichText::new("Not logged in").color(theme::TEXT_DIM));
+                        log_in = ui.link("Log in").clicked();
                     });
                 });
+            if log_in {
+                self.guest = false;
+            }
         }
+        let state = &self.state;
+        let view = &mut self.view;
         Panel::bottom("player")
             .exact_size(88.0)
             .resizable(false)
@@ -176,16 +250,11 @@ impl eframe::App for RustleApp {
             self.send(command);
         }
         self.media_keys.sync(&self.state);
-        if self.client.is_some() {
-            self.shell(ui);
-        } else {
-            CentralPanel::default()
-                .frame(Frame::NONE.fill(theme::BG).inner_margin(Margin::same(24)))
-                .show(ui, |ui| {
-                    let mut out = Vec::new();
-                    views::login(ui, &self.state, &mut self.cookies, &mut out);
-                    self.act(out);
-                });
+        match self.state.session {
+            Session::LoggedIn => self.shell(ui),
+            _ if self.guest => self.shell(ui),
+            Session::Starting => Self::starting(ui),
+            _ => self.login(ui),
         }
 
         // Repaint only on input or new state, plus once a second for the
