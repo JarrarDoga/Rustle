@@ -16,3 +16,5 @@ ytm-core = { version = "0.1.0", path = "../ytm-core" }
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "clipboard"] }
 # Same egui as eframe's; only here to turn on the bundled symbol fonts for the player icons.
 egui = { version = "0.37.0", default-features = false, features = ["monochrome_emoji_fonts"] }
+# MPRIS for KDE's media applet and media keys; libdbus backend, a far smaller tree than zbus.
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_dbus"] }
