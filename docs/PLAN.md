@@ -59,7 +59,7 @@ sections. Create the view files below.
 | home | `crates/app/src/views/home.rs`, `crates/app/src/views/browse.rs` | Home feed, moods and genres, charts, new releases |
 | offline | `crates/store/`, store calls in the backend | Library opens from SQLite with no network; staleness and refresh rules |
 | spotify-import | new `crates/spotify-import/` | One-time import: export Spotify playlists through the Web API, match each track by YTM search, create the playlists |
-| helper | new `crates/ytm-helper/` | Run rustypipe in a helper process over stdio so the main binary has no JS runtime (see decision 1) |
+| helper | new `crates/ytm-helper/` | Only if decision 1 goes that way: run rustypipe in a helper process over stdio |
 
 ## Batch 4: polish (Phase 3)
 
@@ -73,10 +73,14 @@ sections. Create the view files below.
 
 ## Decisions and user steps
 
-1. **Decision: rustypipe embeds a JS runtime (`rquickjs`).** AGENTS.md forbids
-   one in the main process. Proposed: move rustypipe into a helper process in
-   Batch 3 (the `helper` worker), which also lowers the main process's RAM.
-   The other choice is to relax the rule. This does not block Batch 2.
+1. **Decision: rustypipe embeds a JS interpreter (`rquickjs`, QuickJS).**
+   It runs YouTube's player script to decode stream URLs. AGENTS.md forbids
+   an embedded JS runtime in the main process. Recommended: narrow that rule
+   to browser engines and webviews, and keep QuickJS in-process. It adds
+   about 1 to 2 MB to the binary, uses memory only while decoding a URL, and
+   has no file or network access. A helper process would isolate it but
+   needs an IPC protocol, a second binary, and a second copy of the HTTP and
+   TLS stack, so total RAM goes up, not down. This does not block Batch 2.
 2. **Your step after Batch 2: paste cookies.** Library calls, private
    playlists, and Premium itag 774 cannot be tested until you log in through
    the new login screen.
