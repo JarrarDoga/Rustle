@@ -373,15 +373,23 @@ mod tests {
         assert_eq!(to_netscape(&file, now), file);
     }
 
-    /// A scratch directory with a fake `yt-dlp` shell script in it.
+    /// Serializes the tests that write and run fake scripts. Without it, a
+    /// parallel test's fork can inherit the script's still-open write handle,
+    /// and running the script fails with ETXTBSY ("Text file busy").
+    static FAKE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A scratch directory with a fake `yt-dlp` shell script in it. Holds
+    /// `FAKE_LOCK` for the test's lifetime.
     struct Fake {
         dir: PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl Fake {
         fn new(name: &str, script: &str) -> Self {
             use std::os::unix::fs::PermissionsExt;
 
+            let lock = FAKE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir =
                 std::env::temp_dir().join(format!("ytm-core-test-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -389,7 +397,7 @@ mod tests {
             let bin = dir.join("yt-dlp");
             std::fs::write(&bin, format!("#!/bin/sh\n{script}\n")).unwrap();
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
-            Self { dir }
+            Self { dir, _lock: lock }
         }
 
         fn ytdlp(&self, timeout: Duration) -> YtDlp {
