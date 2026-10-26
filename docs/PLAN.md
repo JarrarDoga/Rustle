@@ -44,21 +44,29 @@ Integrator step:
 | media-keys | `crates/app/src/media_keys.rs` | MPRIS through souvlaki: play/pause/next/previous/seek in, metadata and position out. | `playerctl` controls `rustle --demo` on Xvfb |
 | opus | `crates/ytm-core/` | When web-client extraction fails, run `yt-dlp -f 251 -g` (with a timeout and a URL cache) and prefer that Opus stream over iOS AAC. Do not patch rustypipe from a git fork: `deny.toml` denies git sources. | `spike stream <id>` returns Opus 251 and its URL answers 206 |
 
-## Batch 3: daily driver (Phase 2, cancel Spotify here)
+## Batch 3: daily driver plumbing (Phase 2, cancel Spotify here)
+
+Revised 2026-10-26 for Direction D. Batch 3 builds the data and behavior the
+D screens need and adds no new screens: the UI batch after it draws them.
+Full brief for the team lead: `docs/handoff/BATCH3.md`.
 
 Integrator step: widen `MusicBackend` with `like`, `unlike`,
-`add_to_playlist`, `create_playlist`, `radio`, `home`, and `charts`, with
-`FixtureBackend` implementations and `model` types for home and charts
-sections. Create the view files below.
+`add_to_playlist`, `remove_from_playlist`, `radio` and `clear_cookies`, with
+`FixtureBackend` implementations; add the playlist entry id that removal
+needs to `model`; add the new `Command`, `Effect` and `Event` variants;
+widen the `Store` API with stubs.
 
 | Worker | Owns | Scope |
 | --- | --- | --- |
-| ytm-write | `crates/ytm-core/` | Implement like/unlike, add to playlist, create playlist, radio, home, charts in `RustyPipeBackend`, with recorded fixtures |
-| radio | `crates/app/src/queue.rs`, `crates/app/src/backend.rs` | Autoplay from YTM radio when the queue runs out; near-gapless playback from the prefetched URL |
-| library-edit | `crates/app/src/views/library.rs`, `crates/app/src/views/playlist.rs` | Like buttons, add-to-playlist menu, new playlist dialog, all optimistic |
-| home | `crates/app/src/views/home.rs`, `crates/app/src/views/browse.rs` | Home feed, moods and genres, charts, new releases |
-| offline | `crates/store/`, store calls in the backend | Library opens from SQLite with no network; staleness and refresh rules |
-| spotify-import | new `crates/spotify-import/` | One-time import: export Spotify playlists through the Web API, match each track by YTM search, create the playlists |
+| ytm-write | `crates/ytm-core/` | Like, unlike, add to and remove from a playlist, radio, clear cookies; smaller thumbnail URLs; recorded fixtures |
+| queue | `crates/app/src/queue.rs` | Scope shuffle and play in order, "playing from" label, autoplay radio when the queue runs out |
+| store | `crates/store/` | Main playlist setting, play history, last played, not heard in 3 months, art color cache, artist and album counts, staleness |
+| art | `crates/app/src/thumbs.rs`, new `crates/app/src/art_color.rs` | Dominant art color to OKLCH accent, computed once off the UI thread and cached; thumbnail disk cache eviction |
+| wiring | `crates/app/src/backend.rs`, `crates/app/src/state.rs` | Optimistic like and add/remove with rollback, record plays, offline start, guest "needs login", logout, buffering debounce |
+
+Cut: `home` (Direction D has no Home screen). Deferred: `spotify-import`
+(needs a Spotify client ID; the user's own playlist is already migrated by
+the scripts in `~/Coding/spotify-ytm-migration/`).
 
 ## Batch 4: polish (Phase 3)
 
@@ -96,11 +104,9 @@ Integrator step:
 | player | `views/player_bar.rs`, `views/queue.rs` | Player bar with 14% accent tint, Locate and "#412", "Playing from" scope chip, seek and volume; queue drawer with autoplay toggle | D-Queue, D-States buffering |
 | pages | `views/search.rs`, `views/album.rs`, `views/artist.rs` | Search, Album, Artist pages on the shared table with the In Everything column and Add buttons | D-Search, D-Album, D-Artist |
 | onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, loading skeleton, offline and session-expired banners | D-Login, D-LoginError, D-Empty, D-States |
-| data | `crates/store/`, `thumbs.rs` | Play history table (last played, not heard in 3 months), dominant art color per track computed once and cached, artist and album counts | none |
 
-Batch 3 changes because of this design: the `home` worker is cut (no Home
-screen, no charts or shelves). `library-edit` becomes "add to and remove from
-the main playlist", which the pages worker's Add buttons call.
+The data these screens need (play history, art colors, counts, scope
+shuffle, add/remove) comes from Batch 3, so the UI batch runs after it.
 
 ## Decisions and user steps
 
@@ -108,12 +114,15 @@ the main playlist", which the pages worker's Add buttons call.
    AGENTS.md now bans browser engines and webviews, with an explicit
    exception for `rquickjs`. A helper process would have added an IPC
    protocol, a second binary, and more total RAM. No helper worker in Batch 3.
-2. **Your step after Batch 2: paste cookies.** Library calls, private
-   playlists, and Premium itag 774 cannot be tested until you log in through
-   the new login screen.
+2. **Done 2026-10-26: cookies pasted.** Rustle is logged in through a
+   dedicated browser session (keyring service `rustle`, user
+   `youtube-music-cookies`) and stayed logged in across restarts.
 3. **Your step after Batch 2: real-desktop RSS.** Run
    `scripts/perf-check.sh --no-headless` once on your desktop. The 129 MB
    measured so far ran under Xvfb with software rendering, so it is likely
    higher than on your GPU.
-4. **Your step before Batch 3: Spotify Web API credentials** for the import
-   worker (a client ID from developer.spotify.com).
+4. **Decided 2026-10-26: Spotify import deferred.** The user's one playlist
+   was migrated by scripts in `~/Coding/spotify-ytm-migration/`, so Batch 3
+   does not need a Spotify client ID.
+5. **Decided 2026-10-26: Direction D UI.** No Home screen; the main playlist
+   is the app. See `docs/design/README.md`.
