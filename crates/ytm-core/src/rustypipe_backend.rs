@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use model::{
     AlbumRef, AlbumSummary, ArtistRef, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
@@ -10,6 +13,8 @@ use rustypipe::client::{ClientType, RustyPipe};
 use rustypipe::error::{Error as RpError, ExtractionError};
 use rustypipe::model as rp;
 
+use crate::stream_cache::StreamCache;
+use crate::ytdlp::{self, YtDlp, YtDlpError};
 use crate::{BackendError, MusicBackend, Result};
 
 /// Upper bound on items fetched when following a paginator to the end.
@@ -20,12 +25,42 @@ const BOTGUARD_BIN: &str = "rustypipe-botguard";
 /// Stream formats we accept, best first: Premium Opus, Opus, AAC.
 const ITAG_PREFERENCE: [u32; 3] = [774, 251, 140];
 
-/// The real backend, built on rustypipe + rustypipe-botguard.
+/// Which extractor produced a stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamOrigin {
+    /// rustypipe's web clients (Opus, Premium 774 when logged in).
+    Web,
+    /// The `yt-dlp` CLI (Opus), used while rustypipe's web clients fail.
+    YtDlp,
+    /// rustypipe's iOS client (AAC 140 only), the last resort.
+    Ios,
+}
+
+/// A stream plus where it came from, for diagnostics.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamInfo {
+    pub source: StreamSource,
+    pub origin: StreamOrigin,
+    /// True when served from the in-memory URL cache.
+    pub cached: bool,
+}
+
+/// The real backend, built on rustypipe + rustypipe-botguard, with yt-dlp as
+/// the stream fallback.
 pub struct RustyPipeBackend {
     rp: RustyPipe,
     /// False when `rustypipe-botguard` was not found. Without its PO tokens,
     /// YouTube answers web-client stream URLs with 403.
     botguard: bool,
+    /// `None` when yt-dlp was not found at startup.
+    ytdlp: Option<YtDlp>,
+    /// The accepted login as a Netscape cookies.txt body, for yt-dlp. Memory
+    /// only, like rustypipe's own copy.
+    ytdlp_cookies: Mutex<Option<String>>,
+    streams: Mutex<StreamCache>,
+    /// One lock per track id being resolved, so a play request that arrives
+    /// during the prefetch waits for it instead of running yt-dlp again.
+    resolving: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl RustyPipeBackend {
@@ -52,7 +87,7 @@ impl RustyPipeBackend {
         // Pass the binary explicitly: rustypipe's own probe only searches PATH
         // and silently falls back to clients that YouTube now blocks. A desktop
         // launcher's PATH often lacks ~/.local/bin.
-        let botguard = find_botguard();
+        let botguard = find_bin(BOTGUARD_BIN);
         builder = match &botguard {
             // Reuse session-bound PO tokens instead of running botguard for
             // every track.
@@ -63,12 +98,162 @@ impl RustyPipeBackend {
         Ok(Self {
             rp,
             botguard: botguard.is_some(),
+            ytdlp: YtDlp::find(),
+            ytdlp_cookies: Mutex::new(None),
+            streams: Mutex::new(StreamCache::default()),
+            resolving: Mutex::new(HashMap::new()),
         })
     }
 
     fn logged_in(&self) -> bool {
         self.rp.query().auth_enabled(ClientType::DesktopMusic)
     }
+
+    /// [`MusicBackend::stream`], plus which extractor produced the stream and
+    /// whether it came from the URL cache.
+    pub async fn stream_info(&self, track_id: &str) -> Result<StreamInfo> {
+        if let Some(hit) = self.cached_stream(track_id) {
+            return Ok(hit);
+        }
+        let id_lock = lock(&self.resolving)
+            .entry(track_id.to_owned())
+            .or_default()
+            .clone();
+        let res = {
+            let _resolving = id_lock.lock().await;
+            match self.cached_stream(track_id) {
+                Some(hit) => Ok(hit),
+                None => self.resolve_stream(track_id).await.map(|(source, origin)| {
+                    lock(&self.streams).insert(&source, origin, SystemTime::now());
+                    StreamInfo {
+                        source,
+                        origin,
+                        cached: false,
+                    }
+                }),
+            }
+        };
+        let mut resolving = lock(&self.resolving);
+        // Only the map and this call hold it: nobody else is waiting.
+        if Arc::strong_count(&id_lock) == 2 {
+            resolving.remove(track_id);
+        }
+        res
+    }
+
+    fn cached_stream(&self, track_id: &str) -> Option<StreamInfo> {
+        let (source, origin) = lock(&self.streams).get(track_id, SystemTime::now())?;
+        Some(StreamInfo {
+            source,
+            origin,
+            cached: true,
+        })
+    }
+
+    async fn resolve_stream(&self, track_id: &str) -> Result<(StreamSource, StreamOrigin)> {
+        let cookies = lock(&self.ytdlp_cookies).clone();
+        resolve_in_order(
+            track_id,
+            self.web_stream(track_id),
+            self.ytdlp_stream(track_id, cookies),
+            self.ios_stream(track_id),
+        )
+        .await
+    }
+
+    /// `Ok(None)` means "try the next extractor".
+    async fn web_stream(&self, track_id: &str) -> Result<Option<StreamSource>> {
+        // Web clients give Opus (and Premium itag 774 when logged in) but need
+        // a PO token from botguard and URL deobfuscation. rustypipe 0.11.4's
+        // deobfuscator fails on current player JS ("could not extract sig fn
+        // name"; it then retries once a day). Keep trying them first so a
+        // fixed rustypipe release makes yt-dlp unnecessary.
+        if !self.botguard {
+            return Ok(None);
+        }
+        let q = self.rp.query();
+        let web = if self.logged_in() {
+            q.authenticated()
+                .player_from_clients(track_id, &[ClientType::DesktopMusic, ClientType::Desktop])
+                .await
+        } else {
+            q.player_from_client(track_id, ClientType::Desktop).await
+        };
+        match web {
+            Ok(player) => match map_stream(track_id, player) {
+                Ok(s) => Ok(Some(s)),
+                Err(e) => {
+                    tracing::warn!("web client stream for {track_id}: {e}");
+                    Ok(None)
+                }
+            },
+            Err(RpError::Auth(_)) => Err(BackendError::Auth),
+            Err(RpError::Extraction(ExtractionError::NotFound { id, .. })) => {
+                Err(BackendError::NotFound(id))
+            }
+            Err(RpError::Extraction(e)) => {
+                tracing::debug!("web clients failed for {track_id}: {e}");
+                Ok(None)
+            }
+            Err(e) => Err(map_error(e)),
+        }
+    }
+
+    async fn ytdlp_stream(
+        &self,
+        track_id: &str,
+        cookies: Option<String>,
+    ) -> std::result::Result<StreamSource, YtDlpError> {
+        let y = self.ytdlp.as_ref().ok_or(YtDlpError::Missing)?;
+        match y.stream(track_id, cookies.as_deref()).await {
+            // With cookies, yt-dlp switches to clients that need a JS runtime
+            // (deno) for YouTube's challenges. Without one they can fail where
+            // the anonymous client still returns Opus 251.
+            Err(e @ YtDlpError::Failed { .. }) if cookies.is_some() => {
+                tracing::warn!("yt-dlp with cookies failed for {track_id} ({e}); retrying without");
+                y.stream(track_id, None).await
+            }
+            r => r,
+        }
+    }
+
+    /// The iOS client needs neither PO tokens nor deobfuscation. Its AAC URLs
+    /// work; its Opus URLs return 403.
+    async fn ios_stream(&self, track_id: &str) -> Result<StreamSource> {
+        let player = self
+            .rp
+            .query()
+            .player_from_client(track_id, ClientType::Ios)
+            .await
+            .map_err(map_error)?;
+        map_stream(track_id, player)
+    }
+}
+
+/// Tries web clients, then yt-dlp, then the iOS client. Web errors other
+/// than extraction failures (auth, not found, network) end the search;
+/// yt-dlp errors never do.
+async fn resolve_in_order(
+    track_id: &str,
+    web: impl Future<Output = Result<Option<StreamSource>>>,
+    ytdlp: impl Future<Output = std::result::Result<StreamSource, YtDlpError>>,
+    ios: impl Future<Output = Result<StreamSource>>,
+) -> Result<(StreamSource, StreamOrigin)> {
+    if let Some(s) = web.await? {
+        return Ok((s, StreamOrigin::Web));
+    }
+    match ytdlp.await {
+        Ok(s) => return Ok((s, StreamOrigin::YtDlp)),
+        Err(YtDlpError::Missing) => {
+            tracing::warn!("yt-dlp not installed; using iOS AAC for {track_id}");
+        }
+        Err(e) => tracing::warn!("{e}; using iOS AAC for {track_id}"),
+    }
+    Ok((ios.await?, StreamOrigin::Ios))
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl MusicBackend for RustyPipeBackend {
@@ -83,7 +268,11 @@ impl MusicBackend for RustyPipeBackend {
         res.map_err(|e| match map_error(e) {
             BackendError::Network(m) => BackendError::Network(m),
             _ => BackendError::Auth,
-        })
+        })?;
+        *lock(&self.ytdlp_cookies) = Some(ytdlp::to_netscape(cookies, SystemTime::now()));
+        // Cached anonymous URLs would hide Premium itag 774 for hours.
+        lock(&self.streams).clear();
+        Ok(())
     }
 
     async fn search(&self, query: &str) -> Result<SearchResults> {
@@ -139,36 +328,7 @@ impl MusicBackend for RustyPipeBackend {
     }
 
     async fn stream(&self, track_id: &str) -> Result<StreamSource> {
-        let q = self.rp.query();
-        // Web clients give Opus (and Premium itag 774 when logged in) but need
-        // a PO token from botguard and URL deobfuscation. rustypipe 0.11.4's
-        // deobfuscator fails on current player JS ("could not extract sig fn
-        // name"; it then retries once a day), so fall back to the iOS client,
-        // which needs neither. Its AAC URLs work; its Opus URLs return 403.
-        if self.botguard {
-            let web = if self.logged_in() {
-                q.clone()
-                    .authenticated()
-                    .player_from_clients(track_id, &[ClientType::DesktopMusic, ClientType::Desktop])
-                    .await
-            } else {
-                q.player_from_client(track_id, ClientType::Desktop).await
-            };
-            match web {
-                Ok(player) => return map_stream(track_id, player),
-                Err(RpError::Auth(_)) => return Err(BackendError::Auth),
-                Err(RpError::Extraction(ExtractionError::NotFound { id, .. })) => {
-                    return Err(BackendError::NotFound(id));
-                }
-                Err(RpError::Extraction(_)) => {}
-                Err(e) => return Err(map_error(e)),
-            }
-        }
-        let player = q
-            .player_from_client(track_id, ClientType::Ios)
-            .await
-            .map_err(map_error)?;
-        map_stream(track_id, player)
+        self.stream_info(track_id).await.map(|i| i.source)
     }
 }
 
@@ -217,7 +377,8 @@ fn config_dir() -> Option<PathBuf> {
     Some(base.join("rustle"))
 }
 
-fn find_botguard() -> Option<PathBuf> {
+/// Finds `name` on PATH, then in `~/.local/bin`.
+pub(crate) fn find_bin(name: &str) -> Option<PathBuf> {
     let path_dirs = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -225,19 +386,19 @@ fn find_botguard() -> Option<PathBuf> {
     path_dirs
         .into_iter()
         .chain(local_bin)
-        .map(|d| d.join(BOTGUARD_BIN))
+        .map(|d| d.join(name))
         .find(|p| p.is_file())
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum CookieInput<'a> {
+pub(crate) enum CookieInput<'a> {
     /// Value of a `Cookie:` request header.
     Header(&'a str),
     /// Body of a Netscape cookies.txt file.
     NetscapeTxt(&'a str),
 }
 
-fn parse_cookie_input(input: &str) -> CookieInput<'_> {
+pub(crate) fn parse_cookie_input(input: &str) -> CookieInput<'_> {
     let input = input.trim();
     // cookies.txt lines are tab-separated; a header value never contains tabs.
     if input.starts_with('#') || input.lines().any(|l| l.split('\t').count() >= 7) {
@@ -607,6 +768,73 @@ mod tests {
                 loudness_db: Some(5.5),
             }
         );
+    }
+
+    fn source(url: &str) -> StreamSource {
+        StreamSource {
+            track_id: "abcdefghijk".to_owned(),
+            url: url.to_owned(),
+            codec: AudioCodec::Opus,
+            bitrate_bps: 130_000,
+            content_length: 1,
+            duration: None,
+            loudness_db: None,
+        }
+    }
+
+    /// Runs `resolve_in_order`; steps that are `None` panic if reached.
+    async fn resolve(
+        web: Option<Result<Option<StreamSource>>>,
+        ytdlp: Option<std::result::Result<StreamSource, YtDlpError>>,
+        ios: Option<Result<StreamSource>>,
+    ) -> Result<(String, StreamOrigin)> {
+        let (s, origin) = resolve_in_order(
+            "abcdefghijk",
+            async { web.expect("web not tried") },
+            async { ytdlp.expect("yt-dlp reached") },
+            async { ios.expect("ios reached") },
+        )
+        .await?;
+        Ok((s.url, origin))
+    }
+
+    #[tokio::test]
+    async fn fallback_order() {
+        // Web works: nothing else runs.
+        let r = resolve(Some(Ok(Some(source("web")))), None, None).await;
+        assert_eq!(r.unwrap(), ("web".to_owned(), StreamOrigin::Web));
+        // Web extraction fails (or no botguard): yt-dlp, and iOS never runs.
+        let r = resolve(Some(Ok(None)), Some(Ok(source("ytdlp"))), None).await;
+        assert_eq!(r.unwrap(), ("ytdlp".to_owned(), StreamOrigin::YtDlp));
+        // yt-dlp missing, failing, or timing out: iOS.
+        for e in [
+            YtDlpError::Missing,
+            YtDlpError::Timeout(ytdlp::TIMEOUT),
+            YtDlpError::Failed {
+                status: "exit status: 1".to_owned(),
+                stderr: "ERROR".to_owned(),
+            },
+            YtDlpError::Parse("bad".to_owned()),
+        ] {
+            let r = resolve(Some(Ok(None)), Some(Err(e)), Some(Ok(source("ios")))).await;
+            assert_eq!(r.unwrap(), ("ios".to_owned(), StreamOrigin::Ios));
+        }
+        // Auth and not-found from the web clients stop the search.
+        let r = resolve(Some(Err(BackendError::Auth)), None, None).await;
+        assert!(matches!(r, Err(BackendError::Auth)));
+        let nf = Err(BackendError::NotFound("abcdefghijk".to_owned()));
+        assert!(matches!(
+            resolve(Some(nf), None, None).await,
+            Err(BackendError::NotFound(_))
+        ));
+        // The iOS error is what the caller sees when everything fails.
+        let r = resolve(
+            Some(Ok(None)),
+            Some(Err(YtDlpError::Missing)),
+            Some(Err(BackendError::Network("down".to_owned()))),
+        )
+        .await;
+        assert!(matches!(r, Err(BackendError::Network(_))));
     }
 
     /// The model JSON fixtures are the mapping of the recorded rustypipe

@@ -10,9 +10,11 @@ use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track};
 
 mod fixture;
 mod rustypipe_backend;
+mod stream_cache;
+mod ytdlp;
 
 pub use fixture::FixtureBackend;
-pub use rustypipe_backend::RustyPipeBackend;
+pub use rustypipe_backend::{RustyPipeBackend, StreamInfo, StreamOrigin};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {

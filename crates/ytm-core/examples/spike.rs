@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cargo run -p ytm-core --example spike -- search <query> [--json]
-//! cargo run -p ytm-core --example spike -- stream <video_id>
+//! cargo run -p ytm-core --example spike -- stream <video_id>   # resolves twice: path, then cache
 //! cargo run -p ytm-core --example spike -- playlist <playlist_id> [--json]
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- library
 //! cargo run -p ytm-core --example spike -- record <fixtures_dir> [playlist_id]
@@ -13,9 +13,10 @@
 //! `UPDATE_FIXTURES=1 cargo test -p ytm-core` to regenerate the model fixtures.
 
 use std::path::Path;
+use std::time::Instant;
 
 use ytm_core::model::{Playlist, PlaylistSummary, SearchResults, Track};
-use ytm_core::{MusicBackend, RustyPipeBackend};
+use ytm_core::{MusicBackend, RustyPipeBackend, StreamOrigin};
 
 type AnyResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -44,25 +45,36 @@ async fn main() -> AnyResult<()> {
             }
         }
         ["stream", id] => {
-            let s = RustyPipeBackend::new()?.stream(id).await?;
-            println!(
-                "{:?} {} kbps, {} bytes, {:?}, loudness {:?} dB",
-                s.codec,
-                s.bitrate_bps / 1000,
-                s.content_length,
-                s.duration,
-                s.loudness_db
-            );
-            // Web-client URLs carry a PO token; iOS-fallback URLs (AAC) need none.
-            let pot = if s.url.contains("pot=") {
-                "yes (web client)"
-            } else if s.url.contains("c=IOS") {
-                "no (iOS client, not needed)"
-            } else {
-                "NO"
-            };
-            println!("po token in url: {pot}");
-            println!("{}", s.url);
+            let backend = RustyPipeBackend::new()?;
+            // The second call shows the URL cache: no extractor runs.
+            for call in ["first", "second"] {
+                let start = Instant::now();
+                let info = backend.stream_info(id).await?;
+                let path = match info.origin {
+                    StreamOrigin::Web => "web",
+                    StreamOrigin::YtDlp => "yt-dlp",
+                    StreamOrigin::Ios => "ios",
+                };
+                let s = &info.source;
+                println!(
+                    "{call} call: path {path}{}, {:.2} s",
+                    if info.cached { " (cached)" } else { "" },
+                    start.elapsed().as_secs_f64()
+                );
+                if call == "second" {
+                    break;
+                }
+                println!(
+                    "itag {} {:?} {} kbps, {} bytes, {:?}, loudness {:?} dB",
+                    url_param(&s.url, "itag").unwrap_or("?"),
+                    s.codec,
+                    s.bitrate_bps / 1000,
+                    s.content_length,
+                    s.duration,
+                    s.loudness_db
+                );
+                println!("{}", s.url);
+            }
         }
         ["playlist", id] => {
             let pl = RustyPipeBackend::new()?.playlist(id).await?;
@@ -99,6 +111,15 @@ async fn main() -> AnyResult<()> {
         }
     }
     Ok(())
+}
+
+fn url_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
+    let query = url.split_once('?')?.1;
+    query
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v)
 }
 
 fn track_line(t: &Track) -> String {
