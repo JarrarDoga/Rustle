@@ -1,0 +1,10 @@
+[package]
+name = "player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+model = { version = "0.1.0", path = "../model" }
+thiserror = "2.0.21"

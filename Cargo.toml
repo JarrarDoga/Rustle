@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["crates/model", "crates/ytm-core", "crates/player", "crates/store", "crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+strip = true

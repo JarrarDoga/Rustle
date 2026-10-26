@@ -1,0 +1,11 @@
+[package]
+name = "store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+model = { version = "0.1.0", path = "../model" }
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+thiserror = "2.0.21"
