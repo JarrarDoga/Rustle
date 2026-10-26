@@ -538,6 +538,7 @@ fn queue_row(ui: &mut Ui, state: &State, index: usize, is_current: bool, out: &m
 // ----------------------------------------------------------------- track list
 
 const TRACK_ROW: f32 = 50.0;
+const HOME_SHELF: usize = 8;
 
 /// The standard song table: number, title and artist, album, duration.
 /// Double-click plays the list from that row.
@@ -805,7 +806,8 @@ fn home(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
             out.push(Action::Go(Route::Liked));
         }
         if let Some(playlists) = state.library.ready() {
-            for p in playlists.iter() {
+            // A short shelf; the Library page lists everything with show_rows.
+            for p in playlists.iter().take(HOME_SHELF) {
                 let sub = p.owner.as_deref().unwrap_or("Playlist");
                 if card(ui, &p.id, &p.name, sub, ArtKind::Square).clicked() {
                     open_playlist(out, &p.id);

@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(s.current_track().unwrap().id, liked[0].id);
 
         // Let the stream resolve, then jump to just before the end.
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(500));
         let end = liked[0].duration.unwrap();
         h.client
             .send(3, Command::Seek(end - Duration::from_millis(50)));
