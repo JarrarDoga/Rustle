@@ -8,3 +8,13 @@ publish = false
 [dependencies]
 model = { version = "0.1.0", path = "../model" }
 thiserror = "2.0.21"
+# Demux WebM/MP4 and decode AAC; Opus goes to libopus.
+symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac"] }
+# libopus bindings: symphonia has no Opus decoder.
+opus = "0.4.0"
+# Audio output (ALSA, which PipeWire serves).
+cpal = "0.18.2"
+# Small blocking HTTP client for Range fetches.
+ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
+# Lock-free SPSC ring buffer between the decode thread and the audio callback.
+rtrb = "0.4.1"
