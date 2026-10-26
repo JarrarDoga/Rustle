@@ -53,7 +53,8 @@ for tool in jq cargo; do
     command -v "$tool" >/dev/null || { echo "perf-check.sh: '$tool' not found" >&2; exit 2; }
 done
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+SELF=$(realpath "${BASH_SOURCE[0]}")
+cd "$(dirname "$SELF")/.."
 ROOT=$PWD
 
 # Build once, outside Xvfb.
@@ -69,7 +70,7 @@ if ((HEADLESS)) && [[ -z ${RUSTLE_PERF_XVFB:-} ]]; then
         echo "perf-check.sh: xvfb-run not found (install xorg-x11-server-Xvfb or use --no-headless)" >&2
         exit 2
     }
-    RUSTLE_PERF_XVFB=1 exec xvfb-run -a -s "-screen 0 1280x800x24" "$0" "${ORIG_ARGS[@]}" --no-build
+    RUSTLE_PERF_XVFB=1 exec xvfb-run -a -s "-screen 0 1280x800x24" "$SELF" "${ORIG_ARGS[@]}" --no-build
 fi
 
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
@@ -207,7 +208,12 @@ if [[ -n $CPU_PCT ]]; then
     row "CPU idle (demo, paused)" "$CPU_PCT %" "< $CPU_IDLE_MAX %" \
         "$(judge awk -v c="$CPU_PCT" -v m="$CPU_IDLE_MAX" 'BEGIN { exit !(c < m) }')" "average over ${WINDOW_S}s"
 else
-    row "peak RSS (demo)" "-" "< 150 MiB" "n/a" "process exited after ${RAN_MS} ms"
+    if ((PEAK_KB)); then
+        rss_mib=$(awk -v k="$PEAK_KB" 'BEGIN { printf "%.1f", k / 1024 }')
+        row "peak RSS (demo)" "$rss_mib MiB" "< 150 MiB" "n/a" "sampled until exit after ${RAN_MS} ms"
+    else
+        row "peak RSS (demo)" "-" "< 150 MiB" "n/a" "process exited after ${RAN_MS} ms"
+    fi
     row "CPU idle (demo, paused)" "-" "< $CPU_IDLE_MAX %" "n/a" "process exited after ${RAN_MS} ms"
 fi
 row "CPU while playing" "-" "< 2 %" "n/a" "not measured: --demo does not play audio"
@@ -245,7 +251,7 @@ printf '%s\n' "${ROWS[@]}" | jq -R -s \
     --argjson secs "$SECS" \
     --argjson size_bytes "$SIZE_BYTES" \
     --argjson start_ms "${START_MS:-null}" \
-    --argjson peak_rss_kb "$( [[ -n $CPU_PCT ]] && echo "$PEAK_KB" || echo null)" \
+    --argjson peak_rss_kb "$( ((PEAK_KB)) && echo "$PEAK_KB" || echo null)" \
     --argjson cpu_idle_pct "${CPU_PCT:-null}" \
     --argjson exit_code "${EXIT_CODE:-null}" \
     --argjson crashed "$CRASHED" \
