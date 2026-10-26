@@ -558,7 +558,10 @@ pub fn on_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
         Event::StreamFailed { uid, error } => {
             let message = describe(&error, state);
             if state.queue.current().map(|e| e.uid) == Some(uid) {
-                state.banner = Some(format!("Could not play this track: {message}"));
+                // An expired session keeps its own banner.
+                if state.banner.as_deref() != Some(SESSION_EXPIRED) {
+                    state.banner = Some(format!("Could not play this track: {message}"));
+                }
                 state.playback.stop();
                 return vec![Effect::Stop];
             }
