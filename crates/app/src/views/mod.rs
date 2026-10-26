@@ -124,7 +124,13 @@ fn now_playing(ui: &mut Ui, rect: Rect, state: &State) {
         Pos2::new(rect.left(), rect.center().y - 28.0),
         vec2(56.0, 56.0),
     );
-    art(&painter, art_rect, &track.id, &track.title, ArtKind::Square);
+    art(
+        &painter,
+        art_rect,
+        &track.id,
+        &track.title,
+        ArtKind::Square(&track.thumbnails),
+    );
     let x = art_rect.right() + 12.0;
     let w = rect.right() - x - 12.0;
     text_line(
@@ -424,7 +430,7 @@ fn queue_row(ui: &mut Ui, state: &State, index: usize, is_current: bool, out: &m
         art_rect,
         &entry.track.id,
         &entry.track.title,
-        ArtKind::Square,
+        ArtKind::Square(&entry.track.thumbnails),
     );
     let x = art_rect.right() + 10.0;
     let w = rect.right() - x - 34.0;
@@ -705,7 +711,13 @@ fn track_row(
         color,
     );
     let art_rect = Rect::from_min_size(Pos2::new(cols.art, cy - 19.0), vec2(38.0, 38.0));
-    art(&painter, art_rect, &track.id, &track.title, ArtKind::Square);
+    art(
+        &painter,
+        art_rect,
+        &track.id,
+        &track.title,
+        ArtKind::Square(&track.thumbnails),
+    );
     let title_color = if is_current {
         theme::ACCENT
     } else {
@@ -812,7 +824,7 @@ fn home(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
             // A short shelf; the Library page lists everything with show_rows.
             for p in playlists.iter().take(HOME_SHELF) {
                 let sub = p.owner.as_deref().unwrap_or("Playlist");
-                if card(ui, &p.id, &p.name, sub, ArtKind::Square).clicked() {
+                if card(ui, &p.id, &p.name, sub, ArtKind::Square(&p.thumbnails)).clicked() {
                     open_playlist(out, &p.id);
                 }
             }
@@ -910,13 +922,29 @@ fn search(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
             let by: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
             let year = a.year.map(|y| format!(" · {y}")).unwrap_or_default();
             let sub = format!("Album · {}{year}", by.join(", "));
-            entity_row(ui, 60.0, &a.id, &a.name, &sub, ArtKind::Square, false)
-                .on_hover_text("Album pages are not available yet");
+            entity_row(
+                ui,
+                60.0,
+                &a.id,
+                &a.name,
+                &sub,
+                ArtKind::Square(&a.thumbnails),
+                false,
+            )
+            .on_hover_text("Album pages are not available yet");
         }),
         SearchTab::Artists => rows(ui, "search-artists", r.artists.len(), |ui, i| {
             let a = &r.artists[i];
-            entity_row(ui, 60.0, &a.id, &a.name, "Artist", ArtKind::Round, false)
-                .on_hover_text("Artist pages are not available yet");
+            entity_row(
+                ui,
+                60.0,
+                &a.id,
+                &a.name,
+                "Artist",
+                ArtKind::Round(&a.thumbnails),
+                false,
+            )
+            .on_hover_text("Artist pages are not available yet");
         }),
         SearchTab::Playlists => rows(ui, "search-playlists", r.playlists.len(), |ui, i| {
             let p = &r.playlists[i];
@@ -924,7 +952,17 @@ fn search(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
                 "Playlist · {}",
                 p.owner.as_deref().unwrap_or("YouTube Music")
             );
-            if entity_row(ui, 60.0, &p.id, &p.name, &sub, ArtKind::Square, false).clicked() {
+            if entity_row(
+                ui,
+                60.0,
+                &p.id,
+                &p.name,
+                &sub,
+                ArtKind::Square(&p.thumbnails),
+                false,
+            )
+            .clicked()
+            {
                 open_playlist(out, &p.id);
             }
         }),
@@ -976,7 +1014,17 @@ fn library(ui: &mut Ui, state: &State, out: &mut Out) {
         if let Some(n) = p.track_count {
             sub.push_str(&format!(" · {n} songs"));
         }
-        if entity_row(ui, 60.0, &p.id, &p.name, &sub, ArtKind::Square, false).clicked() {
+        if entity_row(
+            ui,
+            60.0,
+            &p.id,
+            &p.name,
+            &sub,
+            ArtKind::Square(&p.thumbnails),
+            false,
+        )
+        .clicked()
+        {
             open_playlist(out, &p.id);
         }
     });
@@ -988,7 +1036,7 @@ fn page_header(
     key: &str,
     name: &str,
     detail: &str,
-    kind: ArtKind,
+    kind: ArtKind<'_>,
     tracks: Option<&Arc<Vec<Arc<Track>>>>,
     out: &mut Out,
 ) {
@@ -1098,7 +1146,7 @@ fn playlist(ui: &mut Ui, state: &State, view: &mut View, id: &str, out: &mut Out
             .ready()
             .and_then(|l| l.iter().find(|s| &s.id == open).map(|s| s.name.clone()))
             .unwrap_or_default();
-        page_header(ui, open, &name, "", ArtKind::Square, None, out);
+        page_header(ui, open, &name, "", ArtKind::Square(&[]), None, out);
         loading_or_error(ui, page, "this playlist");
         return;
     };
@@ -1117,7 +1165,7 @@ fn playlist(ui: &mut Ui, state: &State, view: &mut View, id: &str, out: &mut Out
         &p.summary.id,
         &p.summary.name,
         &detail,
-        ArtKind::Square,
+        ArtKind::Square(&p.summary.thumbnails),
         Some(&p.tracks),
         out,
     );

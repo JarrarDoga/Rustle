@@ -22,3 +22,9 @@ keyring = { version = "3.6.3", default-features = false, features = ["sync-secre
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_dbus"] }
 # Already pulled in by souvlaki; used directly to wake its service loop after each update.
 dbus = { version = "0.9", default-features = false }
+# Thumbnail fetches on the thumbs worker threads; same build as the player crate's.
+ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
+# Thumbnail decoding; only the formats YouTube serves, no rayon.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+# The allocator under `mimalloc`; `extended` only adds `mi_collect`, which the thumbs workers call after each image.
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }

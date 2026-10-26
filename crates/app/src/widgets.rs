@@ -2,13 +2,15 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use egui::epaint::RectShape;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Response, Sense, TextFormat, Ui,
     vec2,
 };
+use model::Thumbnail;
 
-use crate::theme;
+use crate::{theme, thumbs};
 
 /// `m:ss`, or `h:mm:ss` from an hour up.
 pub fn fmt_time(d: Duration) -> String {
@@ -47,18 +49,28 @@ pub fn text_line(
     painter.galley(Pos2::new(pos.x, top), galley, color);
 }
 
-pub enum ArtKind {
-    Square,
-    Round,
+/// Which art to draw, with the thumbnails to load for it.
+pub enum ArtKind<'a> {
+    Square(&'a [Thumbnail]),
+    Round(&'a [Thumbnail]),
     Liked,
 }
 
-/// Placeholder cover art. Thumbnails will be drawn here once they load.
-pub fn art(painter: &Painter, rect: Rect, key: &str, title: &str, kind: ArtKind) {
+/// Cover art: the thumbnail once it has loaded, a letter tile until then.
+pub fn art(painter: &Painter, rect: Rect, key: &str, title: &str, kind: ArtKind<'_>) {
     let radius = match kind {
-        ArtKind::Round => CornerRadius::same((rect.height() / 2.0).min(255.0) as u8),
+        ArtKind::Round(_) => CornerRadius::same((rect.height() / 2.0).min(255.0) as u8),
         _ => CornerRadius::same(if rect.height() > 80.0 { 8 } else { 4 }),
     };
+    let thumbnails = match kind {
+        ArtKind::Square(t) | ArtKind::Round(t) => t,
+        ArtKind::Liked => &[],
+    };
+    if let Some(tex) = thumbs::get(painter.ctx(), thumbnails, rect.height()) {
+        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        painter.add(RectShape::filled(rect, radius, Color32::WHITE).with_texture(tex, uv));
+        return;
+    }
     let (fill, glyph) = match kind {
         ArtKind::Liked => (Color32::from_rgb(0x5b, 0x3c, 0xc4), "♥".to_owned()),
         _ => (
@@ -140,7 +152,7 @@ pub fn round_button(
 }
 
 /// A cover card for the home grid.
-pub fn card(ui: &mut Ui, key: &str, title: &str, subtitle: &str, kind: ArtKind) -> Response {
+pub fn card(ui: &mut Ui, key: &str, title: &str, subtitle: &str, kind: ArtKind<'_>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(172.0, 230.0), Sense::click());
     let painter = ui.painter_at(rect);
     let fill = if resp.hovered() {
@@ -180,7 +192,7 @@ pub fn entity_row(
     key: &str,
     title: &str,
     subtitle: &str,
-    kind: ArtKind,
+    kind: ArtKind<'_>,
     selected: bool,
 ) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
