@@ -1,7 +1,7 @@
 //! The audio output the backend drives, behind a small trait.
 //!
-//! [`Playback`] mirrors the public API of `player::Player`, so the real player
-//! plugs in with one-line forwarding methods. Demo mode uses
+//! [`Playback`] mirrors the public API of `player::Player`, which implements
+//! it with one-line forwarding methods. Demo mode uses
 //! [`SimulatedPlayback`], which plays silence on a clock and reports the end
 //! of each track like the real player would.
 
@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use model::StreamSource;
-use player::{PlaybackStatus, PlayerEvent, PlayerState};
+use player::{PlaybackStatus, Player, PlayerEvent, PlayerState};
 
 /// Every method returns at once; state comes back through `state` and `events`.
 pub trait Playback: Send + 'static {
@@ -28,16 +28,49 @@ pub trait Playback: Send + 'static {
     fn events(&self) -> Receiver<PlayerEvent>;
 }
 
-/// The real audio output. Batch 2 playback worker: make this `player::Player`
-/// (or a thin wrapper) once `Player` is `Send` and implements [`Playback`].
+/// The real audio output.
 #[allow(dead_code)] // used by the batch 2 wiring worker
-pub type SystemPlayback = SimulatedPlayback;
+pub type SystemPlayback = Player;
 
 /// Opens the system audio output. The wiring worker calls this for non-demo
-/// runs; the playback worker replaces the body.
+/// runs.
 #[allow(dead_code)] // used by the batch 2 wiring worker
 pub fn system_playback() -> Result<SystemPlayback, String> {
-    Ok(SimulatedPlayback::new())
+    Player::new().map_err(|e| e.to_string())
+}
+
+impl Playback for Player {
+    fn load(&self, source: StreamSource) {
+        Player::load(self, source);
+    }
+
+    fn play(&self) {
+        Player::play(self);
+    }
+
+    fn pause(&self) {
+        Player::pause(self);
+    }
+
+    fn stop(&self) {
+        Player::stop(self);
+    }
+
+    fn seek(&self, to: Duration) {
+        Player::seek(self, to);
+    }
+
+    fn set_volume(&self, volume: f32) {
+        Player::set_volume(self, volume);
+    }
+
+    fn state(&self) -> PlayerState {
+        Player::state(self)
+    }
+
+    fn events(&self) -> Receiver<PlayerEvent> {
+        Player::events(self)
+    }
 }
 
 /// Used when a stream reports no duration.
@@ -310,6 +343,128 @@ mod tests {
         match events.recv_timeout(Duration::from_secs(5)) {
             Ok(PlayerEvent::TrackEnded { track_id }) => assert_eq!(track_id, "short"),
             other => panic!("expected TrackEnded, got {other:?}"),
+        }
+        assert_eq!(p.state().status, PlaybackStatus::Stopped);
+    }
+
+    /// Serves `data` on loopback, answering Range requests.
+    fn serve(data: Vec<u8>) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/track", listener.local_addr().unwrap());
+        let data = Arc::new(data);
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let data = Arc::clone(&data);
+                thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut out = stream;
+                    loop {
+                        let mut range = (0, data.len() - 1);
+                        let mut line = String::new();
+                        loop {
+                            line.clear();
+                            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                                return;
+                            }
+                            let h = line.trim_end().to_ascii_lowercase();
+                            if h.is_empty() {
+                                break;
+                            }
+                            if let Some((a, b)) = h
+                                .strip_prefix("range: bytes=")
+                                .and_then(|v| v.split_once('-'))
+                            {
+                                let b = b.parse().unwrap_or(usize::MAX);
+                                range = (a.parse().unwrap(), b.min(data.len() - 1));
+                            }
+                        }
+                        let (a, b) = range;
+                        let head = format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {a}-{b}/{}\r\n\r\n",
+                            b + 1 - a,
+                            data.len()
+                        );
+                        if out.write_all(head.as_bytes()).is_err()
+                            || out.write_all(&data[a..=b]).is_err()
+                        {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        url
+    }
+
+    fn status_within(events: &Receiver<PlayerEvent>, want: PlaybackStatus) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match events.recv_timeout(left) {
+                Ok(PlayerEvent::StatusChanged(s)) if s == want => return,
+                Ok(PlayerEvent::Error(e)) => panic!("player error: {e}"),
+                Ok(_) => {}
+                Err(e) => panic!("no {want:?} within 5 s: {e}"),
+            }
+        }
+    }
+
+    /// Drives the real player through the trait, silently, on a local file.
+    #[test]
+    fn system_playback_plays_through_the_trait() {
+        let p: Box<dyn Playback> = match system_playback() {
+            Ok(p) => Box::new(p),
+            Err(e) => {
+                eprintln!("skipped: no audio output: {e}");
+                return;
+            }
+        };
+        p.set_volume(0.0);
+        let events = p.events();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../player/tests/fixtures/sine3s.webm"
+        );
+        let data = std::fs::read(path).unwrap();
+        let len = data.len() as u64;
+        p.load(StreamSource {
+            track_id: "local".to_owned(),
+            url: serve(data),
+            codec: AudioCodec::Opus,
+            bitrate_bps: 0,
+            content_length: len,
+            duration: Some(Duration::from_secs(3)),
+            loudness_db: None,
+        });
+        status_within(&events, PlaybackStatus::Playing);
+        assert_eq!(p.state().track_id.as_deref(), Some("local"));
+        assert_eq!(p.state().volume, 0.0);
+
+        p.pause();
+        status_within(&events, PlaybackStatus::Paused);
+        p.seek(Duration::from_millis(2_600));
+        thread::sleep(Duration::from_millis(100));
+        let pos = p.state().position;
+        assert_eq!(
+            pos,
+            Duration::from_millis(2_600),
+            "paused seek moved to {pos:?}"
+        );
+        p.play();
+        status_within(&events, PlaybackStatus::Playing);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match events.recv_timeout(left) {
+                Ok(PlayerEvent::TrackEnded { track_id }) => {
+                    assert_eq!(track_id, "local");
+                    break;
+                }
+                Ok(PlayerEvent::Error(e)) => panic!("player error: {e}"),
+                Ok(_) => {}
+                Err(e) => panic!("track did not end: {e}"),
+            }
         }
         assert_eq!(p.state().status, PlaybackStatus::Stopped);
     }

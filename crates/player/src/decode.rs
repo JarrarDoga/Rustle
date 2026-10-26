@@ -17,6 +17,13 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::{Time, TimeBase};
 
 use crate::PlayerError;
+use crate::mp4::Head;
+
+/// Priming of YouTube's AAC (itag 140), whose fragmented MP4 has no edit
+/// list: 1600 samples at 44.1 kHz. Measured, not from a spec: the AAC output
+/// ran 1600 samples behind the Opus (itag 251) output of the same video, on
+/// each of four videos checked.
+const YOUTUBE_AAC_DELAY: f64 = 1600.0 / 44_100.0;
 
 /// A source of decoded audio.
 pub(crate) trait Decode: Send {
@@ -100,10 +107,19 @@ pub(crate) struct Demuxed {
     /// Opus pre-skip still to drop, for containers that did not shift
     /// timestamps by the codec delay.
     preskip: usize,
+    /// Media time of presentation time 0 (seconds): the AAC encoder priming.
+    delay: f64,
+    /// Media time where the track stops playing, from the MP4 edit list.
+    end: Option<f64>,
     first_packet: bool,
     ended: bool,
+    /// Past `end`, but the reader has not hit the end of the stream.
+    past_end: bool,
 }
 
+/// Audio decoded and dropped before a seek target. 80 ms is the Opus
+/// pre-roll RFC 7845 asks for after a decoder reset.
+const PREROLL: f64 = 0.08;
 /// Opus decoders always run at 48 kHz.
 const OPUS_RATE: u32 = 48_000;
 const OPUS_MAX_FRAMES: usize = 5_760;
@@ -113,6 +129,15 @@ impl Demuxed {
         source: Box<dyn MediaSource>,
         codec: AudioCodec,
     ) -> Result<Self, PlayerError> {
+        let is_aac = codec == AudioCodec::Aac;
+        let (source, edit): (Box<dyn MediaSource>, _) = match codec {
+            AudioCodec::Aac => {
+                let mut head = Head::new(source);
+                let edit = head.scan_edit();
+                (Box::new(head), edit)
+            }
+            AudioCodec::Opus => (source, None),
+        };
         let mss = MediaSourceStream::new(
             source,
             MediaSourceStreamOptions {
@@ -169,6 +194,11 @@ impl Demuxed {
                 .ok_or_else(|| PlayerError::Decode("unknown channel count".into()))?;
             (Codec::Other { dec }, rate, channels, 0)
         };
+        let (delay, end) = match edit {
+            Some(e) => (e.delay, e.duration.map(|d| e.delay + d)),
+            None if is_aac => (YOUTUBE_AAC_DELAY, None),
+            None => (0.0, None),
+        };
 
         Ok(Demuxed {
             format: Some(format),
@@ -178,10 +208,13 @@ impl Demuxed {
             codec,
             rate,
             channels,
-            trim_until: 0.0,
+            trim_until: delay,
             preskip,
+            delay,
+            end,
             first_packet: true,
             ended: false,
+            past_end: false,
         })
     }
 }
@@ -231,7 +264,7 @@ impl Decode for Demuxed {
     fn next(&mut self, out: &mut Vec<f32>) -> Result<bool, PlayerError> {
         out.clear();
         loop {
-            if self.ended {
+            if self.ended || self.past_end {
                 return Ok(false);
             }
             let format = self.format.as_mut().expect("format present");
@@ -280,6 +313,16 @@ impl Decode for Demuxed {
                 },
             }
 
+            if let Some(end) = self.end {
+                let keep = ((end - start) * f64::from(self.rate)).round().max(0.0) as usize;
+                if keep == 0 {
+                    out.clear();
+                    self.past_end = true;
+                    return Ok(false);
+                }
+                out.truncate(keep * self.channels);
+            }
+
             let mut drop_frames = 0;
             if self.preskip > 0 {
                 drop_frames = self.preskip;
@@ -301,8 +344,11 @@ impl Decode for Demuxed {
     }
 
     fn seek(&mut self, to: Duration) -> Result<(), PlayerError> {
-        let secs = to.as_secs_f64();
-        let time = Time::try_from_secs_f64(secs)
+        let secs = to.as_secs_f64() + self.delay;
+        // Land early and decode up to `secs`: the MKV reader's accurate seek
+        // lands on the first packet after the target, and a reset decoder
+        // needs pre-roll.
+        let time = Time::try_from_secs_f64((secs - PREROLL).max(0.0))
             .ok_or_else(|| PlayerError::Decode("seek target out of range".into()))?;
         // symphonia 0.6.1's MKV and MP4 readers cannot seek once they have
         // hit the end of the stream: re-probe the same source first.
@@ -323,6 +369,7 @@ impl Decode for Demuxed {
         }
         self.preskip = 0;
         self.first_packet = false;
+        self.past_end = false;
         self.trim_until = secs;
         match res {
             Ok(_) => {
@@ -470,6 +517,49 @@ mod tests {
             let mut d = Demuxed::open(Box::new(src), codec).unwrap();
             check_sine(&mut d, 3.0);
         }
+    }
+
+    /// Seconds from the first output sample to the tone onset.
+    fn onset(d: &mut Demuxed) -> f64 {
+        let all = drain(d);
+        let ch = d.channels();
+        let at = all
+            .iter()
+            .step_by(ch)
+            .position(|x| x.abs() > 0.35)
+            .expect("tone found");
+        at as f64 / f64::from(d.rate())
+    }
+
+    /// The `onset2s` fixtures are 1 s of silence, then a tone. Positions are
+    /// right when the tone starts 1 s after the start, and `1 - t` after a
+    /// seek to `t`.
+    #[test]
+    fn onset_lands_on_time_from_start_and_after_seek() {
+        for (name, codec) in [
+            ("onset2s.m4a", AudioCodec::Aac),
+            ("onset2s.webm", AudioCodec::Opus),
+        ] {
+            for seek in [0.0, 0.5, 0.9] {
+                let mut d = open_file(name, codec);
+                if seek > 0.0 {
+                    d.seek(Duration::from_secs_f64(seek)).unwrap();
+                }
+                let got = onset(&mut d);
+                let want = 1.0 - seek;
+                assert!(
+                    (got - want).abs() < 0.003,
+                    "{name} seek {seek}: tone at {got:.4} s, want {want:.4} s"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn aac_edit_list_trims_priming_and_padding() {
+        let mut d = open_file("sine3s.m4a", AudioCodec::Aac);
+        let frames = drain(&mut d).len() / d.channels();
+        assert_eq!(frames, 3 * 44_100);
     }
 
     #[test]

@@ -225,10 +225,23 @@ pub(crate) mod tests {
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
 
     /// Serves `data` on loopback with Range support. Returns the base URL and
     /// a counter of requests served.
     pub(crate) fn serve(data: Vec<u8>) -> (String, Arc<AtomicUsize>) {
+        serve_stalling(data, None)
+    }
+
+    /// Like `serve`, but with `stall: Some((at, hold))` no byte from offset
+    /// `at` on leaves before `hold` has passed since the server started. Any
+    /// response that reaches `at` sooner waits there, so the stall holds even
+    /// when the client drops a connection and asks again.
+    pub(crate) fn serve_stalling(
+        data: Vec<u8>,
+        stall: Option<(usize, Duration)>,
+    ) -> (String, Arc<AtomicUsize>) {
+        let stall = stall.map(|(at, hold)| (at, Instant::now() + hold));
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/file", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
@@ -239,13 +252,18 @@ pub(crate) mod tests {
                 let Ok(stream) = stream else { break };
                 let data = data.clone();
                 let counter = counter.clone();
-                std::thread::spawn(move || handle(stream, &data, &counter));
+                std::thread::spawn(move || handle(stream, &data, &counter, stall));
             }
         });
         (url, hits)
     }
 
-    fn handle(stream: std::net::TcpStream, data: &[u8], hits: &AtomicUsize) {
+    fn handle(
+        stream: std::net::TcpStream,
+        data: &[u8],
+        hits: &AtomicUsize,
+        stall: Option<(usize, Instant)>,
+    ) {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut out = stream;
         loop {
@@ -277,7 +295,21 @@ pub(crate) mod tests {
                 b + 1 - a,
                 data.len()
             );
-            if out.write_all(head.as_bytes()).is_err() || out.write_all(&data[a..=b]).is_err() {
+            if out.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            let mut from = a;
+            if let Some((at, until)) = stall
+                && (a..=b).contains(&at)
+                && Instant::now() < until
+            {
+                if out.write_all(&data[a..at]).is_err() || out.flush().is_err() {
+                    return;
+                }
+                std::thread::sleep(until.saturating_duration_since(Instant::now()));
+                from = at;
+            }
+            if out.write_all(&data[from..=b]).is_err() {
                 return;
             }
         }
