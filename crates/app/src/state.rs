@@ -19,6 +19,9 @@ use crate::queue::{Queue, Repeat};
 /// Previous restarts the track instead when it has played longer than this.
 const RESTART_THRESHOLD: Duration = Duration::from_secs(3);
 
+pub const SESSION_EXPIRED: &str = "Session expired, paste new cookies";
+pub const COOKIES_REJECTED: &str = "those cookies were rejected";
+
 #[derive(Debug, Clone, Default)]
 pub enum Loadable<T> {
     #[default]
@@ -111,7 +114,6 @@ pub struct State {
 }
 
 /// Login state. Demo mode starts `LoggedIn`.
-#[allow(dead_code)] // constructed by the batch 2 wiring and auth workers
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Session {
     /// Checking the keyring for saved cookies at startup.
@@ -237,6 +239,28 @@ pub enum Event {
         track_id: String,
     },
     PlayerError(String),
+    /// The keyring holds cookies. The session counts as logged in at once so
+    /// the cached library shows; `Login { saved: true, .. }` follows.
+    SavedLogin,
+    /// The keyring holds no cookies.
+    NoSavedLogin,
+    /// Cookies were checked: the saved ones (`saved`) or pasted ones.
+    Login {
+        saved: bool,
+        result: Result<(), BackendError>,
+    },
+    /// The backend could not start; shown on the login screen.
+    StartFailed(String),
+    /// A message for the banner.
+    Notice(String),
+    /// Read from the local store at startup, before the network answers.
+    CachedLibrary(Vec<PlaylistSummary>),
+    CachedLiked(Vec<Track>),
+    CachedQueue {
+        tracks: Vec<Track>,
+        current: Option<usize>,
+    },
+    CachedPlaylist(Playlist),
 }
 
 fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
@@ -259,11 +283,7 @@ fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
 pub fn apply(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> {
     let pb = &mut state.playback;
     match cmd {
-        Command::Refresh => {
-            state.library = Loadable::Loading;
-            state.liked = Loadable::Loading;
-            vec![Effect::FetchLibrary, Effect::FetchLiked]
-        }
+        Command::Refresh => refresh(state),
         Command::Search(query) => {
             let query = query.trim();
             state.search_query = query.to_owned();
@@ -392,6 +412,10 @@ pub fn apply(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> {
         }
         Command::Logout => {
             state.session = Session::LoggedOut;
+            state.library = Loadable::Idle;
+            state.liked = Loadable::Idle;
+            state.playlist = None;
+            state.banner = None;
             vec![Effect::Logout]
         }
         Command::DismissBanner => {
@@ -408,31 +432,104 @@ fn restart(state: &mut State, now: Instant) -> Vec<Effect> {
     }
 }
 
+/// Fetches the library and liked songs. Cached data stays on screen while
+/// the fetch runs. Logged out, there is no library to fetch.
+fn refresh(state: &mut State) -> Vec<Effect> {
+    if state.session != Session::LoggedIn {
+        return Vec::new();
+    }
+    if state.library.ready().is_none() {
+        state.library = Loadable::Loading;
+    }
+    if state.liked.ready().is_none() {
+        state.liked = Loadable::Loading;
+    }
+    vec![Effect::FetchLibrary, Effect::FetchLiked]
+}
+
+/// An auth error while logged in ends the session with one banner. Network
+/// errors never log the user out.
 fn describe(error: &BackendError, state: &mut State) -> String {
-    if matches!(error, BackendError::Auth) {
-        state.banner = Some("Session expired. Paste new cookies.".to_owned());
+    if matches!(error, BackendError::Auth) && state.session == Session::LoggedIn {
+        state.banner = Some(SESSION_EXPIRED.to_owned());
+        state.session = Session::LoggedOut;
     }
     error.to_string()
+}
+
+/// A fetch result for a slot. A failed refresh keeps the data already shown.
+fn settle<T>(slot: &mut Loadable<T>, result: Result<T, BackendError>, state: &mut State) {
+    match result {
+        Ok(v) => *slot = Loadable::Ready(v),
+        Err(e) => {
+            let message = describe(&e, state);
+            if slot.ready().is_none() {
+                *slot = Loadable::Failed(message);
+            }
+        }
+    }
+}
+
+fn on_login(state: &mut State, saved: bool, result: Result<(), BackendError>) -> Vec<Effect> {
+    let expected = if saved {
+        Session::LoggedIn
+    } else {
+        Session::LoggingIn
+    };
+    // The user has moved on (logged out, or started another attempt).
+    if state.session != expected {
+        return Vec::new();
+    }
+    match result {
+        Ok(()) => {
+            state.session = Session::LoggedIn;
+            if !saved {
+                state.banner = None;
+            }
+            return refresh(state);
+        }
+        // Offline at startup: keep showing the cached library. The backend
+        // checks the saved cookies again before each library fetch.
+        Err(BackendError::Network(_)) if saved => {
+            state.banner = Some("Offline: could not reach YouTube Music".to_owned());
+            return refresh(state);
+        }
+        Err(_) if saved => {
+            state.session = Session::LoggedOut;
+            state.banner = Some(SESSION_EXPIRED.to_owned());
+        }
+        Err(BackendError::Network(m)) => {
+            state.session = Session::Failed(format!("Could not reach YouTube Music: {m}"));
+        }
+        Err(BackendError::Auth) => state.session = Session::Failed(COOKIES_REJECTED.to_owned()),
+        Err(e) => state.session = Session::Failed(e.to_string()),
+    }
+    Vec::new()
 }
 
 fn arc_tracks(tracks: Vec<Track>) -> Arc<Vec<Arc<Track>>> {
     Arc::new(tracks.into_iter().map(Arc::new).collect())
 }
 
+fn playlist_view(p: Playlist) -> Arc<PlaylistView> {
+    Arc::new(PlaylistView {
+        summary: p.summary,
+        tracks: arc_tracks(p.tracks),
+    })
+}
+
 /// Backend side only: folds in a result or a player event.
 pub fn on_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
     match event {
         Event::Library(r) => {
-            state.library = match r {
-                Ok(v) => Loadable::Ready(Arc::new(v)),
-                Err(e) => Loadable::Failed(describe(&e, state)),
-            };
+            let mut slot = std::mem::take(&mut state.library);
+            settle(&mut slot, r.map(Arc::new), state);
+            state.library = slot;
         }
         Event::Liked(r) => {
-            state.liked = match r {
-                Ok(v) => Loadable::Ready(arc_tracks(v)),
-                Err(e) => Loadable::Failed(describe(&e, state)),
-            };
+            let mut slot = std::mem::take(&mut state.liked);
+            settle(&mut slot, r.map(arc_tracks), state);
+            state.liked = slot;
         }
         Event::Search { query, result } => {
             // A newer query has replaced this one; its answer is stale.
@@ -448,24 +545,23 @@ pub fn on_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             };
         }
         Event::Playlist { id, result } => {
-            if state.playlist.as_ref().map(|(open, _)| open) != Some(&id) {
+            let Some((open, mut page)) = state.playlist.take() else {
                 return Vec::new();
-            }
-            let page = match result {
-                Ok(p) => Loadable::Ready(Arc::new(PlaylistView {
-                    summary: p.summary,
-                    tracks: arc_tracks(p.tracks),
-                })),
-                Err(e) => Loadable::Failed(describe(&e, state)),
             };
-            state.playlist = Some((id, page));
+            if open == id {
+                settle(&mut page, result.map(playlist_view), state);
+            }
+            state.playlist = Some((open, page));
         }
         // The backend loads the source itself; nothing in the state changes.
         Event::StreamReady { .. } => {}
         Event::StreamFailed { uid, error } => {
             let message = describe(&error, state);
             if state.queue.current().map(|e| e.uid) == Some(uid) {
-                state.banner = Some(format!("Could not play this track: {message}"));
+                // An expired session keeps its own banner.
+                if state.banner.as_deref() != Some(SESSION_EXPIRED) {
+                    state.banner = Some(format!("Could not play this track: {message}"));
+                }
                 state.playback.stop();
                 return vec![Effect::Stop];
             }
@@ -480,7 +576,46 @@ pub fn on_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             state.playback.stop();
             return vec![Effect::Stop];
         }
-        Event::PlayerError(message) => state.banner = Some(message),
+        Event::PlayerError(message) | Event::Notice(message) => state.banner = Some(message),
+        Event::Login { saved, result } => return on_login(state, saved, result),
+        Event::SavedLogin => {
+            if state.session == Session::Starting {
+                state.session = Session::LoggedIn;
+            }
+        }
+        Event::NoSavedLogin => {
+            if state.session == Session::Starting {
+                state.session = Session::LoggedOut;
+            }
+        }
+        Event::StartFailed(message) => state.session = Session::Failed(message),
+        // Cached data fills only what the network has not filled yet.
+        Event::CachedLibrary(v) => {
+            if state.library.ready().is_none() {
+                state.library = Loadable::Ready(Arc::new(v));
+            }
+        }
+        Event::CachedLiked(v) => {
+            if state.liked.ready().is_none() {
+                state.liked = Loadable::Ready(arc_tracks(v));
+            }
+        }
+        Event::CachedQueue { tracks, current } => {
+            // Restore it stopped; the user presses play to resume.
+            if state.queue.is_empty() {
+                state
+                    .queue
+                    .play_list(&arc_tracks(tracks), current.unwrap_or(0), 0);
+            }
+        }
+        Event::CachedPlaylist(p) => {
+            if let Some((open, page)) = &mut state.playlist
+                && *open == p.summary.id
+                && page.ready().is_none()
+            {
+                *page = Loadable::Ready(playlist_view(p));
+            }
+        }
     }
     Vec::new()
 }
@@ -700,14 +835,160 @@ mod tests {
     #[test]
     fn auth_error_raises_one_banner() {
         let now = Instant::now();
-        let mut s = State::default();
+        let mut s = logged_in();
         apply(&mut s, &Command::Refresh, now);
         on_event(&mut s, Event::Library(Err(BackendError::Auth)), now);
         assert!(matches!(s.library, Loadable::Failed(_)));
-        assert_eq!(
-            s.banner.as_deref(),
-            Some("Session expired. Paste new cookies.")
+        assert_eq!(s.banner.as_deref(), Some(SESSION_EXPIRED));
+        assert_eq!(s.session, Session::LoggedOut);
+    }
+
+    fn logged_in() -> State {
+        State {
+            session: Session::LoggedIn,
+            ..State::default()
+        }
+    }
+
+    fn summary(id: &str) -> PlaylistSummary {
+        PlaylistSummary {
+            id: id.into(),
+            name: id.into(),
+            owner: None,
+            track_count: None,
+            thumbnails: Vec::new(),
+        }
+    }
+
+    fn login(s: &mut State, saved: bool, result: Result<(), BackendError>) -> Vec<Effect> {
+        on_event(s, Event::Login { saved, result }, Instant::now())
+    }
+
+    #[test]
+    fn pasted_cookies_log_in_and_refresh() {
+        let now = Instant::now();
+        let mut s = State::default();
+        on_event(&mut s, Event::NoSavedLogin, now);
+        assert_eq!(s.session, Session::LoggedOut);
+        assert!(
+            apply(&mut s, &Command::Refresh, now).is_empty(),
+            "no library logged out"
         );
+        let fx = apply(&mut s, &Command::Login("SID=1".into()), now);
+        assert_eq!(fx, [Effect::Login("SID=1".into())]);
+        assert_eq!(s.session, Session::LoggingIn);
+        let fx = login(&mut s, false, Ok(()));
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_eq!(fx, [Effect::FetchLibrary, Effect::FetchLiked]);
+    }
+
+    #[test]
+    fn pasted_cookie_failures_stay_on_the_login_screen() {
+        let now = Instant::now();
+        let mut s = State::default();
+        apply(&mut s, &Command::Login("x".into()), now);
+        login(&mut s, false, Err(BackendError::Auth));
+        assert_eq!(s.session, Session::Failed(COOKIES_REJECTED.into()));
+        assert!(s.banner.is_none());
+
+        apply(&mut s, &Command::Login("x".into()), now);
+        login(
+            &mut s,
+            false,
+            Err(BackendError::Network("timed out".into())),
+        );
+        let Session::Failed(message) = &s.session else {
+            panic!("{:?}", s.session);
+        };
+        assert!(message.contains("timed out"), "{message}");
+    }
+
+    #[test]
+    fn saved_cookies_log_in_at_once_and_are_checked_after() {
+        let now = Instant::now();
+        let mut s = State::default();
+        on_event(&mut s, Event::SavedLogin, now);
+        assert_eq!(s.session, Session::LoggedIn);
+        // Rejected: back to the login screen with one banner.
+        login(&mut s, true, Err(BackendError::Auth));
+        assert_eq!(s.session, Session::LoggedOut);
+        assert_eq!(s.banner.as_deref(), Some(SESSION_EXPIRED));
+    }
+
+    #[test]
+    fn offline_start_keeps_the_session_and_cached_library() {
+        let now = Instant::now();
+        let mut s = State::default();
+        on_event(&mut s, Event::SavedLogin, now);
+        on_event(&mut s, Event::CachedLibrary(vec![summary("PLa")]), now);
+        let fx = login(&mut s, true, Err(BackendError::Network("down".into())));
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_eq!(fx, [Effect::FetchLibrary, Effect::FetchLiked]);
+        assert_eq!(
+            s.library.ready().unwrap()[0].id,
+            "PLa",
+            "refresh keeps cache"
+        );
+        // Network errors never log out or blank the cached data.
+        on_event(
+            &mut s,
+            Event::Library(Err(BackendError::Network("down".into()))),
+            now,
+        );
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_eq!(s.library.ready().unwrap()[0].id, "PLa");
+    }
+
+    #[test]
+    fn stale_login_results_are_dropped() {
+        let now = Instant::now();
+        let mut s = State::default();
+        apply(&mut s, &Command::Login("x".into()), now);
+        apply(&mut s, &Command::Logout, now);
+        assert!(login(&mut s, false, Ok(())).is_empty());
+        assert_eq!(s.session, Session::LoggedOut);
+    }
+
+    #[test]
+    fn logout_forgets_the_library() {
+        let now = Instant::now();
+        let mut s = logged_in();
+        on_event(&mut s, Event::CachedLibrary(vec![summary("PLa")]), now);
+        apply(&mut s, &Command::Logout, now);
+        assert_eq!(s.session, Session::LoggedOut);
+        assert!(matches!(s.library, Loadable::Idle));
+    }
+
+    #[test]
+    fn network_results_replace_cached_data_but_cache_never_replaces_them() {
+        let now = Instant::now();
+        let mut s = logged_in();
+        apply(&mut s, &Command::Refresh, now);
+        on_event(&mut s, Event::Library(Ok(vec![summary("PLnet")])), now);
+        on_event(&mut s, Event::CachedLibrary(vec![summary("PLold")]), now);
+        assert_eq!(s.library.ready().unwrap()[0].id, "PLnet");
+    }
+
+    #[test]
+    fn cached_queue_restores_stopped_unless_the_user_started_one() {
+        let now = Instant::now();
+        let cached = || Event::CachedQueue {
+            tracks: vec![Track::clone(&track("a")), Track::clone(&track("b"))],
+            current: Some(1),
+        };
+        let mut s = State::default();
+        on_event(&mut s, cached(), now);
+        assert_eq!(current(&s), "b");
+        assert_eq!(s.playback.status, PlaybackStatus::Stopped);
+        assert!(matches!(
+            apply(&mut s, &Command::TogglePlay, now)[..],
+            [Effect::Load { .. }]
+        ));
+
+        let mut s = playing(&["z"], 0, now);
+        on_event(&mut s, cached(), now);
+        assert_eq!(current(&s), "z");
+        assert_eq!(s.queue.len(), 1);
     }
 
     /// The UI's optimistic replay: a snapshot that has not seen the latest

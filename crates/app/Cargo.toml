@@ -10,7 +10,7 @@ mimalloc = "0.1.52"
 model = { version = "0.1.0", path = "../model" }
 player = { version = "0.1.0", path = "../player" }
 store = { version = "0.1.0", path = "../store" }
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 ytm-core = { version = "0.1.0", path = "../ytm-core" }
 # UI toolkit; glow backend only, no wgpu/accesskit to keep the binary and RSS small.
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "clipboard"] }
