@@ -55,8 +55,11 @@ satisfactory. Keep code portable, but do not test or fix other platforms yet.
   Preference: Premium Opus, then Opus itag 251, then AAC itag 140.
 - tokio runtime: 2 worker threads max.
 - `mimalloc` is the global allocator.
-- No Electron, Tauri, webview, or embedded JS runtime in the main process.
+- No Electron, Tauri, webview, or browser engine in the main process.
   `rustypipe-botguard` runs as a separate helper binary.
+- Exception: rustypipe's QuickJS interpreter (`rquickjs`) is allowed
+  in-process. It only runs YouTube's URL-decoding function, has no file or
+  network access, and costs about 1 to 2 MB. Do not add any other JS runtime.
 
 ## Dependencies
 
