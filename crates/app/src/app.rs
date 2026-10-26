@@ -98,6 +98,12 @@ impl RustleApp {
         for (_, command) in &self.pending {
             apply(&mut self.state, command, now);
         }
+        // The login screen is gone once logged in; don't keep the pasted
+        // cookies in memory after that.
+        if self.state.session == Session::LoggedIn && !self.cookies.is_empty() {
+            self.cookies.clear();
+            self.cookies.shrink_to_fit();
+        }
     }
 
     fn act(&mut self, actions: Vec<Action>) {
