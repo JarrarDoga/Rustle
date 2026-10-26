@@ -278,12 +278,26 @@ mod tests {
 
     #[test]
     fn search_and_playlist_round_trip() {
+        // Expected counts come from the fixtures themselves, so re-recording
+        // them in ytm-core does not break this test.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let fixture = ytm_core::FixtureBackend::new();
+        let want_search = rt
+            .block_on(ytm_core::MusicBackend::search(&fixture, "daft punk"))
+            .unwrap();
+        let want_focus = rt
+            .block_on(ytm_core::MusicBackend::playlist(&fixture, "PLdemo_focus"))
+            .unwrap();
+        assert!(!want_search.tracks.is_empty() && !want_focus.tracks.is_empty());
+
         let mut h = Harness::new();
-        h.client.send(1, Command::Search("lanterns".into()));
+        h.client.send(1, Command::Search("daft punk".into()));
         let s = h.wait_for("search", |s| s.search.ready().is_some());
         let view = s.search.ready().unwrap();
-        assert_eq!(view.tracks.len(), 2);
-        assert_eq!(view.results.artists.len(), 1);
+        assert_eq!(view.tracks.len(), want_search.tracks.len());
+        assert_eq!(view.results.artists.len(), want_search.artists.len());
 
         h.client
             .send(2, Command::OpenPlaylist("PLdemo_focus".into()));
@@ -293,6 +307,6 @@ mod tests {
         let Some((_, Loadable::Ready(p))) = &s.playlist else {
             unreachable!()
         };
-        assert_eq!(p.tracks.len(), 4);
+        assert_eq!(p.tracks.len(), want_focus.tracks.len());
     }
 }

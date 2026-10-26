@@ -138,6 +138,11 @@ done
 # Phase 2: sample CPU and RSS over the window.
 CPU_PCT=
 WINDOW_S=
+# Let post-first-frame startup work (fonts, fixtures) finish before the idle
+# window opens, so it measures the settled app. RSS is still sampled.
+SETTLE_S=2
+settle_end=$(($(now_us) + SETTLE_S * 1000000))
+while alive && (($(now_us) < settle_end)); do sample_rss; sleep 0.2; done
 if alive; then
     clk=$(getconf CLK_TCK)
     c0=$(cpu_ticks) t0=$(now_us) c1=$c0 t1=$t0
