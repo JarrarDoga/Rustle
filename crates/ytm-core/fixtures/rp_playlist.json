@@ -1,0 +1,849 @@
+{
+  "id": "RDCLAK5uy_n20FRYQXNt1p1wS55Nj2r14IouO5weaYU",
+  "name": "Presenting Daft Punk",
+  "thumbnail": [
+    {
+      "url": "https://yt3.googleusercontent.com/eRtwdlfWFZAS1besPx61TGdPxtN9Vcb3HUnTkKYp5Yv_964RdDxexnS7YPNu_Qg28BYKWwDgwa6tW9M=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/eRtwdlfWFZAS1besPx61TGdPxtN9Vcb3HUnTkKYp5Yv_964RdDxexnS7YPNu_Qg28BYKWwDgwa6tW9M=w120-h120-l90-rj",
+      "width": 120,
+      "height": 120
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/eRtwdlfWFZAS1besPx61TGdPxtN9Vcb3HUnTkKYp5Yv_964RdDxexnS7YPNu_Qg28BYKWwDgwa6tW9M=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/eRtwdlfWFZAS1besPx61TGdPxtN9Vcb3HUnTkKYp5Yv_964RdDxexnS7YPNu_Qg28BYKWwDgwa6tW9M=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+    }
+  ],
+  "channel": null,
+  "description": [
+    {
+      "Text": {
+        "text": "The most played hits and essential tracks."
+      }
+    }
+  ],
+  "track_count": 33,
+  "from_ytm": true,
+  "tracks": {
+    "count": 33,
+    "items": [
+      {
+        "id": "D8K90hX4PrE",
+        "name": "Technologic",
+        "duration": 176,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/D8K90hX4PrE/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lmaRLeUCKmg3Vkcj5Ybpu83QPvDg",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "K0HSD_i2DvA",
+        "name": "Around the World",
+        "duration": 242,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/K0HSD_i2DvA/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mrN-atQ6S94rADYgLlZUz24xwFwQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "FGBhQbmPwH8",
+        "name": "One More Time",
+        "duration": 322,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/FGBhQbmPwH8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n3_qY4XRLapf4YMTv5EuAp3xtbfw",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "5NV6Rdv1a3I",
+        "name": "Get Lucky (Official Audio) (feat. Pharrell Williams & Nile Rodgers)",
+        "duration": 249,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/5NV6Rdv1a3I/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mvsP8mFDRro1d2OpZBLOyPo9fHxA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "gAjR4_CbPpQ",
+        "name": "Harder, Better, Faster, Stronger",
+        "duration": 223,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/gAjR4_CbPpQ/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3krzcqw5IGYqVlEcMxMYnj_CKWBow",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "PwILkY9gRrc",
+        "name": "Da Funk",
+        "duration": 329,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/PwILkY9gRrc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kujFngyqL6PLS_A3zkHnWF539bkg",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "imBlPXbAv6E",
+        "name": "Infinity Repeating (2013 Demo) (feat. Julian Casablancas+The ...",
+        "duration": 260,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/imBlPXbAv6E/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lsPHyJOaqbkzoB498oBFzECEV_EQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "HhZaHf8RP6g",
+        "name": "Veridis Quo",
+        "duration": 407,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/HhZaHf8RP6g/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kwKnIxHHFYbd2Wn6r-bhxn_6bvUA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "L93-7vRfxNs",
+        "name": "Aerodynamic",
+        "duration": 213,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/L93-7vRfxNs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nhFF5KYrmgE7jIVPsyHThOAw_TzA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "NF-kLy44Hls",
+        "name": "Lose Yourself to Dance (Official Version)",
+        "duration": 251,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/NF-kLy44Hls/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3k7XOOLQXm2wYc1ywD4LadCdGdFUw",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "4whD6uAryMs",
+        "name": "Digital Love",
+        "duration": 302,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/4whD6uAryMs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kp7hYbibiNugifS9V3vLIt-v6m-Q",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "a5uQMwRMHcs",
+        "name": "Instant Crush (feat. Julian Casablancas)",
+        "duration": 340,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/a5uQMwRMHcs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lr_-asr943kjNKr21YiUt96WbHUA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "34Na4j8AVgA",
+        "name": "Starboy ft. Daft Punk (Official Video) (feat. Daft Punk)",
+        "duration": 274,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/34Na4j8AVgA/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nIC7d1SOq9BBgMkRglnHI-OXWXLw",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UClYV6hHlupm_S_ObS1W-DYw",
+            "name": "The Weeknd"
+          }
+        ],
+        "artist_id": "UClYV6hHlupm_S_ObS1W-DYw",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "HoQN7K6HdRw",
+        "name": "High Life",
+        "duration": 197,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/HoQN7K6HdRw/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mvsbG9JTMMMwI75ffeWcdfGmlLxQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "m4cgLL8JaVI",
+        "name": "Derezzed (from TRON: Legacy)",
+        "duration": 177,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/m4cgLL8JaVI/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kpHGXzaezSEFgmeI9-SSqO746pcQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "3yq-NFiEywo",
+        "name": "Teachers (extended mix)",
+        "duration": 174,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/3yq-NFiEywo/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n2GsmZgWGnD-_GhMpqYUSKzxhPog",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "dKJfJMMsqX4",
+        "name": "Face to Face",
+        "duration": 239,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/dKJfJMMsqX4/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nhnuEC6LuQ7E0Gp6E29uD5a0mHZA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "sOS9aOIXPEk",
+        "name": "Something About Us",
+        "duration": 229,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/sOS9aOIXPEk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ltm3_U8JuyUXrjeWnv0ab5w6zuRQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "sFZjqVnWBhc",
+        "name": "Robot Rock",
+        "duration": 197,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/sFZjqVnWBhc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lvUdqwAOob3wmdf_B8e0CKu2-8xQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "LL-gyhZVvx0",
+        "name": "Doin' it Right (Official Audio) (feat. Panda Bear)",
+        "duration": 261,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/LL-gyhZVvx0/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ldPZj1L3yuh3Tfi5xRHJSfmqnMqQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "zhl-Cs1-sG4",
+        "name": "Giorgio by Moroder (Official Audio)",
+        "duration": 554,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/zhl-Cs1-sG4/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lPaS5RkmFplRO0Z12B23hGyMp9SQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "CqZgd6-xQl8",
+        "name": "Voyager",
+        "duration": 226,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/CqZgd6-xQl8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mWglnV0CxmK1Ye2RchbPLHmQcrIA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "-2C_P2N0LA8",
+        "name": "End of Line",
+        "duration": 157,
+        "cover": [
+          {
+            "url": "https://yt3.googleusercontent.com/KaJnfZODrFtPLUHqJsoWW5tDXp9LijCKqQv80Vi7Egpq9W5DLomExELyVOIqZcmumvqCsf0LLTOlD457=w60-h60-l90-rj",
+            "width": 60,
+            "height": 60
+          },
+          {
+            "url": "https://yt3.googleusercontent.com/KaJnfZODrFtPLUHqJsoWW5tDXp9LijCKqQv80Vi7Egpq9W5DLomExELyVOIqZcmumvqCsf0LLTOlD457=w120-h120-l90-rj",
+            "width": 120,
+            "height": 120
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": {
+          "id": "MPREb_3L0yrk0Vxg5",
+          "name": "TRON: Legacy - The Complete Edition (Original Motion Picture Soundtrack)"
+        },
+        "view_count": null,
+        "track_type": "track",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "qFLhGq0060w",
+        "name": "I Feel It Coming ft. Daft Punk (Official Video)",
+        "duration": 298,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/qFLhGq0060w/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mliCEMNwacYatgjBx_v64YyEx6Iw",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UClYV6hHlupm_S_ObS1W-DYw",
+            "name": "The Weeknd"
+          }
+        ],
+        "artist_id": "UClYV6hHlupm_S_ObS1W-DYw",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "CYKekR6661o",
+        "name": "The Writing of Fragments of Time (RAM 10th Anniversary) (feat. Todd Edwards)",
+        "duration": 506,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/CYKekR6661o/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mHBJAvu6NsJs6N4D7knkgB8_wIKw",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "YiZfLvLU5Jc",
+        "name": "GLBTM (Studio Outtakes) (Official Audio)",
+        "duration": 384,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/YiZfLvLU5Jc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3m3y1eYCHHO7_KNZUkm48V1oqfkrQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "E5xZf1unC84",
+        "name": "Horizon Ouverture (Official Audio)",
+        "duration": 130,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/E5xZf1unC84/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kNYbkMxEdLRATaa7HufBT_PieegQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "sBvJUdBeY5s",
+        "name": "Horizon (Japan CD) (Official Audio)",
+        "duration": 264,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/sBvJUdBeY5s/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lS1_DO26vzvy2dn2UsOIpLgDZ-xA",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "h5Xp4v3bhO8",
+        "name": "GL (Early Take) (Official Audio) (feat. Nile Rodgers)",
+        "duration": 35,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/h5Xp4v3bhO8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lHgrBFolDIxHy0LMcHmH0YsJrPtQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "IuwwuuvnvCs",
+        "name": "Prime (2012 Unfinished) (Official Audio)",
+        "duration": 288,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/IuwwuuvnvCs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nJJgdWcOt9jjEBgNSDREkDR8MMfg",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "DSaOvIaDQSw",
+        "name": "LYTD (Vocoder Tests) (Official Audio)",
+        "duration": 131,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/DSaOvIaDQSw/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3np4_sViCvIVXFYpEeNJYSrWS1Kww",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "DuDX6wNfjqc",
+        "name": "Daft Punk - Epilogue",
+        "duration": 478,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/DuDX6wNfjqc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kGCQTFwsPMoXnJ9mp-AleK8w4LbQ",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      },
+      {
+        "id": "WLa3JlGANuU",
+        "name": "Within (Drumless Edition) (Official Lyric Video)",
+        "duration": 232,
+        "cover": [
+          {
+            "url": "https://i.ytimg.com/vi/WLa3JlGANuU/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mJJPGTFuoMCe0431MLd6Uy08pQ3w",
+            "width": 400,
+            "height": 225
+          }
+        ],
+        "artists": [
+          {
+            "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+            "name": "Daft Punk"
+          }
+        ],
+        "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+        "album": null,
+        "view_count": null,
+        "track_type": "video",
+        "track_nr": null,
+        "by_va": false
+      }
+    ],
+    "ctoken": null,
+    "endpoint": "music_browse"
+  },
+  "related_playlists": {
+    "count": 0,
+    "items": [],
+    "ctoken": null,
+    "endpoint": "browse"
+  }
+}

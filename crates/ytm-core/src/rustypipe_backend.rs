@@ -1,40 +1,663 @@
-use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use crate::{MusicBackend, Result};
+use model::{
+    AlbumRef, AlbumSummary, ArtistRef, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
+    SearchResults, StreamSource, Thumbnail, Track,
+};
+use rustypipe::cache::{CacheStorage, FileStorage};
+use rustypipe::client::{ClientType, RustyPipe};
+use rustypipe::error::{Error as RpError, ExtractionError};
+use rustypipe::model as rp;
+
+use crate::{BackendError, MusicBackend, Result};
+
+/// Upper bound on items fetched when following a paginator to the end.
+const MAX_ITEMS: usize = 5_000;
+
+const BOTGUARD_BIN: &str = "rustypipe-botguard";
+
+/// Stream formats we accept, best first: Premium Opus, Opus, AAC.
+const ITAG_PREFERENCE: [u32; 3] = [774, 251, 140];
 
 /// The real backend, built on rustypipe + rustypipe-botguard.
 pub struct RustyPipeBackend {
-    _private: (),
+    rp: RustyPipe,
+    /// False when `rustypipe-botguard` was not found. Without its PO tokens,
+    /// YouTube answers web-client stream URLs with 403.
+    botguard: bool,
 }
 
 impl RustyPipeBackend {
+    /// Builds the client with its cache under `~/.config/rustle/`.
     pub fn new() -> Result<Self> {
-        todo!("build a rustypipe::client::RustyPipe with storage under the config dir")
+        let dir =
+            config_dir().ok_or_else(|| BackendError::Extraction("no home directory".to_owned()))?;
+        Self::with_storage_dir(&dir)
+    }
+
+    fn with_storage_dir(dir: &Path) -> Result<Self> {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| BackendError::Extraction(format!("create {}: {e}", dir.display())))?;
+
+        let mut builder = RustyPipe::builder()
+            .storage_dir(dir)
+            .storage(Box::new(NoSecretsStorage(FileStorage::new(
+                dir.join("rustypipe_cache.json"),
+            ))))
+            // Error reports dump raw responses to disk, including ones made
+            // with the user's cookies.
+            .no_reporter();
+
+        // Pass the binary explicitly: rustypipe's own probe only searches PATH
+        // and silently falls back to clients that YouTube now blocks. A desktop
+        // launcher's PATH often lacks ~/.local/bin.
+        let botguard = find_botguard();
+        builder = match &botguard {
+            // Reuse session-bound PO tokens instead of running botguard for
+            // every track.
+            Some(bin) => builder.botguard_bin(bin).po_token_cache(),
+            None => builder.no_botguard(),
+        };
+        let rp = builder.build().map_err(map_error)?;
+        Ok(Self {
+            rp,
+            botguard: botguard.is_some(),
+        })
+    }
+
+    fn logged_in(&self) -> bool {
+        self.rp.query().auth_enabled(ClientType::DesktopMusic)
     }
 }
 
 impl MusicBackend for RustyPipeBackend {
-    async fn set_cookies(&self, _cookies: &str) -> Result<()> {
-        todo!()
+    async fn set_cookies(&self, cookies: &str) -> Result<()> {
+        // Both calls fetch youtube.com with the cookies and fail with
+        // `AuthError::NoLogin` if YouTube does not see a logged-in session, so
+        // a successful return means the cookies were checked.
+        let res = match parse_cookie_input(cookies) {
+            CookieInput::Header(h) => self.rp.user_auth_set_cookie(h).await,
+            CookieInput::NetscapeTxt(t) => self.rp.user_auth_set_cookie_txt(t).await,
+        };
+        res.map_err(|e| match map_error(e) {
+            BackendError::Network(m) => BackendError::Network(m),
+            _ => BackendError::Auth,
+        })
     }
 
-    async fn search(&self, _query: &str) -> Result<SearchResults> {
-        todo!()
+    async fn search(&self, query: &str) -> Result<SearchResults> {
+        // One request per type instead of `music_search_main`: rustypipe
+        // 0.11.4 misparses the main page's top-result card (artist "Song",
+        // no duration or album) and it returns only a few items per type.
+        let q = self.rp.query();
+        let (tracks, albums, artists, playlists) = tokio::try_join!(
+            q.music_search_tracks(query),
+            q.music_search_albums(query),
+            q.music_search_artists(query),
+            q.music_search_playlists(query, false),
+        )
+        .map_err(map_error)?;
+        Ok(map_search(
+            tracks.items.items,
+            albums.items.items,
+            artists.items.items,
+            playlists.items.items,
+        ))
     }
 
     async fn library_playlists(&self) -> Result<Vec<PlaylistSummary>> {
-        todo!()
+        let q = self.rp.query().authenticated();
+        let mut p = q.music_saved_playlists().await.map_err(map_error)?;
+        p.extend_limit(&q, MAX_ITEMS).await.map_err(map_error)?;
+        p.items.truncate(MAX_ITEMS);
+        Ok(p.items.into_iter().map(map_playlist_item).collect())
     }
 
-    async fn playlist(&self, _id: &str) -> Result<Playlist> {
-        todo!()
+    async fn playlist(&self, id: &str) -> Result<Playlist> {
+        let mut q = self.rp.query();
+        // Private playlists need the cookies; public ones work either way.
+        if self.logged_in() {
+            q = q.authenticated();
+        }
+        let mut pl = q.music_playlist(id).await.map_err(map_error)?;
+        pl.tracks
+            .extend_limit(&q, MAX_ITEMS)
+            .await
+            .map_err(map_error)?;
+        Ok(map_playlist(pl))
     }
 
     async fn liked_tracks(&self) -> Result<Vec<Track>> {
-        todo!()
+        let q = self.rp.query().authenticated();
+        let mut pl = q.music_liked_tracks().await.map_err(map_error)?;
+        pl.tracks
+            .extend_limit(&q, MAX_ITEMS)
+            .await
+            .map_err(map_error)?;
+        Ok(map_playlist(pl).tracks)
     }
 
-    async fn stream(&self, _track_id: &str) -> Result<StreamSource> {
-        todo!()
+    async fn stream(&self, track_id: &str) -> Result<StreamSource> {
+        let q = self.rp.query();
+        // Web clients give Opus (and Premium itag 774 when logged in) but need
+        // a PO token from botguard and URL deobfuscation. rustypipe 0.11.4's
+        // deobfuscator fails on current player JS ("could not extract sig fn
+        // name"; it then retries once a day), so fall back to the iOS client,
+        // which needs neither. Its AAC URLs work; its Opus URLs return 403.
+        if self.botguard {
+            let web = if self.logged_in() {
+                q.clone()
+                    .authenticated()
+                    .player_from_clients(track_id, &[ClientType::DesktopMusic, ClientType::Desktop])
+                    .await
+            } else {
+                q.player_from_client(track_id, ClientType::Desktop).await
+            };
+            match web {
+                Ok(player) => return map_stream(track_id, player),
+                Err(RpError::Auth(_)) => return Err(BackendError::Auth),
+                Err(RpError::Extraction(ExtractionError::NotFound { id, .. })) => {
+                    return Err(BackendError::NotFound(id));
+                }
+                Err(RpError::Extraction(_)) => {}
+                Err(e) => return Err(map_error(e)),
+            }
+        }
+        let player = q
+            .player_from_client(track_id, ClientType::Ios)
+            .await
+            .map_err(map_error)?;
+        map_stream(track_id, player)
+    }
+}
+
+/// Wraps rustypipe's JSON cache file and drops the login cookie and OAuth
+/// token from it. Cookies live in the keyring; the app passes them in through
+/// `set_cookies` on every start.
+struct NoSecretsStorage(FileStorage);
+
+impl CacheStorage for NoSecretsStorage {
+    fn write(&self, data: &str) {
+        if let Some(clean) = strip_secrets(data) {
+            self.0.write(&clean);
+        }
+    }
+
+    fn read(&self) -> Option<String> {
+        self.0.read().and_then(|d| strip_secrets(&d))
+    }
+}
+
+/// Returns the cache JSON without `auth_cookie` and `oauth_token`, or `None`
+/// if it is not a JSON object (so nothing unsanitized reaches the disk).
+fn strip_secrets(data: &str) -> Option<String> {
+    match serde_json::from_str::<serde_json::Value>(data).ok()? {
+        serde_json::Value::Object(mut map) => {
+            map.remove("auth_cookie");
+            map.remove("oauth_token");
+            Some(serde_json::Value::Object(map).to_string())
+        }
+        _ => None,
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+/// `$XDG_CONFIG_HOME/rustle`, else `~/.config/rustle` (Linux only for now).
+fn config_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home_dir().map(|h| h.join(".config")))?;
+    Some(base.join("rustle"))
+}
+
+fn find_botguard() -> Option<PathBuf> {
+    let path_dirs = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let local_bin = home_dir().map(|h| h.join(".local/bin"));
+    path_dirs
+        .into_iter()
+        .chain(local_bin)
+        .map(|d| d.join(BOTGUARD_BIN))
+        .find(|p| p.is_file())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CookieInput<'a> {
+    /// Value of a `Cookie:` request header.
+    Header(&'a str),
+    /// Body of a Netscape cookies.txt file.
+    NetscapeTxt(&'a str),
+}
+
+fn parse_cookie_input(input: &str) -> CookieInput<'_> {
+    let input = input.trim();
+    // cookies.txt lines are tab-separated; a header value never contains tabs.
+    if input.starts_with('#') || input.lines().any(|l| l.split('\t').count() >= 7) {
+        return CookieInput::NetscapeTxt(input);
+    }
+    let header = input
+        .get(..7)
+        .filter(|p| p.eq_ignore_ascii_case("cookie:"))
+        .map_or(input, |_| input[7..].trim_start());
+    CookieInput::Header(header)
+}
+
+pub(crate) fn map_error(e: RpError) -> BackendError {
+    match e {
+        RpError::Auth(_) | RpError::HttpStatus(401, _) => BackendError::Auth,
+        RpError::Extraction(ExtractionError::NotFound { id, .. }) => BackendError::NotFound(id),
+        RpError::Http(_) | RpError::HttpStatus(..) => BackendError::Network(e.to_string()),
+        RpError::Extraction(_) | RpError::Other(_) => BackendError::Extraction(e.to_string()),
+    }
+}
+
+fn map_thumbnails(thumbs: Vec<rp::Thumbnail>) -> Vec<Thumbnail> {
+    let mut out: Vec<Thumbnail> = thumbs
+        .into_iter()
+        .map(|t| Thumbnail {
+            url: t.url,
+            width: t.width,
+            height: t.height,
+        })
+        .collect();
+    out.sort_by_key(|t| (t.width, t.height));
+    out
+}
+
+fn map_artists(artists: Vec<rp::ArtistId>) -> Vec<ArtistRef> {
+    artists
+        .into_iter()
+        .map(|a| ArtistRef {
+            id: a.id,
+            name: a.name,
+        })
+        .collect()
+}
+
+fn map_track(t: rp::TrackItem) -> Track {
+    Track {
+        id: t.id,
+        title: t.name,
+        artists: map_artists(t.artists),
+        album: t.album.map(|a| AlbumRef {
+            id: a.id,
+            name: a.name,
+        }),
+        duration: t.duration.map(|s| Duration::from_secs(s.into())),
+        thumbnails: map_thumbnails(t.cover),
+    }
+}
+
+fn map_album(a: rp::AlbumItem) -> AlbumSummary {
+    AlbumSummary {
+        id: a.id,
+        name: a.name,
+        artists: map_artists(a.artists),
+        year: a.year,
+        thumbnails: map_thumbnails(a.cover),
+    }
+}
+
+fn map_artist(a: rp::ArtistItem) -> ArtistSummary {
+    ArtistSummary {
+        id: a.id,
+        name: a.name,
+        thumbnails: map_thumbnails(a.avatar),
+    }
+}
+
+fn playlist_owner(channel: Option<rp::ChannelId>, from_ytm: bool) -> Option<String> {
+    match channel {
+        Some(c) => Some(c.name),
+        // Editorial playlists have no channel.
+        None if from_ytm => Some("YouTube Music".to_owned()),
+        None => None,
+    }
+}
+
+fn map_playlist_item(p: rp::MusicPlaylistItem) -> PlaylistSummary {
+    PlaylistSummary {
+        id: p.id,
+        name: p.name,
+        owner: playlist_owner(p.channel, p.from_ytm),
+        track_count: p.track_count,
+        thumbnails: map_thumbnails(p.thumbnail),
+    }
+}
+
+fn map_playlist(mut p: rp::MusicPlaylist) -> Playlist {
+    p.tracks.items.truncate(MAX_ITEMS);
+    Playlist {
+        summary: PlaylistSummary {
+            id: p.id,
+            name: p.name,
+            owner: playlist_owner(p.channel, p.from_ytm),
+            track_count: p.track_count,
+            thumbnails: map_thumbnails(p.thumbnail),
+        },
+        tracks: p.tracks.items.into_iter().map(map_track).collect(),
+    }
+}
+
+fn map_search(
+    tracks: Vec<rp::TrackItem>,
+    albums: Vec<rp::AlbumItem>,
+    artists: Vec<rp::ArtistItem>,
+    playlists: Vec<rp::MusicPlaylistItem>,
+) -> SearchResults {
+    SearchResults {
+        tracks: tracks.into_iter().map(map_track).collect(),
+        albums: albums.into_iter().map(map_album).collect(),
+        artists: artists.into_iter().map(map_artist).collect(),
+        playlists: playlists.into_iter().map(map_playlist_item).collect(),
+    }
+}
+
+/// Picks the best audio-only stream. Skips DRM tracks and, for videos with
+/// several audio languages, prefers YouTube's default track.
+fn pick_audio(client: ClientType, streams: &[rp::AudioStream]) -> Option<&rp::AudioStream> {
+    // iOS-client Opus URLs return 403 (checked 2026-10-26, with and without
+    // PO tokens); its AAC URLs work.
+    let ios = client == ClientType::Ios;
+    let clear = |s: &&rp::AudioStream| {
+        s.drm_track_type.is_none() && !(ios && s.codec == rp::AudioCodec::Opus)
+    };
+    let default_track = |s: &&rp::AudioStream| s.track.as_ref().is_none_or(|t| t.is_default);
+    let best = |only_default: bool| {
+        ITAG_PREFERENCE.iter().find_map(|&itag| {
+            streams
+                .iter()
+                .filter(clear)
+                .filter(|s| !only_default || default_track(s))
+                .find(|s| s.itag == itag)
+        })
+    };
+    best(true).or_else(|| best(false))
+}
+
+fn map_stream(track_id: &str, player: rp::VideoPlayer) -> Result<StreamSource> {
+    let s = pick_audio(player.client_type, &player.audio_streams).ok_or_else(|| {
+        BackendError::Extraction(format!(
+            "no usable audio stream for {track_id} from {:?} client (got itags {:?})",
+            player.client_type,
+            player
+                .audio_streams
+                .iter()
+                .map(|s| s.itag)
+                .collect::<Vec<_>>()
+        ))
+    })?;
+    let codec = match s.codec {
+        rp::AudioCodec::Mp4a => AudioCodec::Aac,
+        _ => AudioCodec::Opus,
+    };
+    let duration = match s.duration_ms {
+        Some(ms) => Some(Duration::from_millis(ms.into())),
+        None if player.details.duration > 0 => {
+            Some(Duration::from_secs(player.details.duration.into()))
+        }
+        None => None,
+    };
+    Ok(StreamSource {
+        track_id: track_id.to_owned(),
+        url: s.url.clone(),
+        codec,
+        bitrate_bps: if s.average_bitrate > 0 {
+            s.average_bitrate
+        } else {
+            s.bitrate
+        },
+        content_length: s.size,
+        duration,
+        loudness_db: s.loudness_db,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use rustypipe::error::{AuthError, UnavailabilityReason};
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn auth_errors_map_to_auth() {
+        assert!(matches!(
+            map_error(RpError::Auth(AuthError::NoLogin)),
+            BackendError::Auth
+        ));
+        assert!(matches!(
+            map_error(RpError::HttpStatus(401, "unauthorized".into())),
+            BackendError::Auth
+        ));
+    }
+
+    #[test]
+    fn not_found_keeps_id() {
+        let e = RpError::Extraction(ExtractionError::NotFound {
+            id: "PLnope".to_owned(),
+            msg: "404".into(),
+        });
+        match map_error(e) {
+            BackendError::NotFound(id) => assert_eq!(id, "PLnope"),
+            other => panic!("got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn http_errors_map_to_network() {
+        assert!(matches!(
+            map_error(RpError::Http("connection reset".into())),
+            BackendError::Network(_)
+        ));
+        assert!(matches!(
+            map_error(RpError::HttpStatus(503, "unavailable".into())),
+            BackendError::Network(_)
+        ));
+    }
+
+    #[test]
+    fn other_errors_map_to_extraction() {
+        let unavailable = RpError::Extraction(ExtractionError::Unavailable {
+            reason: UnavailabilityReason::Geoblocked,
+            msg: "not in your country".to_owned(),
+        });
+        for e in [
+            unavailable,
+            RpError::Extraction(ExtractionError::InvalidData("bad json".into())),
+            RpError::Extraction(ExtractionError::Botguard("crashed".into())),
+            RpError::Other("no clients".into()),
+        ] {
+            assert!(matches!(map_error(e), BackendError::Extraction(_)));
+        }
+    }
+
+    #[test]
+    fn cookie_input_detection() {
+        assert_eq!(
+            parse_cookie_input("SID=abc; HSID=def"),
+            CookieInput::Header("SID=abc; HSID=def")
+        );
+        assert_eq!(
+            parse_cookie_input("Cookie: SID=abc; HSID=def\n"),
+            CookieInput::Header("SID=abc; HSID=def")
+        );
+        let txt = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n";
+        assert_eq!(
+            parse_cookie_input(txt),
+            CookieInput::NetscapeTxt(txt.trim())
+        );
+        let no_header = ".youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc";
+        assert_eq!(
+            parse_cookie_input(no_header),
+            CookieInput::NetscapeTxt(no_header)
+        );
+    }
+
+    #[test]
+    fn cache_file_never_holds_cookies() {
+        let data = json!({
+            "clients": {"desktop": {"data": {"version": "2.2025"}}},
+            "auth_cookie": {"cookie": "SID=secret"},
+            "oauth_token": {"access_token": "secret"},
+        })
+        .to_string();
+        let clean = strip_secrets(&data).unwrap();
+        assert!(!clean.contains("secret"));
+        assert!(clean.contains("2.2025"));
+        assert_eq!(strip_secrets("not json"), None);
+    }
+
+    fn audio(itag: u32, codec: &str, extra: serde_json::Value) -> rp::AudioStream {
+        let mut v = json!({
+            "url": format!("https://example.invalid/{itag}"),
+            "itag": itag,
+            "bitrate": 160_000,
+            "average_bitrate": 130_000,
+            "size": 4_000_000,
+            "duration_ms": 240_000,
+            "mime": "audio/webm",
+            "format": if codec == "opus" { "webm" } else { "m4a" },
+            "codec": codec,
+            "loudness_db": 5.5,
+            "drm_systems": [],
+        });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn stream_preference_order() {
+        let aac = audio(140, "mp4a", json!({}));
+        let opus = audio(251, "opus", json!({}));
+        let premium = audio(774, "opus", json!({}));
+        let low_opus = audio(250, "opus", json!({}));
+
+        let web = ClientType::Desktop;
+        let all = [aac.clone(), low_opus.clone(), opus.clone(), premium.clone()];
+        assert_eq!(pick_audio(web, &all).unwrap().itag, 774);
+        let no_premium = [aac.clone(), opus.clone(), low_opus.clone()];
+        assert_eq!(pick_audio(web, &no_premium).unwrap().itag, 251);
+        assert_eq!(pick_audio(web, &[low_opus.clone(), aac]).unwrap().itag, 140);
+        assert!(pick_audio(web, &[low_opus]).is_none());
+    }
+
+    #[test]
+    fn ios_client_never_picks_opus() {
+        let streams = [audio(251, "opus", json!({})), audio(140, "mp4a", json!({}))];
+        assert_eq!(pick_audio(ClientType::Ios, &streams).unwrap().itag, 140);
+        assert!(pick_audio(ClientType::Ios, &streams[..1]).is_none());
+    }
+
+    #[test]
+    fn stream_skips_drm_and_dubbed_tracks() {
+        let drm = audio(774, "opus", json!({"drm_track_type": "audio"}));
+        let dubbed = audio(
+            251,
+            "opus",
+            json!({"url": "https://example.invalid/dub",
+                   "track": {"id": "de.3", "lang_name": "German", "is_default": false}}),
+        );
+        let original = audio(
+            251,
+            "opus",
+            json!({"url": "https://example.invalid/orig",
+                   "track": {"id": "en.4", "lang_name": "English", "is_default": true}}),
+        );
+        let streams = [drm, dubbed, original];
+        let picked = pick_audio(ClientType::Desktop, &streams).unwrap();
+        assert_eq!(picked.url, "https://example.invalid/orig");
+    }
+
+    #[test]
+    fn stream_source_fields() {
+        let player: rp::VideoPlayer = serde_json::from_value(json!({
+            "details": {
+                "id": "abcdefghijk", "duration": 241, "thumbnail": [],
+                "channel_id": "UC1", "keywords": [], "is_live": false,
+                "is_live_content": false,
+            },
+            "video_streams": [], "video_only_streams": [],
+            "audio_streams": [audio(140, "mp4a", json!({}))],
+            "subtitles": [], "expires_in_seconds": 21540,
+            "valid_until": "2026-10-26T12:00:00Z", "preview_frames": [],
+            "client_type": "desktop", "visitor_data": null,
+        }))
+        .unwrap();
+        let s = map_stream("abcdefghijk", player).unwrap();
+        assert_eq!(
+            s,
+            StreamSource {
+                track_id: "abcdefghijk".to_owned(),
+                url: "https://example.invalid/140".to_owned(),
+                codec: AudioCodec::Aac,
+                bitrate_bps: 130_000,
+                content_length: 4_000_000,
+                duration: Some(Duration::from_secs(240)),
+                loudness_db: Some(5.5),
+            }
+        );
+    }
+
+    /// The model JSON fixtures are the mapping of the recorded rustypipe
+    /// responses. Run with `UPDATE_FIXTURES=1` after re-recording.
+    #[test]
+    fn recorded_responses_map_to_fixtures() {
+        /// Written by `spike record`: one page per search type.
+        #[derive(serde::Deserialize)]
+        struct RecordedSearch {
+            tracks: Vec<rp::TrackItem>,
+            albums: Vec<rp::AlbumItem>,
+            artists: Vec<rp::ArtistItem>,
+            playlists: Vec<rp::MusicPlaylistItem>,
+        }
+        let s: RecordedSearch =
+            serde_json::from_str(include_str!("../fixtures/rp_search.json")).unwrap();
+        let playlist: rp::MusicPlaylist =
+            serde_json::from_str(include_str!("../fixtures/rp_playlist.json")).unwrap();
+        let search = map_search(s.tracks, s.albums, s.artists, s.playlists);
+        let playlist = map_playlist(playlist);
+
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        if std::env::var_os("UPDATE_FIXTURES").is_some() {
+            let write = |name: &str, json: String| {
+                std::fs::write(dir.join(name), json + "\n").unwrap();
+            };
+            write(
+                "search.json",
+                serde_json::to_string_pretty(&search).unwrap(),
+            );
+            write(
+                "playlist.json",
+                serde_json::to_string_pretty(&playlist).unwrap(),
+            );
+            return;
+        }
+        let want_search: SearchResults =
+            serde_json::from_str(include_str!("../fixtures/search.json")).unwrap();
+        let want_playlist: Playlist =
+            serde_json::from_str(include_str!("../fixtures/playlist.json")).unwrap();
+        assert_eq!(search, want_search);
+        assert_eq!(playlist, want_playlist);
+
+        assert!(!search.tracks.is_empty());
+        assert!(!search.albums.is_empty());
+        assert!(!search.artists.is_empty());
+        assert!(playlist.tracks.len() > 10);
+        for t in search.tracks.iter().chain(&playlist.tracks) {
+            assert_eq!(t.id.len(), 11, "{t:?}");
+            assert!(!t.artists.is_empty(), "{t:?}");
+            assert!(t.thumbnails.windows(2).all(|w| w[0].width <= w[1].width));
+        }
     }
 }
