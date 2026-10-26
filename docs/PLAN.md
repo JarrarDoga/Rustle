@@ -70,6 +70,13 @@ sections. Create the view files below.
 | packaging | `packaging/` | RPM for Nobara |
 | memory | crates the profile points at | Profile RSS on the real GPU and cut it, if Batch 2 measurements show a need |
 
+## UI/UX overhaul (scheduled after Batch 3, or sooner)
+
+The Batch 1 shell is functional but rough. Plan a dedicated batch that starts
+with a design pass (layout, typography, spacing, states, the playlist and
+player views) against screenshots of Spotifast and the Spotify desktop app,
+then splits the agreed design across workers by view.
+
 ## Decisions and user steps
 
 1. **Decided 2026-10-26: keep rustypipe's QuickJS interpreter in-process.**
