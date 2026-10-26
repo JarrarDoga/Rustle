@@ -85,6 +85,9 @@ pub(crate) struct Output {
     pushed: u64,
     pub(crate) ctl: Arc<Ctl>,
     playing: bool,
+    /// Whether the stream itself runs: while playing, and while paused
+    /// until the callback has dropped the samples of the last flush.
+    running: bool,
 }
 
 /// Picks a stream config: the source rate if the device supports it, f32
@@ -151,6 +154,7 @@ impl Output {
             pushed: 0,
             ctl,
             playing: false,
+            running: false,
         })
     }
 
@@ -180,7 +184,38 @@ impl Output {
     /// the next pushed sample will have.
     pub(crate) fn flush(&mut self) -> u64 {
         self.ctl.discard_to.store(self.pushed, Ordering::Release);
+        self.sync();
         self.pushed
+    }
+
+    /// Samples of the last flush still in the ring.
+    fn has_stale(&self) -> bool {
+        self.ctl.popped() < self.ctl.discard_to.load(Ordering::Acquire)
+    }
+
+    /// No room for another frame of new audio.
+    pub(crate) fn full(&self) -> bool {
+        self.free() == 0 && !self.has_stale()
+    }
+
+    /// Paused, but the stream still runs to drop flushed samples.
+    pub(crate) fn settling(&self) -> bool {
+        self.running && !self.playing
+    }
+
+    /// Starts or stops the stream to match `playing` and the flush state.
+    /// The engine calls this on each pass, so a settling stream stops soon
+    /// after the callback has caught up.
+    pub(crate) fn sync(&mut self) {
+        let run = self.playing || self.has_stale();
+        if run != self.running {
+            let _ = if run {
+                self.stream.play()
+            } else {
+                self.stream.pause()
+            };
+            self.running = run;
+        }
     }
 
     /// Samples pushed but not yet played.
@@ -202,16 +237,17 @@ impl Output {
 
     pub(crate) fn play(&mut self) {
         self.ctl.paused.store(false, Ordering::Relaxed);
-        let _ = self.stream.play();
         self.playing = true;
+        self.sync();
     }
 
     /// Pauses in hardware where possible, so the callback thread sleeps; the
-    /// flag covers devices that cannot.
+    /// flag covers devices that cannot, and the time spent dropping flushed
+    /// samples.
     pub(crate) fn pause(&mut self) {
         self.ctl.paused.store(true, Ordering::Relaxed);
-        let _ = self.stream.pause();
         self.playing = false;
+        self.sync();
     }
 }
 
@@ -265,11 +301,7 @@ struct Renderer {
 
 impl Renderer {
     fn fill<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
-        if self.ctl.paused.load(Ordering::Relaxed) {
-            data.fill(T::EQUILIBRIUM);
-            return;
-        }
-        // Drop samples queued before the last flush.
+        // Drop samples queued before the last flush, paused or not.
         let target = self.ctl.discard_to.load(Ordering::Acquire);
         if self.popped < target {
             let n = ((target - self.popped) as usize).min(self.consumer.slots());
@@ -277,6 +309,11 @@ impl Renderer {
                 chunk.commit_all();
                 self.popped += n as u64;
             }
+        }
+        if self.ctl.paused.load(Ordering::Relaxed) {
+            data.fill(T::EQUILIBRIUM);
+            self.ctl.popped.store(self.popped, Ordering::Release);
+            return;
         }
 
         let want = self.gain.total();
@@ -364,6 +401,21 @@ mod tests {
         r.fill(&mut out);
         assert_eq!(out, [0.25, 0.25, 0.0, 0.0]);
         assert_eq!(r.ctl.popped(), 8);
+    }
+
+    #[test]
+    fn paused_still_drops_flushed_samples() {
+        let (mut p, mut r, _) = renderer(8);
+        for _ in 0..4 {
+            p.push(1.0).unwrap();
+        }
+        r.ctl.discard_to.store(2, Ordering::Release);
+        r.ctl.paused.store(true, Ordering::Relaxed);
+        let mut out = [9.0f32; 2];
+        r.fill(&mut out);
+        assert_eq!(out, [0.0, 0.0]);
+        assert_eq!(r.ctl.popped(), 2);
+        assert_eq!(r.consumer.slots(), 2);
     }
 
     #[test]
