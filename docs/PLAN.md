@@ -70,12 +70,37 @@ sections. Create the view files below.
 | packaging | `packaging/` | RPM for Nobara |
 | memory | crates the profile points at | Profile RSS on the real GPU and cut it, if Batch 2 measurements show a need |
 
-## UI/UX overhaul (scheduled after Batch 3, or sooner)
+## UI batch: Direction D ("One playlist")
 
-The Batch 1 shell is functional but rough. Plan a dedicated batch that starts
-with a design pass (layout, typography, spacing, states, the playlist and
-player views) against screenshots of Spotifast and the Spotify desktop app,
-then splits the agreed design across workers by view.
+The design is done: `docs/design/README.md` (brief and rules) and the 12 D
+boards in `docs/design/png/`. Every worker reads the README and D-Tokens
+first, and compares a screenshot of its screen against its board before it
+reports done.
+
+Integrator step:
+- `theme.rs`: every D-Tokens value as a constant (neutrals, sizes, radii,
+  spacing), the 5 Inter text styles, and the accent math (OKLCH L 0.80,
+  chroma clamped 0.09 to 0.11, 14% player tint, text-1 fallback).
+- Fonts and icons: embed Inter 400/500/600 (OFL) and add `egui-phosphor`.
+- `state.rs`: main playlist id, `Scope` (all / filter / range), filter chips,
+  quick filter, sort, selection, and the new commands.
+- Stub files for every path below, and the new shell layout in `app.rs`
+  (rail, browse panel, content, spine, player bar) calling those stubs.
+
+| Worker | Owns | Scope | Board |
+| --- | --- | --- | --- |
+| track-table | `widgets/track_table.rs` | The one table every song list uses: `show_rows`, columns per screen (Last played or In Everything), row states default / hover / selected / playing, like on hover, scroll-to-row for Locate | D-Tokens track rows |
+| collection | `views/collection.rs` | Page header with scope-aware Shuffle / Play in order, filter field with removable chips, "Not heard in 3 months", sort menu, local filtering | D-Collection, D-Filter |
+| spine | `widgets/spine.rs` | 20 px strip, 4 px segment per ~10 songs colored by art, viewport box, playing line, filter ticks, click to jump, drag to select a range with resize handles | D-Range |
+| browse | `views/browse.rs`, `views/rail.rs` | Icon rail; Artists / Albums panel with counts, playing marker, click to filter | D-Collection |
+| player | `views/player_bar.rs`, `views/queue.rs` | Player bar with 14% accent tint, Locate and "#412", "Playing from" scope chip, seek and volume; queue drawer with autoplay toggle | D-Queue, D-States buffering |
+| pages | `views/search.rs`, `views/album.rs`, `views/artist.rs` | Search, Album, Artist pages on the shared table with the In Everything column and Add buttons | D-Search, D-Album, D-Artist |
+| onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, loading skeleton, offline and session-expired banners | D-Login, D-LoginError, D-Empty, D-States |
+| data | `crates/store/`, `thumbs.rs` | Play history table (last played, not heard in 3 months), dominant art color per track computed once and cached, artist and album counts | none |
+
+Batch 3 changes because of this design: the `home` worker is cut (no Home
+screen, no charts or shelves). `library-edit` becomes "add to and remove from
+the main playlist", which the pages worker's Add buttons call.
 
 ## Decisions and user steps
 

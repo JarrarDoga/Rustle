@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en" style="--dc-editor-backdrop: #171717; --dc-editor-hatch-ink: rgba(250,249,245,.07); touch-action: none; overscroll-behavior: none; --dc-chrome-unit: 7.784810126582279px;"><head><style>
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts — keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  </style>
+
+
+<meta charset="utf-8">
+<title>Rustle D · Search</title>
+<base href="/appifact/D-Search.dc.html">
+
+
+
+<style>x-dc{display:none!important}</style>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet" data-dc-tpl="1"><style data-dc-tpl="2">
+body{margin:0}
+.rd,.rd *{box-sizing:border-box}
+.rd button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+.rd input{font:inherit}
+.ell{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ib{color:#9C9DA3;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.ib:hover{color:#ECECEE;background:#1A1B1E}
+.pb .ib:hover{background:transparent}
+.tab{height:44px;font-size:13px;font-weight:500;color:#9C9DA3;border-bottom:2px solid transparent}
+.tab:hover{color:#ECECEE}
+.tab.on{color:#ECECEE;font-weight:600;border-bottom-color:#ECECEE}
+.thead,.trow{display:grid;grid-template-columns:44px minmax(0,3fr) minmax(0,2fr) minmax(0,2fr) 104px 24px 40px;align-items:center;column-gap:12px;padding:0 8px}
+.trow{height:32px;border-radius:2px}
+.trow:hover,.trow.is-hover{background:#1A1B1E}
+.trow.is-sel{background:#232428}
+.trow .pi{display:none}
+.trow:hover .num,.trow.is-hover .num{display:none}
+.trow:hover .pi,.trow.is-hover .pi{display:flex}
+.trow .lk,.trow .add{visibility:hidden}
+.trow:hover .lk,.trow.is-hover .lk,.trow.is-liked .lk,.trow:hover .add,.trow.is-hover .add{visibility:visible}
+.add:hover{background:#232428;color:#ECECEE}
+</style><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..300&amp;display=swap" data-font-variant=""><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,700..900&amp;display=swap" data-font-variant=""><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@1,100..900&amp;display=swap" data-font-variant=""><style data-dc-editor-style="">body:not([data-dc-editor-overlay-hidden]) [data-dc-editor-hover][data-dc-editor-hover-stroke]:not([data-dc-editor-selected]){filter:drop-shadow(0 0 calc(1*var(--dc-chrome-unit,1px)) color-mix(in srgb,#2a78d6 90%,transparent)) drop-shadow(0 0 calc(2*var(--dc-chrome-unit,1px)) color-mix(in srgb,#2a78d6 55%,transparent))!important;}body:not([data-dc-editor-overlay-hidden]):not([data-dc-editor-proxy="copy"]) [data-dc-editor-dragging],body:not([data-dc-editor-overlay-hidden]):not([data-dc-editor-proxy]) [data-dc-dragging],body[data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]{outline:calc(2*var(--dc-chrome-unit,1px)) solid #2a78d6!important;outline-offset:calc(-1*var(--dc-chrome-unit,1px))!important;opacity:0.55!important;}body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging],body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging],body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]>*,body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]>*{opacity:0!important;outline:none!important;}[data-dc-editor-drag-proxy],[data-dc-editor-drag-proxy] *{pointer-events:none!important;}body[data-dc-editor-on]:not([data-dc-editor-tool="interact"]) *{cursor:default!important;user-select:none!important;}body[data-dc-editor-on]:not([data-dc-editor-tool="interact"]) :not([data-dc-editor-overlay-root]):not([data-dc-editor-overlay-root] *){pointer-events:auto!important;transition:none!important;animation:none!important;}body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]){pointer-events:none!important;}body[data-dc-editor-move] :not([data-dc-editor-overlay-root]):not([data-dc-editor-overlay-root] *){pointer-events:auto!important;transition:none!important;animation-duration:0s!important;animation-delay:0s!important;}body[data-dc-editor-on][data-dc-editor-tool="rect"] *,body[data-dc-editor-on][data-dc-editor-tool="frame"] *,body[data-dc-editor-on][data-dc-editor-tool="grid"] *,body[data-dc-editor-on][data-dc-editor-tool="oval"] *,body[data-dc-editor-on][data-dc-editor-tool="arrow"] *,body[data-dc-editor-on][data-dc-editor-tool="line"] *{cursor:crosshair!important;}body[data-dc-editor-on][data-dc-editor-tool="text"] *{cursor:text!important;}body[data-dc-editor-on][data-dc-editor-tool="draw"] *{cursor:url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2216%22%20height=%2216%22%20viewBox=%220%200%2016%2016%22%3E%3Cpath%20d=%22M2%2014l1-4%208-8a2.1%202.1%200%200%201%203%203l-8%208-4%201z%22%20fill=%22%23333%22%20stroke=%22%23fff%22%20stroke-width=%221%22/%3E%3C/svg%3E') 1 15, crosshair!important;}body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent],body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent] *{cursor:grab!important;}body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent]:active,body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent]:active *{cursor:grabbing!important;}body[data-dc-editor-on] [data-dc-editor-editing][contenteditable][contenteditable],body[data-dc-editor-on] [data-dc-editor-editing][contenteditable][contenteditable] *,body[data-dc-editor-on] [data-dc-editor-svg-editing]{cursor:text!important;}body[data-dc-editor-on] [data-dc-editor-editing="import"]{outline:none!important;}html:not([data-dc-canvas]):has(body[data-dc-editor-on]:not([data-dc-capturing]) .sc-host){background:var(--dc-editor-backdrop,#ededeb);}html:not([data-dc-canvas]) body[data-dc-editor-on]:not([data-dc-capturing]):has(.sc-host){background:var(--dc-editor-backdrop,#ededeb);}html:not([data-dc-canvas]) body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host){min-height:calc(100vh - var(--dc-editor-host-vpad,0px));}html:not([data-dc-canvas]) body[data-dc-editor-on]:not([data-dc-capturing]) .sc-host:not(.sc-host .sc-host){background:var(--dc-editor-host-bg,#fff);}html[data-dc-frameless],html[data-dc-frameless] body[data-dc-editor-on],html[data-dc-frameless] body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host){background:transparent!important;min-height:0!important;}html:has(body[data-dc-capturing]),body[data-dc-capturing]{transition:none!important;}html[data-dc-canvas]{overflow:hidden;}html[data-dc-canvas] body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host)::before{content:"";position:absolute;left:-100000px;top:-100000px;width:200000px;height:200000px;pointer-events:none;background:repeating-linear-gradient(45deg,var(--dc-editor-hatch-ink,rgba(0,0,0,.05)) 0 8px,transparent 8px 16px);clip-path:polygon(0 0,100% 0,100% 50%,50% 50%,50% 100%,0 100%);}</style></head>
+<body>
+<div id="dc-root"><div class="sc-host" data-sc-name="D-Search"><div data-dc-tpl="3" class="rd" style="width: 1280px; height: 800px; background: rgb(17, 18, 20); color: rgb(236, 236, 238); font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; line-height: 1.3; display: flex; flex-direction: column; overflow: hidden;">
+
+  <div data-dc-tpl="4" style="flex: 1 1 0%; min-height: 0px; display: flex;">
+
+    <nav data-dc-tpl="5" aria-label="App" style="width: 52px; flex-shrink: 0; border-right: 1px solid rgb(38, 39, 43); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 0px;">
+      <div data-dc-tpl="6" style="width: 16px; height: 16px; background: rgb(113, 207, 218); border-radius: 8px 1px; margin-bottom: 16px;"></div>
+      <button data-dc-tpl="7" class="ib" aria-label="Collection" style="width: 36px; height: 36px;"><svg data-dc-tpl="8" width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="9" d="M32,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H40A8,8,0,0,1,32,64Zm8,72H160a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16Zm72,48H40a8,8,0,0,0,0,16h72a8,8,0,0,0,0-16Zm135.66-57.7a8,8,0,0,1-10,5.36L208,122.75V192a32.05,32.05,0,1,1-16-27.69V112a8,8,0,0,1,10.3-7.66l40,12A8,8,0,0,1,247.66,126.3ZM192,192a16,16,0,1,0-16,16A16,16,0,0,0,192,192Z"></path></svg></button>
+      <button data-dc-tpl="10" aria-label="Search" aria-current="page" style="width: 36px; height: 36px; border-radius: 4px; background: rgb(35, 36, 40); color: rgb(236, 236, 238); display: flex; align-items: center; justify-content: center;"><svg data-dc-tpl="11" width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="12" d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"></path></svg></button>
+      <button data-dc-tpl="13" class="ib" aria-label="Library" style="width: 36px; height: 36px;"><svg data-dc-tpl="14" width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="15" d="M231.65,194.55,198.46,36.75a16,16,0,0,0-19-12.39L132.65,34.42a16.08,16.08,0,0,0-12.3,19l33.19,157.8A16,16,0,0,0,169.16,224a16.25,16.25,0,0,0,3.38-.36l46.81-10.06A16.09,16.09,0,0,0,231.65,194.55ZM136,50.15c0-.06,0-.09,0-.09l46.8-10,3.33,15.87L139.33,66Zm6.62,31.47,46.82-10.05,3.34,15.9L146,97.53Zm6.64,31.57,46.82-10.06,13.3,63.24-46.82,10.06ZM216,197.94l-46.8,10-3.33-15.87L212.67,182,216,197.85C216,197.91,216,197.94,216,197.94ZM104,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16h48a16,16,0,0,0,16-16V48A16,16,0,0,0,104,32ZM56,48h48V64H56Zm0,32h48v96H56Zm48,128H56V192h48v16Z"></path></svg></button>
+    </nav>
+
+    <main data-dc-tpl="16" style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column; overflow: hidden;">
+      <header data-dc-tpl="17" style="height: 64px; flex-shrink: 0; border-bottom: 1px solid rgb(38, 39, 43); display: flex; align-items: center; padding: 0px 20px;">
+        <label data-dc-tpl="18" style="width: 560px; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0px 6px 0px 12px; border: 1px solid rgb(58, 59, 64); border-radius: 4px; outline: rgb(113, 207, 218) solid 2px; outline-offset: 2px;">
+          <svg data-dc-tpl="19" width="16" height="16" viewBox="0 0 256 256" fill="#9C9DA3" aria-hidden="true" style="flex-shrink: 0;"><path data-dc-tpl="20" d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"></path></svg>
+          <input data-dc-tpl="21" aria-label="Search YouTube Music" value="saint juni" style="flex: 1 1 0%; min-width: 0px; height: 100%; background: transparent; border: 0px; outline: none; color: rgb(236, 236, 238); font-size: 13px;">
+          <button data-dc-tpl="22" class="ib" aria-label="Clear search" style="width: 24px; height: 24px;"><svg data-dc-tpl="23" width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="24" d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg></button>
+        </label>
+      </header>
+
+      <div data-dc-tpl="25" role="tablist" aria-label="Result type" style="height: 44px; flex-shrink: 0; border-bottom: 1px solid rgb(38, 39, 43); display: flex; align-items: flex-end; gap: 20px; padding: 0px 20px;">
+        <button data-dc-tpl="26" role="tab" aria-selected="true" class="tab on">Songs</button>
+        <button data-dc-tpl="27" role="tab" aria-selected="false" class="tab">Albums</button>
+        <button data-dc-tpl="28" role="tab" aria-selected="false" class="tab">Artists</button>
+        <button data-dc-tpl="29" role="tab" aria-selected="false" class="tab">Playlists</button>
+      </div>
+
+      <div data-dc-tpl="30" style="flex: 1 1 0%; min-height: 0px; display: flex; flex-direction: column; overflow: hidden; padding: 0px 8px 0px 12px;">
+        <div data-dc-tpl="31" class="thead" style="height: 28px; flex-shrink: 0; border-bottom: 1px solid rgb(38, 39, 43); font-size: 11px; font-weight: 500; color: rgb(130, 131, 138);">
+          <span data-dc-tpl="32" style="text-align: right;">#</span><span data-dc-tpl="33">Title</span><span data-dc-tpl="34">Artist</span><span data-dc-tpl="35">Album</span><span data-dc-tpl="36">In Everything</span><span data-dc-tpl="37"></span><span data-dc-tpl="38" style="text-align: right;">Time</span>
+        </div>
+        <div data-dc-tpl="39" style="display: flex; flex-direction: column; padding-top: 4px;">
+          
+            <div data-dc-tpl="41" class="trow is-liked">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">1</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(207, 214, 220);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 28%; top: 10%; width: 44%; height: 80%; border-radius: 999px; background: rgb(143, 163, 181);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Glass Hours (feat. Nadia Ferreira)</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Small Hours, Vol. II</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">409</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(113, 207, 218);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">4:07</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">2</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(61, 91, 73);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 15%; top: 45%; width: 70%; height: 70%; border-radius: 50%; background: rgb(220, 227, 198);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Small Hours</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Small Hours, Vol. II</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">420</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:29</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow is-liked">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">3</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(244, 241, 232);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 0px; width: 100%; height: 30%; border-radius: 0px; background: rgb(242, 210, 59);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 10%; top: 60%; width: 80%; height: 2%; border-radius: 0px; background: rgb(31, 31, 31);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Halogen</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Halogen</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">204</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(113, 207, 218);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">4:10</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">4</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(78, 107, 87);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 34%; top: 26%; width: 32%; height: 44%; border-radius: 8px; background: rgb(242, 198, 109);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Juniper Smoke</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Small Hours, Vol. I</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">59</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">5:02</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow is-hover ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">5</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(185, 211, 194);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 50%; width: 100%; height: 50%; border-radius: 0px; background: rgb(47, 93, 74);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 40%; top: 30%; width: 20%; height: 20%; border-radius: 50%; background: rgb(247, 241, 225);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Saint Elsewhere</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Juniper Lane</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Elsewhere</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                
+                  <button data-dc-tpl="59" class="add" style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0px 8px 0px 6px; border: 1px solid rgb(58, 59, 64); border-radius: 4px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="60" width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="61" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>Add</button>
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:11</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">6</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(244, 241, 232);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 0px; width: 100%; height: 30%; border-radius: 0px; background: rgb(242, 210, 59);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 10%; top: 60%; width: 80%; height: 2%; border-radius: 0px; background: rgb(31, 31, 31);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Bright Ugly Morning (feat. Wren &amp; Ash)</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Halogen</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">206</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:58</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">7</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(92, 75, 107);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 25%; top: 35%; width: 50%; height: 30%; border-radius: 50%; background: rgb(217, 205, 230);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Moth Season</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Moth Season</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">560</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:40</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">8</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(242, 230, 217);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; border-radius: 2px; background: rgb(194, 69, 45);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Paper Saints</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Junie Kovač</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Paper Saints (EP)</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                
+                  <button data-dc-tpl="59" class="add" style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0px 8px 0px 6px; border: 1px solid rgb(58, 59, 64); border-radius: 4px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="60" width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="61" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>Add</button>
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">2:52</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">9</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(244, 241, 232);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 0px; width: 100%; height: 30%; border-radius: 0px; background: rgb(242, 210, 59);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 10%; top: 60%; width: 80%; height: 2%; border-radius: 0px; background: rgb(31, 31, 31);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Last Train Home From Wherever You Are</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Halogen</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">207</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">6:21</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow is-sel ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">10</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(138, 110, 75);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 46%; top: 10%; width: 8%; height: 80%; border-radius: 999px; background: rgb(241, 227, 198);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Juniper (Acoustic)</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Juniper (Acoustic) (Single)</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                
+                  <button data-dc-tpl="59" class="add" style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0px 8px 0px 6px; border: 1px solid rgb(58, 59, 64); border-radius: 4px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="60" width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="61" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>Add</button>
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:02</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow is-liked">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">11</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(78, 107, 87);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 34%; top: 26%; width: 32%; height: 44%; border-radius: 8px; background: rgb(242, 198, 109);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Wintering</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Small Hours, Vol. I</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">57</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(113, 207, 218);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:48</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">12</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(43, 43, 43);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 12%; top: 12%; width: 76%; height: 76%; border-radius: 0px; background: rgb(59, 59, 59);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 30%; top: 40%; width: 40%; height: 20%; border-radius: 0px; background: rgb(231, 226, 214);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Cinder (Live at the Paper Mill)</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Live at the Paper Mill</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">289</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">5:44</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">13</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(244, 241, 232);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 0px; width: 100%; height: 30%; border-radius: 0px; background: rgb(242, 210, 59);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 10%; top: 60%; width: 80%; height: 2%; border-radius: 0px; background: rgb(31, 31, 31);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Room Tone</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Halogen</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">205</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">2:47</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">14</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(31, 42, 68);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 0px; top: 70%; width: 100%; height: 30%; border-radius: 0px; background: rgb(224, 183, 103);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 20%; top: 20%; width: 16%; height: 16%; border-radius: 50%; background: rgb(241, 241, 241);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Ghosts of Saint Jude</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">The Juniper Line</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Late Arrivals</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                
+                  <button data-dc-tpl="59" class="add" style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0px 8px 0px 6px; border: 1px solid rgb(58, 59, 64); border-radius: 4px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="60" width="12" height="12" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="61" d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>Add</button>
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">4:19</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">15</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(92, 75, 107);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 25%; top: 35%; width: 50%; height: 30%; border-radius: 50%; background: rgb(217, 205, 230);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Velvet Static</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Moth Season</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">563</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:27</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">16</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(92, 75, 107);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 25%; top: 35%; width: 50%; height: 30%; border-radius: 50%; background: rgb(217, 205, 230);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Underpass</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Moth Season</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">562</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">2:58</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow ">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">17</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(240, 184, 96);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; border-radius: 50%; background: rgb(255, 242, 214);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 49%; top: 20%; width: 2%; height: 40%; border-radius: 0px; background: rgb(122, 78, 18);"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Sundial</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Sundial (Single)</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">301</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:05</span></span>
+            </div>
+          
+            <div data-dc-tpl="41" class="trow is-liked">
+              <div data-dc-tpl="42" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="43" class="num"><span class="sc-interp">18</span></span>
+                <svg data-dc-tpl="44" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="45" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+              </div>
+              <div data-dc-tpl="46" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="47" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(61, 91, 73);">
+                  <div data-dc-tpl="48" style="position: absolute; left: 15%; top: 45%; width: 70%; height: 70%; border-radius: 50%; background: rgb(220, 227, 198);"></div>
+                  <div data-dc-tpl="49" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="50" class="ell" style="font-size: 13px; font-weight: 500;"><span class="sc-interp">Telephone Lines Under Snow</span></span>
+              </div>
+              <span data-dc-tpl="51" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Saint Juniper</span></span>
+              <span data-dc-tpl="52" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);"><span class="sc-interp">Small Hours, Vol. II</span></span>
+              <div data-dc-tpl="53" style="display: flex; align-items: center;">
+                
+                  <span data-dc-tpl="55" style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(156, 157, 163);"><svg data-dc-tpl="56" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="In Everything" role="img"><path data-dc-tpl="57" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg>#<span class="sc-interp">455</span></span>
+                
+                
+              </div>
+              <button data-dc-tpl="62" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(113, 207, 218);">
+                <svg data-dc-tpl="63" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="64" d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"></path></svg>
+              </button>
+              <span data-dc-tpl="65" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">4:16</span></span>
+            </div>
+          
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer data-dc-tpl="66" aria-label="Player" class="pb" style="height: 56px; flex-shrink: 0; background: rgb(30, 44, 48); display: grid; grid-template-columns: 320px minmax(0px, 1fr) 320px; align-items: center; gap: 24px; padding: 0px 12px 0px 8px;">
+    <div data-dc-tpl="67" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+      <div data-dc-tpl="68" style="position: relative; width: 40px; height: 40px; border-radius: 2px; overflow: hidden; flex-shrink: 0; background: rgb(30, 92, 99);">
+        <div data-dc-tpl="69" style="position: absolute; left: 36%; top: 20%; width: 28%; height: 50%; border-radius: 999px 999px 0px 0px; background: rgb(233, 223, 200);"></div>
+        <div data-dc-tpl="70" style="position: absolute; left: 28%; top: 70%; width: 44%; height: 4%; border-radius: 0px; background: rgb(18, 63, 68);"></div>
+      </div>
+      <div data-dc-tpl="71" style="flex: 1 1 0%; min-width: 0px; display: flex; flex-direction: column; gap: 1px;">
+        <span data-dc-tpl="72" class="ell" style="font-size: 13px; font-weight: 500;">The Long Way Back to Ordinary Things</span>
+        <span data-dc-tpl="73" class="ell" style="font-size: 12px; color: rgb(156, 157, 163);">The Vellum Hours · #412</span>
+      </div>
+      <button data-dc-tpl="74" class="ib" aria-label="Show playing song in list" style="width: 28px; height: 28px; flex-shrink: 0;"><svg data-dc-tpl="75" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="76" d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm8,191.63V184a8,8,0,0,0-16,0v31.63A88.13,88.13,0,0,1,40.37,136H72a8,8,0,0,0,0-16H40.37A88.13,88.13,0,0,1,120,40.37V72a8,8,0,0,0,16,0V40.37A88.13,88.13,0,0,1,215.63,120H184a8,8,0,0,0,0,16h31.63A88.13,88.13,0,0,1,136,215.63Z"></path></svg></button>
+    </div>
+    <div data-dc-tpl="77" style="display: flex; align-items: center; gap: 16px; min-width: 0px;">
+      <div data-dc-tpl="78" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        <button data-dc-tpl="79" class="ib" aria-label="Shuffle, on" style="width: 28px; height: 28px; color: rgb(113, 207, 218);"><svg data-dc-tpl="80" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="81" d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"></path></svg></button>
+        <button data-dc-tpl="82" class="ib" aria-label="Previous" style="width: 28px; height: 28px; color: rgb(236, 236, 238);"><svg data-dc-tpl="83" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="84" d="M208,47.88V208.12a16,16,0,0,1-24.43,13.43L64,146.77V216a8,8,0,0,1-16,0V40a8,8,0,0,1,16,0v69.23L183.57,34.45A15.95,15.95,0,0,1,208,47.88Z"></path></svg></button>
+        <button data-dc-tpl="85" aria-label="Pause" style="width: 32px; height: 32px; border-radius: 4px; background: rgb(113, 207, 218); color: rgb(17, 18, 20); display: flex; align-items: center; justify-content: center;"><svg data-dc-tpl="86" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="87" d="M216,48V208a16,16,0,0,1-16,16H160a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h40A16,16,0,0,1,216,48ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z"></path></svg></button>
+        <button data-dc-tpl="88" class="ib" aria-label="Next" style="width: 28px; height: 28px; color: rgb(236, 236, 238);"><svg data-dc-tpl="89" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="90" d="M208,40V216a8,8,0,0,1-16,0V146.77L72.43,221.55A15.95,15.95,0,0,1,48,208.12V47.88A15.95,15.95,0,0,1,72.43,34.45L192,109.23V40a8,8,0,0,1,16,0Z"></path></svg></button>
+        <button data-dc-tpl="91" class="ib" aria-label="Repeat" style="width: 28px; height: 28px;"><svg data-dc-tpl="92" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="93" d="M24,128A72.08,72.08,0,0,1,96,56H204.69L194.34,45.66a8,8,0,0,1,11.32-11.32l24,24a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L204.69,72H96a56.06,56.06,0,0,0-56,56,8,8,0,0,1-16,0Zm200-8a8,8,0,0,0-8,8,56.06,56.06,0,0,1-56,56H51.31l10.35-10.34a8,8,0,0,0-11.32-11.32l-24,24a8,8,0,0,0,0,11.32l24,24a8,8,0,0,0,11.32-11.32L51.31,200H160a72.08,72.08,0,0,0,72-72A8,8,0,0,0,224,120Z"></path></svg></button>
+      </div>
+      <span data-dc-tpl="94" style="font-size: 11px; font-weight: 500; color: rgb(156, 157, 163); flex-shrink: 0;">1:48</span>
+      <div data-dc-tpl="95" style="flex: 1 1 0%; height: 3px; border-radius: 2px; background: rgb(63, 75, 78); position: relative;"><div data-dc-tpl="96" style="position: absolute; left: 0px; top: 0px; bottom: 0px; width: 35%; border-radius: 2px; background: rgb(113, 207, 218);"></div></div>
+      <span data-dc-tpl="97" style="font-size: 11px; font-weight: 500; color: rgb(156, 157, 163); flex-shrink: 0;">5:12</span>
+    </div>
+    <div data-dc-tpl="98" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0px;">
+      <button data-dc-tpl="99" aria-label="Playing from" style="height: 26px; min-width: 0px; display: flex; align-items: center; gap: 6px; padding: 0px 10px; border: 1px solid rgb(63, 75, 78); border-radius: 4px; font-size: 12px; color: rgb(236, 236, 238);"><svg data-dc-tpl="100" width="12" height="12" viewBox="0 0 256 256" fill="#71CFDA" aria-hidden="true" style="flex-shrink: 0;"><path data-dc-tpl="101" d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"></path></svg><span data-dc-tpl="102" class="ell">Everything · 1,535</span></button>
+      <button data-dc-tpl="103" class="ib" aria-label="Queue" style="width: 28px; height: 28px; flex-shrink: 0;"><svg data-dc-tpl="104" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="105" d="M32,64a8,8,0,0,1,8-8H216a8,8,0,0,1,0,16H40A8,8,0,0,1,32,64Zm104,56H40a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Zm0,64H40a8,8,0,0,0,0,16h96a8,8,0,0,0,0-16Zm112-24a8,8,0,0,1-3.76,6.78l-64,40A8,8,0,0,1,168,200V120a8,8,0,0,1,12.24-6.78l64,40A8,8,0,0,1,248,160Zm-23.09,0L184,134.43v51.14Z"></path></svg></button>
+      <button data-dc-tpl="106" class="ib" aria-label="Mute" style="width: 28px; height: 28px; flex-shrink: 0;"><svg data-dc-tpl="107" width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="108" d="M155.51,24.81a8,8,0,0,0-8.42.88L77.25,80H32A16,16,0,0,0,16,96v64a16,16,0,0,0,16,16H77.25l69.84,54.31A8,8,0,0,0,160,224V32A8,8,0,0,0,155.51,24.81ZM32,96H72v64H32ZM144,207.64,88,164.09V91.91l56-43.55Zm54-106.08a40,40,0,0,1,0,52.88,8,8,0,0,1-12-10.58,24,24,0,0,0,0-31.72,8,8,0,0,1,12-10.58ZM248,128a79.9,79.9,0,0,1-20.37,53.34,8,8,0,0,1-11.92-10.67,64,64,0,0,0,0-85.33,8,8,0,1,1,11.92-10.67A79.83,79.83,0,0,1,248,128Z"></path></svg></button>
+      <div data-dc-tpl="109" style="width: 72px; flex-shrink: 0; height: 3px; border-radius: 2px; background: rgb(63, 75, 78); position: relative;"><div data-dc-tpl="110" style="position: absolute; left: 0px; top: 0px; bottom: 0px; width: 70%; border-radius: 2px; background: rgb(236, 236, 238);"></div></div>
+    </div>
+  </footer></div></div></div>
+
+
+
+</body></html>

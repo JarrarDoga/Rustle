@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en" style="--dc-editor-backdrop: #171717; --dc-editor-hatch-ink: rgba(250,249,245,.07); touch-action: none; overscroll-behavior: none; --dc-chrome-unit: 7.784810126582279px;"><head><style>
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts — keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  </style>
+
+
+<meta charset="utf-8">
+<title>Rustle D · Tokens and states</title>
+<base href="/appifact/D-Tokens.dc.html">
+
+
+
+<style>x-dc{display:none!important}</style>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet" data-dc-tpl="1"><style data-dc-tpl="2">
+body{margin:0}
+.rd,.rd *{box-sizing:border-box}
+.rd button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+.ell{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.h2{margin:0 0 2px;font-size:11px;font-weight:500;color:#82838A;letter-spacing:0.04em;text-transform:uppercase}
+.trow{display:grid;grid-template-columns:32px minmax(0,1fr) 20px 34px;align-items:center;column-gap:10px;height:32px;padding:0 8px;border-radius:2px}
+.trow:hover,.trow.is-hover{background:#1A1B1E}
+.trow.is-sel{background:#232428}
+.trow .pi,.trow .spk{display:none}
+.trow:hover .num,.trow.is-hover .num,.trow.is-play .num{display:none}
+.trow:hover .pi,.trow.is-hover .pi{display:flex}
+.trow.is-play .spk{display:flex}
+.trow.is-play:hover .spk{display:none}
+.trow .lk{visibility:hidden}
+.trow:hover .lk,.trow.is-hover .lk,.trow.is-liked .lk{visibility:visible}
+</style><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..300&amp;display=swap" data-font-variant=""><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,700..900&amp;display=swap" data-font-variant=""><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@1,100..900&amp;display=swap" data-font-variant=""><style data-dc-editor-style="">body:not([data-dc-editor-overlay-hidden]) [data-dc-editor-hover][data-dc-editor-hover-stroke]:not([data-dc-editor-selected]){filter:drop-shadow(0 0 calc(1*var(--dc-chrome-unit,1px)) color-mix(in srgb,#2a78d6 90%,transparent)) drop-shadow(0 0 calc(2*var(--dc-chrome-unit,1px)) color-mix(in srgb,#2a78d6 55%,transparent))!important;}body:not([data-dc-editor-overlay-hidden]):not([data-dc-editor-proxy="copy"]) [data-dc-editor-dragging],body:not([data-dc-editor-overlay-hidden]):not([data-dc-editor-proxy]) [data-dc-dragging],body[data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]{outline:calc(2*var(--dc-chrome-unit,1px)) solid #2a78d6!important;outline-offset:calc(-1*var(--dc-chrome-unit,1px))!important;opacity:0.55!important;}body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging],body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging],body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]>*,body[data-dc-editor-proxy="move"]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]>*{opacity:0!important;outline:none!important;}[data-dc-editor-drag-proxy],[data-dc-editor-drag-proxy] *{pointer-events:none!important;}body[data-dc-editor-on]:not([data-dc-editor-tool="interact"]) *{cursor:default!important;user-select:none!important;}body[data-dc-editor-on]:not([data-dc-editor-tool="interact"]) :not([data-dc-editor-overlay-root]):not([data-dc-editor-overlay-root] *){pointer-events:auto!important;transition:none!important;animation:none!important;}body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]),body[data-dc-editor-on][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-editor-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-dragging]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]),body[data-dc-editor-move][data-dc-editor-brk]:not([data-dc-editor-overlay-hidden]) [data-dc-drag-follower]:not([data-dc-editor-overlay-root]) :not([data-dc-editor-overlay-root]){pointer-events:none!important;}body[data-dc-editor-move] :not([data-dc-editor-overlay-root]):not([data-dc-editor-overlay-root] *){pointer-events:auto!important;transition:none!important;animation-duration:0s!important;animation-delay:0s!important;}body[data-dc-editor-on][data-dc-editor-tool="rect"] *,body[data-dc-editor-on][data-dc-editor-tool="frame"] *,body[data-dc-editor-on][data-dc-editor-tool="grid"] *,body[data-dc-editor-on][data-dc-editor-tool="oval"] *,body[data-dc-editor-on][data-dc-editor-tool="arrow"] *,body[data-dc-editor-on][data-dc-editor-tool="line"] *{cursor:crosshair!important;}body[data-dc-editor-on][data-dc-editor-tool="text"] *{cursor:text!important;}body[data-dc-editor-on][data-dc-editor-tool="draw"] *{cursor:url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2216%22%20height=%2216%22%20viewBox=%220%200%2016%2016%22%3E%3Cpath%20d=%22M2%2014l1-4%208-8a2.1%202.1%200%200%201%203%203l-8%208-4%201z%22%20fill=%22%23333%22%20stroke=%22%23fff%22%20stroke-width=%221%22/%3E%3C/svg%3E') 1 15, crosshair!important;}body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent],body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent] *{cursor:grab!important;}body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent]:active,body[data-dc-editor-on]:not([data-dc-editor-tool]) [data-drags-parent]:active *{cursor:grabbing!important;}body[data-dc-editor-on] [data-dc-editor-editing][contenteditable][contenteditable],body[data-dc-editor-on] [data-dc-editor-editing][contenteditable][contenteditable] *,body[data-dc-editor-on] [data-dc-editor-svg-editing]{cursor:text!important;}body[data-dc-editor-on] [data-dc-editor-editing="import"]{outline:none!important;}html:not([data-dc-canvas]):has(body[data-dc-editor-on]:not([data-dc-capturing]) .sc-host){background:var(--dc-editor-backdrop,#ededeb);}html:not([data-dc-canvas]) body[data-dc-editor-on]:not([data-dc-capturing]):has(.sc-host){background:var(--dc-editor-backdrop,#ededeb);}html:not([data-dc-canvas]) body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host){min-height:calc(100vh - var(--dc-editor-host-vpad,0px));}html:not([data-dc-canvas]) body[data-dc-editor-on]:not([data-dc-capturing]) .sc-host:not(.sc-host .sc-host){background:var(--dc-editor-host-bg,#fff);}html[data-dc-frameless],html[data-dc-frameless] body[data-dc-editor-on],html[data-dc-frameless] body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host){background:transparent!important;min-height:0!important;}html:has(body[data-dc-capturing]),body[data-dc-capturing]{transition:none!important;}html[data-dc-canvas]{overflow:hidden;}html[data-dc-canvas] body[data-dc-editor-on] .sc-host:not(.sc-host .sc-host)::before{content:"";position:absolute;left:-100000px;top:-100000px;width:200000px;height:200000px;pointer-events:none;background:repeating-linear-gradient(45deg,var(--dc-editor-hatch-ink,rgba(0,0,0,.05)) 0 8px,transparent 8px 16px);clip-path:polygon(0 0,100% 0,100% 50%,50% 50%,50% 100%,0 100%);}</style></head>
+<body>
+<div id="dc-root"><div class="sc-host" data-sc-name="D-Tokens"><div data-dc-tpl="3" class="rd" style="width: 1040px; height: 920px; background: rgb(17, 18, 20); color: rgb(236, 236, 238); font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; line-height: 1.3; padding: 32px; display: flex; flex-direction: column; gap: 24px; overflow: hidden;">
+
+  <div data-dc-tpl="4" style="display: flex; align-items: baseline; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid rgb(38, 39, 43);">
+    <h1 data-dc-tpl="5" style="margin: 0px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em;">D · One playlist</h1>
+    <span data-dc-tpl="6" style="font-size: 13px; color: rgb(156, 157, 163);">B structure and neutrals, C adaptive accent. Tokens and states.</span>
+  </div>
+
+  <div data-dc-tpl="7" style="flex: 1 1 0%; min-height: 0px; display: grid; grid-template-columns: repeat(3, minmax(0px, 1fr)); gap: 24px;">
+
+    <div data-dc-tpl="8" style="display: flex; flex-direction: column; gap: 22px; min-width: 0px;">
+      <section data-dc-tpl="9" style="display: flex; flex-direction: column; gap: 6px;">
+        <h2 data-dc-tpl="10" class="h2">Neutrals (fixed)</h2>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(17, 18, 20); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">bg</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#111214</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">every region, one fill</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(26, 27, 30); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">surface-2</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#1A1B1E</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">hover</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(35, 36, 40); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">surface-3</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#232428</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">selected, active, chips</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(38, 39, 43); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">stroke</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#26272B</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">region edges, table rules</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(58, 59, 64); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">stroke-2</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#3A3B40</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">inputs, secondary buttons</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(236, 236, 238); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">text-1</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#ECECEE</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">primary text</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(156, 157, 163); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">text-2</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#9C9DA3</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">secondary, icons</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(130, 131, 138); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">text-3</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#82838A</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">captions, index (not on tint)</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(17, 18, 20); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">on-accent</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#111214</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">text on accent</span></span>
+          </div>
+        
+          <div data-dc-tpl="12" style="display: flex; align-items: center; gap: 10px; height: 24px;">
+            <div data-dc-tpl="13" style="width: 22px; height: 22px; border-radius: 2px; background: rgb(240, 122, 106); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px; flex-shrink: 0;"></div>
+            <span data-dc-tpl="14" style="font-size: 13px; font-weight: 500; width: 82px; flex-shrink: 0;"><span class="sc-interp">danger</span></span>
+            <span data-dc-tpl="15" style="font-size: 11px; color: rgb(156, 157, 163); width: 58px; flex-shrink: 0;"><span class="sc-interp">#F07A6A</span></span>
+            <span data-dc-tpl="16" class="ell" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">errors, expired session</span></span>
+          </div>
+        
+      </section>
+
+      <section data-dc-tpl="17" style="display: flex; flex-direction: column; gap: 8px;">
+        <h2 data-dc-tpl="18" class="h2">Accent (from now-playing art)</h2>
+        <p data-dc-tpl="19" style="margin: 0px; font-size: 12px; color: rgb(156, 157, 163); line-height: 1.45;">Dominant art hue at OKLCH L 0.80, chroma clamped 0.09 to 0.11. Hover L 0.86, pressed L 0.72. Tint = accent at 14% over bg (player bar only). Track = text-1 at 16% over tint. Times on tint use text-2. No art (sign in, nothing playing): accent falls back to text-1.</p>
+        <div data-dc-tpl="20" style="display: flex; gap: 8px; font-size: 11px; color: rgb(130, 131, 138);">
+          <span data-dc-tpl="21" style="width: 24px;">Art</span><span data-dc-tpl="22" style="width: 96px;">accent</span><span data-dc-tpl="23">tint</span>
+        </div>
+        
+          <div data-dc-tpl="25" style="display: flex; align-items: center; gap: 8px;">
+            <div data-dc-tpl="26" style="position: relative; width: 24px; height: 24px; border-radius: 2px; overflow: hidden; flex-shrink: 0; background: rgb(30, 92, 99);">
+              <div data-dc-tpl="27" style="position: absolute; left: 36%; top: 20%; width: 28%; height: 50%; border-radius: 999px 999px 0px 0px; background: rgb(233, 223, 200);"></div>
+              <div data-dc-tpl="28" style="position: absolute; left: 28%; top: 70%; width: 44%; height: 4%; border-radius: 0px; background: rgb(18, 63, 68);"></div>
+            </div>
+            <div data-dc-tpl="29" style="width: 96px; display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="30" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(113, 207, 218);"></div><span data-dc-tpl="31" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#71CFDA</span></span></div>
+            <div data-dc-tpl="32" style="display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="33" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(30, 44, 48); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px;"></div><span data-dc-tpl="34" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#1E2C30</span></span></div>
+          </div>
+        
+          <div data-dc-tpl="25" style="display: flex; align-items: center; gap: 8px;">
+            <div data-dc-tpl="26" style="position: relative; width: 24px; height: 24px; border-radius: 2px; overflow: hidden; flex-shrink: 0; background: rgb(207, 214, 220);">
+              <div data-dc-tpl="27" style="position: absolute; left: 28%; top: 10%; width: 44%; height: 80%; border-radius: 999px; background: rgb(143, 163, 181);"></div>
+              <div data-dc-tpl="28" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+            </div>
+            <div data-dc-tpl="29" style="width: 96px; display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="30" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(141, 196, 244);"></div><span data-dc-tpl="31" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#8DC4F4</span></span></div>
+            <div data-dc-tpl="32" style="display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="33" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(34, 43, 51); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px;"></div><span data-dc-tpl="34" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#222B33</span></span></div>
+          </div>
+        
+          <div data-dc-tpl="25" style="display: flex; align-items: center; gap: 8px;">
+            <div data-dc-tpl="26" style="position: relative; width: 24px; height: 24px; border-radius: 2px; overflow: hidden; flex-shrink: 0; background: rgb(32, 28, 61);">
+              <div data-dc-tpl="27" style="position: absolute; left: 16%; top: 16%; width: 48%; height: 48%; border-radius: 50%; background: rgb(232, 73, 124);"></div>
+              <div data-dc-tpl="28" style="position: absolute; left: 50%; top: 50%; width: 32%; height: 32%; border-radius: 50%; background: rgb(246, 160, 77);"></div>
+            </div>
+            <div data-dc-tpl="29" style="width: 96px; display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="30" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(250, 159, 180);"></div><span data-dc-tpl="31" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#FA9FB4</span></span></div>
+            <div data-dc-tpl="32" style="display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="33" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(50, 38, 42); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px;"></div><span data-dc-tpl="34" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#32262A</span></span></div>
+          </div>
+        
+          <div data-dc-tpl="25" style="display: flex; align-items: center; gap: 8px;">
+            <div data-dc-tpl="26" style="position: relative; width: 24px; height: 24px; border-radius: 2px; overflow: hidden; flex-shrink: 0; background: rgb(227, 174, 58);">
+              <div data-dc-tpl="27" style="position: absolute; left: 0px; top: 28%; width: 100%; height: 10%; border-radius: 0px; background: rgb(30, 30, 30);"></div>
+              <div data-dc-tpl="28" style="position: absolute; left: 0px; top: 50%; width: 100%; height: 20%; border-radius: 0px; background: rgb(30, 30, 30);"></div>
+            </div>
+            <div data-dc-tpl="29" style="width: 96px; display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="30" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(224, 183, 103);"></div><span data-dc-tpl="31" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#E0B767</span></span></div>
+            <div data-dc-tpl="32" style="display: flex; align-items: center; gap: 6px;"><div data-dc-tpl="33" style="width: 18px; height: 18px; border-radius: 2px; background: rgb(46, 41, 32); outline: rgb(58, 59, 64) solid 1px; outline-offset: -1px;"></div><span data-dc-tpl="34" style="font-size: 11px; color: rgb(156, 157, 163);"><span class="sc-interp">#2E2920</span></span></div>
+          </div>
+        
+      </section>
+
+      <section data-dc-tpl="35" style="display: flex; flex-direction: column; gap: 4px;">
+        <h2 data-dc-tpl="36" class="h2">Facet row · default / hover / selected</h2>
+        <div data-dc-tpl="37" style="display: flex; flex-direction: column; border: 1px solid rgb(38, 39, 43); padding: 4px 0px;">
+          <button data-dc-tpl="38" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0px 16px; color: rgb(156, 157, 163); font-size: 13px;"><span data-dc-tpl="39" class="ell" style="flex: 1 1 0%;">Hollow Coast</span><span data-dc-tpl="40" style="font-size: 11px; color: rgb(130, 131, 138);">29</span></button>
+          <button data-dc-tpl="41" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0px 16px; background: rgb(26, 27, 30); color: rgb(236, 236, 238); font-size: 13px;"><span data-dc-tpl="42" class="ell" style="flex: 1 1 0%;">Low Tide Radio</span><span data-dc-tpl="43" style="font-size: 11px; color: rgb(130, 131, 138);">27</span></button>
+          <button data-dc-tpl="44" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0px 16px; background: rgb(35, 36, 40); color: rgb(236, 236, 238); font-size: 13px; font-weight: 600;"><span data-dc-tpl="45" class="ell" style="flex: 1 1 0%;">Saint Juniper</span><svg data-dc-tpl="46" width="12" height="12" viewBox="0 0 256 256" fill="#8DC4F4" aria-label="Playing" role="img"><path data-dc-tpl="47" d="M168,32V224a8,8,0,0,1-12.91,6.31L85.25,176H40a16,16,0,0,1-16-16V96A16,16,0,0,1,40,80H85.25l69.84-54.31A8,8,0,0,1,168,32Zm32,64a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V104A8,8,0,0,0,200,96Zm32-16a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,232,80Z"></path></svg><span data-dc-tpl="48" style="font-size: 11px; font-weight: 400; color: rgb(130, 131, 138);">41</span></button>
+        </div>
+      </section>
+    </div>
+
+    <div data-dc-tpl="49" style="display: flex; flex-direction: column; gap: 20px; min-width: 0px;">
+      <section data-dc-tpl="50" style="display: flex; flex-direction: column; gap: 9px;">
+        <h2 data-dc-tpl="51" class="h2">Type · Inter</h2>
+        <div data-dc-tpl="52" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span data-dc-tpl="53" style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em;">Everything</span><span data-dc-tpl="54" style="font-size: 11px; color: rgb(130, 131, 138); text-align: right;">22 · 600 · page title</span></div>
+        <div data-dc-tpl="55" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span data-dc-tpl="56" style="font-size: 16px; font-weight: 600; letter-spacing: -0.01em;">Top songs</span><span data-dc-tpl="57" style="font-size: 11px; color: rgb(130, 131, 138); text-align: right;">16 · 600 · section</span></div>
+        <div data-dc-tpl="58" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span data-dc-tpl="59" style="font-size: 13px; font-weight: 500;">Northbound</span><span data-dc-tpl="60" style="font-size: 11px; color: rgb(130, 131, 138); text-align: right;">13 · 500 · row, nav, button</span></div>
+        <div data-dc-tpl="61" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span data-dc-tpl="62" style="font-size: 12px; color: rgb(156, 157, 163);">Hollow Coast</span><span data-dc-tpl="63" style="font-size: 11px; color: rgb(130, 131, 138); text-align: right;">12 · 400 · secondary, chips</span></div>
+        <div data-dc-tpl="64" style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span data-dc-tpl="65" style="font-size: 11px; font-weight: 500; color: rgb(130, 131, 138);">3:41</span><span data-dc-tpl="66" style="font-size: 11px; color: rgb(130, 131, 138); text-align: right;">11 · 500 · caption, header</span></div>
+      </section>
+
+      <section data-dc-tpl="67" style="display: flex; flex-direction: column; gap: 6px;">
+        <h2 data-dc-tpl="68" class="h2">Spacing</h2>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">4</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 16px;"></div>
+          </div>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">8</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 32px;"></div>
+          </div>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">12</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 48px;"></div>
+          </div>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">16</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 64px;"></div>
+          </div>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">20</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 80px;"></div>
+          </div>
+        
+          <div data-dc-tpl="70" style="display: flex; align-items: center; gap: 12px; height: 14px;">
+            <span data-dc-tpl="71" style="font-size: 11px; color: rgb(156, 157, 163); width: 20px; text-align: right;"><span class="sc-interp">24</span></span>
+            <div data-dc-tpl="72" style="height: 8px; border-radius: 1px; background: rgb(236, 236, 238); width: 96px;"></div>
+          </div>
+        
+      </section>
+
+      <section data-dc-tpl="73" style="display: flex; flex-direction: column; gap: 8px;">
+        <h2 data-dc-tpl="74" class="h2">Radius</h2>
+        <div data-dc-tpl="75" style="display: flex; gap: 16px;">
+          <div data-dc-tpl="76" style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div data-dc-tpl="77" style="width: 40px; height: 40px; background: rgb(35, 36, 40); border: 1px solid rgb(58, 59, 64);"></div><span data-dc-tpl="78" style="font-size: 11px; color: rgb(156, 157, 163);">0 region</span></div>
+          <div data-dc-tpl="79" style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div data-dc-tpl="80" style="width: 40px; height: 40px; background: rgb(35, 36, 40); border: 1px solid rgb(58, 59, 64); border-radius: 2px;"></div><span data-dc-tpl="81" style="font-size: 11px; color: rgb(156, 157, 163);">2 row, art</span></div>
+          <div data-dc-tpl="82" style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div data-dc-tpl="83" style="width: 40px; height: 40px; background: rgb(35, 36, 40); border: 1px solid rgb(58, 59, 64); border-radius: 4px;"></div><span data-dc-tpl="84" style="font-size: 11px; color: rgb(156, 157, 163);">4 control</span></div>
+          <div data-dc-tpl="85" style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><div data-dc-tpl="86" style="width: 40px; height: 40px; background: rgb(35, 36, 40); border: 1px solid rgb(58, 59, 64); border-radius: 50%;"></div><span data-dc-tpl="87" style="font-size: 11px; color: rgb(156, 157, 163);">full artist</span></div>
+        </div>
+      </section>
+
+      <section data-dc-tpl="88" style="display: flex; flex-direction: column; gap: 5px;">
+        <h2 data-dc-tpl="89" class="h2">Sizes and strokes</h2>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">App rail</span></span><span data-dc-tpl="93"><span class="sc-interp">52</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Facet panel</span></span><span data-dc-tpl="93"><span class="sc-interp">232</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Page header</span></span><span data-dc-tpl="93"><span class="sc-interp">64</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Filter row / field</span></span><span data-dc-tpl="93"><span class="sc-interp">48 / 32</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Table header</span></span><span data-dc-tpl="93"><span class="sc-interp">28</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Track row (art 24)</span></span><span data-dc-tpl="93"><span class="sc-interp">32</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Facet row</span></span><span data-dc-tpl="93"><span class="sc-interp">28</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Button / icon button</span></span><span data-dc-tpl="93"><span class="sc-interp">32 / 28</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Player bar (art 40)</span></span><span data-dc-tpl="93"><span class="sc-interp">56</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Spine width / segment</span></span><span data-dc-tpl="93"><span class="sc-interp">20 / 4</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Viewport bracket min</span></span><span data-dc-tpl="93"><span class="sc-interp">12</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Stroke / focus ring</span></span><span data-dc-tpl="93"><span class="sc-interp">1px / 2px accent</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Seek, volume track</span></span><span data-dc-tpl="93"><span class="sc-interp">3px</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Banner (offline, expired)</span></span><span data-dc-tpl="93"><span class="sc-interp">40</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Queue drawer / row (art 32)</span></span><span data-dc-tpl="93"><span class="sc-interp">360 / 44</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Artist avatar / album card</span></span><span data-dc-tpl="93"><span class="sc-interp">112 / ~159</span></span>
+          </div>
+        
+          <div data-dc-tpl="91" style="display: flex; justify-content: space-between; gap: 8px; font-size: 12px;">
+            <span data-dc-tpl="92" style="color: rgb(156, 157, 163);"><span class="sc-interp">Sign-in card</span></span><span data-dc-tpl="93"><span class="sc-interp">480</span></span>
+          </div>
+        
+      </section>
+    </div>
+
+    <div data-dc-tpl="94" style="display: flex; flex-direction: column; gap: 20px; min-width: 0px;">
+      <section data-dc-tpl="95" style="display: flex; flex-direction: column; gap: 5px;">
+        <h2 data-dc-tpl="96" class="h2">Track row</h2>
+        
+          <div data-dc-tpl="98" style="display: flex; flex-direction: column; gap: 2px;">
+            <span data-dc-tpl="99" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">Default</span></span>
+            <div data-dc-tpl="100" class="trow " style="margin: 0px -8px;">
+              <div data-dc-tpl="101" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="102" class="num"><span class="sc-interp">407</span></span>
+                <svg data-dc-tpl="103" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="104" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+                <svg data-dc-tpl="105" class="spk" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="Playing" role="img"><path data-dc-tpl="106" d="M168,32V224a8,8,0,0,1-12.91,6.31L85.25,176H40a16,16,0,0,1-16-16V96A16,16,0,0,1,40,80H85.25l69.84-54.31A8,8,0,0,1,168,32Zm32,64a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V104A8,8,0,0,0,200,96Zm32-16a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,232,80Z"></path></svg>
+              </div>
+              <div data-dc-tpl="107" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="108" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(141, 182, 200);">
+                  <div data-dc-tpl="109" style="position: absolute; left: 20%; top: 12%; width: 60%; height: 60%; border-radius: 50%; background: rgb(243, 234, 214);"></div>
+                  <div data-dc-tpl="110" style="position: absolute; left: 0px; top: 60%; width: 100%; height: 40%; border-radius: 0px; background: rgb(94, 143, 166);"></div>
+                </div>
+                <span data-dc-tpl="111" class="ell" style="font-size: 13px; font-weight: 500; color: rgb(236, 236, 238);"><span class="sc-interp">Ferris</span></span>
+              </div>
+              <button data-dc-tpl="112" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="113" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="114" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="115" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">2:58</span></span>
+            </div>
+          </div>
+        
+          <div data-dc-tpl="98" style="display: flex; flex-direction: column; gap: 2px;">
+            <span data-dc-tpl="99" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">Hover · index becomes play, like appears</span></span>
+            <div data-dc-tpl="100" class="trow is-hover" style="margin: 0px -8px;">
+              <div data-dc-tpl="101" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="102" class="num"><span class="sc-interp">409</span></span>
+                <svg data-dc-tpl="103" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="104" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+                <svg data-dc-tpl="105" class="spk" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="Playing" role="img"><path data-dc-tpl="106" d="M168,32V224a8,8,0,0,1-12.91,6.31L85.25,176H40a16,16,0,0,1-16-16V96A16,16,0,0,1,40,80H85.25l69.84-54.31A8,8,0,0,1,168,32Zm32,64a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V104A8,8,0,0,0,200,96Zm32-16a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,232,80Z"></path></svg>
+              </div>
+              <div data-dc-tpl="107" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="108" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(207, 214, 220);">
+                  <div data-dc-tpl="109" style="position: absolute; left: 28%; top: 10%; width: 44%; height: 80%; border-radius: 999px; background: rgb(143, 163, 181);"></div>
+                  <div data-dc-tpl="110" style="position: absolute; left: 0px; top: 0px; width: 0px; height: 0px; border-radius: 0px; background: transparent;"></div>
+                </div>
+                <span data-dc-tpl="111" class="ell" style="font-size: 13px; font-weight: 500; color: rgb(236, 236, 238);"><span class="sc-interp">Glass Hours (feat. Nadia Ferreira)</span></span>
+              </div>
+              <button data-dc-tpl="112" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="113" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="114" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="115" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">4:07</span></span>
+            </div>
+          </div>
+        
+          <div data-dc-tpl="98" style="display: flex; flex-direction: column; gap: 2px;">
+            <span data-dc-tpl="99" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">Selected</span></span>
+            <div data-dc-tpl="100" class="trow is-sel is-liked" style="margin: 0px -8px;">
+              <div data-dc-tpl="101" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="102" class="num"><span class="sc-interp">415</span></span>
+                <svg data-dc-tpl="103" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="104" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+                <svg data-dc-tpl="105" class="spk" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="Playing" role="img"><path data-dc-tpl="106" d="M168,32V224a8,8,0,0,1-12.91,6.31L85.25,176H40a16,16,0,0,1-16-16V96A16,16,0,0,1,40,80H85.25l69.84-54.31A8,8,0,0,1,168,32Zm32,64a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V104A8,8,0,0,0,200,96Zm32-16a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,232,80Z"></path></svg>
+              </div>
+              <div data-dc-tpl="107" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="108" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(227, 174, 58);">
+                  <div data-dc-tpl="109" style="position: absolute; left: 0px; top: 28%; width: 100%; height: 10%; border-radius: 0px; background: rgb(30, 30, 30);"></div>
+                  <div data-dc-tpl="110" style="position: absolute; left: 0px; top: 50%; width: 100%; height: 20%; border-radius: 0px; background: rgb(30, 30, 30);"></div>
+                </div>
+                <span data-dc-tpl="111" class="ell" style="font-size: 13px; font-weight: 500; color: rgb(236, 236, 238);"><span class="sc-interp">Low Signal</span></span>
+              </div>
+              <button data-dc-tpl="112" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(113, 207, 218);">
+                <svg data-dc-tpl="113" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="114" d="M240,102c0,70-103.79,126.66-108.21,129a8,8,0,0,1-7.58,0C119.79,228.66,16,172,16,102A62.07,62.07,0,0,1,78,40c20.65,0,38.73,8.88,50,23.89C139.27,48.88,157.35,40,178,40A62.07,62.07,0,0,1,240,102Z"></path></svg>
+              </button>
+              <span data-dc-tpl="115" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">3:22</span></span>
+            </div>
+          </div>
+        
+          <div data-dc-tpl="98" style="display: flex; flex-direction: column; gap: 2px;">
+            <span data-dc-tpl="99" style="font-size: 11px; color: rgb(130, 131, 138);"><span class="sc-interp">Playing · speaker, title in accent 600</span></span>
+            <div data-dc-tpl="100" class="trow is-play" style="margin: 0px -8px;">
+              <div data-dc-tpl="101" style="display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: rgb(130, 131, 138);">
+                <span data-dc-tpl="102" class="num"><span class="sc-interp">412</span></span>
+                <svg data-dc-tpl="103" class="pi" width="12" height="12" viewBox="0 0 256 256" fill="#ECECEE" aria-hidden="true"><path data-dc-tpl="104" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"></path></svg>
+                <svg data-dc-tpl="105" class="spk" width="14" height="14" viewBox="0 0 256 256" fill="#71CFDA" aria-label="Playing" role="img"><path data-dc-tpl="106" d="M168,32V224a8,8,0,0,1-12.91,6.31L85.25,176H40a16,16,0,0,1-16-16V96A16,16,0,0,1,40,80H85.25l69.84-54.31A8,8,0,0,1,168,32Zm32,64a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V104A8,8,0,0,0,200,96Zm32-16a8,8,0,0,0-8,8v80a8,8,0,0,0,16,0V88A8,8,0,0,0,232,80Z"></path></svg>
+              </div>
+              <div data-dc-tpl="107" style="display: flex; align-items: center; gap: 10px; min-width: 0px;">
+                <div data-dc-tpl="108" style="position: relative; width: 24px; height: 24px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: rgb(30, 92, 99);">
+                  <div data-dc-tpl="109" style="position: absolute; left: 36%; top: 20%; width: 28%; height: 50%; border-radius: 999px 999px 0px 0px; background: rgb(233, 223, 200);"></div>
+                  <div data-dc-tpl="110" style="position: absolute; left: 28%; top: 70%; width: 44%; height: 4%; border-radius: 0px; background: rgb(18, 63, 68);"></div>
+                </div>
+                <span data-dc-tpl="111" class="ell" style="font-size: 13px; font-weight: 600; color: rgb(113, 207, 218);"><span class="sc-interp">The Long Way Back to Ordinary Things</span></span>
+              </div>
+              <button data-dc-tpl="112" class="lk" aria-label="Like" style="display: flex; justify-content: center; color: rgb(156, 157, 163);">
+                <svg data-dc-tpl="113" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="114" d="M178,40c-20.65,0-38.73,8.88-50,23.89C116.73,48.88,98.65,40,78,40a62.07,62.07,0,0,0-62,62c0,70,103.79,126.66,108.21,129a8,8,0,0,0,7.58,0C136.21,228.66,240,172,240,102A62.07,62.07,0,0,0,178,40ZM128,214.8C109.74,204.16,32,155.69,32,102A46.06,46.06,0,0,1,78,56c19.45,0,35.78,10.36,42.6,27a8,8,0,0,0,14.8,0c6.82-16.67,23.15-27,42.6-27a46.06,46.06,0,0,1,46,46C224,155.61,146.24,204.15,128,214.8Z"></path></svg>
+              </button>
+              <span data-dc-tpl="115" style="font-size: 12px; color: rgb(130, 131, 138); text-align: right;"><span class="sc-interp">5:12</span></span>
+            </div>
+          </div>
+        
+      </section>
+
+      <section data-dc-tpl="116" style="display: flex; flex-direction: column; gap: 8px;">
+        <h2 data-dc-tpl="117" class="h2">Spine · default / filter / range</h2>
+        <div data-dc-tpl="118" style="display: flex; gap: 12px;">
+          
+            <div data-dc-tpl="120" style="flex: 1 1 0%; display: flex; gap: 10px; min-width: 0px;">
+              <div data-dc-tpl="121" style="position: relative; width: 20px; height: 200px; flex-shrink: 0; margin-left: 6px;">
+                <div data-dc-tpl="122" style="position: absolute; inset: 0px; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;">
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(163, 58, 58); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(123, 47, 47); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(242, 167, 181); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.85;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.85;"></div>
+                  
+                </div>
+                
+                
+                
+                  <div data-dc-tpl="132" style="position: absolute; left: -4px; right: -4px; top: 48px; height: 12px; border: 1px solid rgb(236, 236, 238); border-radius: 2px;"></div>
+                
+                <div data-dc-tpl="133" style="position: absolute; left: -8px; right: -4px; top: 53px; height: 2px; background: rgb(113, 207, 218);"></div>
+              </div>
+              <span data-dc-tpl="134" style="font-size: 11px; color: rgb(130, 131, 138); line-height: 1.4; white-space: pre-line;"><span class="sc-interp">Default
+4px = ~10 songs
+white box = on screen
+accent line = playing</span></span>
+            </div>
+          
+            <div data-dc-tpl="120" style="flex: 1 1 0%; display: flex; gap: 10px; min-width: 0px;">
+              <div data-dc-tpl="121" style="position: relative; width: 20px; height: 200px; flex-shrink: 0; margin-left: 6px;">
+                <div data-dc-tpl="122" style="position: absolute; inset: 0px; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;">
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(163, 58, 58); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(123, 47, 47); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(242, 167, 181); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.18;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.18;"></div>
+                  
+                </div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 6px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 20px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 21px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 52px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 58px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 96px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 97px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 130px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 160px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 161px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                  <div data-dc-tpl="126" style="position: absolute; left: -3px; right: -3px; top: 188px; height: 2px; background: rgb(236, 236, 238);"></div>
+                
+                
+                
+                <div data-dc-tpl="133" style="position: absolute; left: -8px; right: -4px; top: 52px; height: 2px; background: rgb(141, 196, 244);"></div>
+              </div>
+              <span data-dc-tpl="134" style="font-size: 11px; color: rgb(130, 131, 138); line-height: 1.4; white-space: pre-line;"><span class="sc-interp">Filter
+spine dims to 18%
+matches tick in text-1</span></span>
+            </div>
+          
+            <div data-dc-tpl="120" style="flex: 1 1 0%; display: flex; gap: 10px; min-width: 0px;">
+              <div data-dc-tpl="121" style="position: relative; width: 20px; height: 200px; flex-shrink: 0; margin-left: 6px;">
+                <div data-dc-tpl="122" style="position: absolute; inset: 0px; display: flex; flex-direction: column; border-radius: 2px; overflow: hidden;">
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(227, 174, 58); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 73, 124); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(216, 199, 168); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(163, 58, 58); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(123, 47, 47); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(43, 65, 163); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.9;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(30, 92, 99); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(232, 194, 106); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(239, 229, 214); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(141, 182, 200); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(242, 167, 181); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(78, 107, 87); opacity: 0.22;"></div>
+                  
+                    <div data-dc-tpl="124" style="height: 4px; flex-shrink: 0; background: rgb(15, 107, 92); opacity: 0.22;"></div>
+                  
+                </div>
+                
+                
+                  <div data-dc-tpl="128" style="position: absolute; left: -4px; right: -4px; top: 60px; height: 56px; border: 1px solid rgb(250, 159, 180); border-radius: 2px;"></div>
+                  <div data-dc-tpl="129" style="position: absolute; left: 3px; width: 14px; top: 58px; height: 4px; border-radius: 2px; background: rgb(250, 159, 180);"></div>
+                  <div data-dc-tpl="130" style="position: absolute; left: 3px; width: 14px; top: 114px; height: 4px; border-radius: 2px; background: rgb(250, 159, 180);"></div>
+                
+                
+                  <div data-dc-tpl="132" style="position: absolute; left: -4px; right: -4px; top: 60px; height: 12px; border: 1px solid rgb(236, 236, 238); border-radius: 2px;"></div>
+                
+                <div data-dc-tpl="133" style="position: absolute; left: -8px; right: -4px; top: 63px; height: 2px; background: rgb(250, 159, 180);"></div>
+              </div>
+              <span data-dc-tpl="134" style="font-size: 11px; color: rgb(130, 131, 138); line-height: 1.4; white-space: pre-line;"><span class="sc-interp">Range
+drag to select
+outside dims to 22%
+handles resize</span></span>
+            </div>
+          
+        </div>
+      </section>
+
+      <section data-dc-tpl="135" style="display: flex; flex-direction: column; gap: 8px;">
+        <h2 data-dc-tpl="136" class="h2">Buttons · default / hover / pressed</h2>
+        <div data-dc-tpl="137" style="display: grid; grid-template-columns: repeat(3, minmax(0px, 1fr)); gap: 8px;">
+          <button data-dc-tpl="138" style="height: 32px; border-radius: 4px; background: rgb(113, 207, 218); color: rgb(17, 18, 20); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;"><svg data-dc-tpl="139" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="140" d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"></path></svg>Shuffle</button>
+          <button data-dc-tpl="141" style="height: 32px; border-radius: 4px; background: rgb(147, 224, 233); color: rgb(17, 18, 20); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;"><svg data-dc-tpl="142" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="143" d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"></path></svg>Shuffle</button>
+          <button data-dc-tpl="144" style="height: 32px; border-radius: 4px; background: rgb(87, 181, 192); color: rgb(17, 18, 20); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 6px;"><svg data-dc-tpl="145" width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path data-dc-tpl="146" d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"></path></svg>Shuffle</button>
+          <button data-dc-tpl="147" style="height: 32px; border-radius: 4px; border: 1px solid rgb(58, 59, 64); font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center;">In order</button>
+          <button data-dc-tpl="148" style="height: 32px; border-radius: 4px; border: 1px solid rgb(74, 75, 81); background: rgb(26, 27, 30); font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center;">In order</button>
+          <button data-dc-tpl="149" style="height: 32px; border-radius: 4px; border: 1px solid rgb(74, 75, 81); background: rgb(35, 36, 40); font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center;">In order</button>
+        </div>
+        <div data-dc-tpl="150" style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+          <span data-dc-tpl="151" style="height: 22px; display: flex; align-items: center; gap: 4px; padding: 0px 6px 0px 8px; border-radius: 2px; background: rgb(35, 36, 40); font-size: 12px; font-weight: 500;">Artist: Saint Juniper<svg data-dc-tpl="152" width="10" height="10" viewBox="0 0 256 256" fill="#9C9DA3" aria-hidden="true"><path data-dc-tpl="153" d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg></span>
+          <button data-dc-tpl="154" style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0px 10px; border: 1px solid rgb(38, 39, 43); border-radius: 4px; font-size: 12px; color: rgb(156, 157, 163);">Not heard<span data-dc-tpl="155" style="color: rgb(130, 131, 138);">412</span></button>
+          <button data-dc-tpl="156" style="height: 28px; display: flex; align-items: center; gap: 6px; padding: 0px 10px; border: 1px solid rgb(58, 59, 64); background: rgb(35, 36, 40); border-radius: 4px; font-size: 12px; color: rgb(236, 236, 238);">Not heard<span data-dc-tpl="157" style="color: rgb(156, 157, 163);">412</span></button>
+        </div>
+        <span data-dc-tpl="158" style="font-size: 11px; color: rgb(130, 131, 138);">Scope token in the filter field · quick filter off / on</span>
+      </section>
+    </div>
+  </div></div></div></div>
+
+
+
+</body></html>
