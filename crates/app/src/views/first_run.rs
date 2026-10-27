@@ -111,7 +111,7 @@ fn list(ui: &mut Ui, playlists: &[&PlaylistSummary], out: &mut Out) {
                         clicked_row = Some(i);
                     }
                     let lit = if pointer_in_list {
-                        resp.hovered()
+                        resp.contains_pointer()
                     } else {
                         i == selected
                     };
