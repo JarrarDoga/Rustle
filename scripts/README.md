@@ -71,7 +71,10 @@ playlist, with no network:
 Extra rows: the scroll (notches and time), the colors computed against the
 track count (fail if any are missing), and the files fetched. Peak RSS is
 judged against the 150 MiB target; the Batch 4 goal for this mode is under
-135 MiB. It needs `python3` and `xdotool`.
+135 MiB. It needs `python3` and `xdotool`. `xdotool` drives X11 only, so use
+`--large` headless: on a Wayland desktop `--large --no-headless` finds no
+window to scroll (the scroll row fails), and on an X11 session it would move
+your real pointer.
 
 `RUSTLE_PERF_DEBUG=<dir>` (either mode) keeps `/proc/<pid>/smaps` and
 `status` at each phase end (`first-frame`, `scrolled`, `colored`, `end`),
