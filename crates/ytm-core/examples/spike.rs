@@ -6,11 +6,27 @@
 //! cargo run -p ytm-core --example spike -- playlist <playlist_id> [--json]
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- library
 //! cargo run -p ytm-core --example spike -- record <fixtures_dir> [playlist_id]
+//! cargo run -p ytm-core --example spike -- radio <video_id>
+//! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- like <video_id>
+//! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- unlike <video_id>
+//! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- add <playlist_id> <video_id>...
+//! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- remove <playlist_id> <video_id>...
+//! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- record-owned <fixtures_dir> <playlist_id>
+//! cargo run -p ytm-core --example spike -- record-radio <fixtures_dir> <video_id>
 //! ```
 //!
 //! `record` saves raw rustypipe responses (search "daft punk", one page per
 //! type, and one public playlist; no cookies) as `rp_*.json`. Then run
 //! `UPDATE_FIXTURES=1 cargo test -p ytm-core` to regenerate the model fixtures.
+//!
+//! `record-owned` saves the first two raw `browse` pages of a playlist the
+//! account owns (trimmed to three rows each, without header or tracking data)
+//! for the entry id tests. `record-radio` saves one radio page, no cookies.
+//!
+//! `add` and `remove` refuse any playlist not named "Rustle test" unless
+//! `--force` is given. `remove` looks up each video's entry id itself and
+//! removes its first copy. With `RUSTLE_COOKIES_FILE` set, `playlist` and
+//! `radio` run logged in; `playlist` then also prints entry ids.
 
 use std::path::Path;
 use std::time::Instant;
@@ -29,10 +45,11 @@ async fn main() -> AnyResult<()> {
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let json = args.iter().any(|a| a == "--json");
+    let force = args.iter().any(|a| a == "--force");
     let args: Vec<&str> = args
         .iter()
         .map(String::as_str)
-        .filter(|a| *a != "--json")
+        .filter(|a| *a != "--json" && *a != "--force")
         .collect();
 
     match args.as_slice() {
@@ -77,13 +94,59 @@ async fn main() -> AnyResult<()> {
             }
         }
         ["playlist", id] => {
-            let pl = RustyPipeBackend::new()?.playlist(id).await?;
+            let pl = maybe_logged_in().await?.playlist(id).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&pl)?);
             } else {
                 print_playlist(&pl);
             }
         }
+        ["radio", id] => {
+            let tracks = maybe_logged_in().await?.radio(id).await?;
+            println!("{} radio tracks after {id}:", tracks.len());
+            for t in &tracks {
+                println!("  {}", track_line(t));
+            }
+        }
+        ["like", id] => {
+            logged_in().await?.like(id).await?;
+            println!("liked {id}");
+        }
+        ["unlike", id] => {
+            logged_in().await?.unlike(id).await?;
+            println!("removed like from {id}");
+        }
+        ["add", playlist_id, ids @ ..] if !ids.is_empty() => {
+            let backend = logged_in().await?;
+            check_scratch(&backend.playlist(playlist_id).await?, force)?;
+            let ids: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
+            let entry_ids = backend.add_to_playlist(playlist_id, &ids).await?;
+            for (id, entry) in ids.iter().zip(&entry_ids) {
+                println!("added {id} as entry {}", entry.as_deref().unwrap_or("?"));
+            }
+        }
+        ["remove", playlist_id, ids @ ..] if !ids.is_empty() => {
+            let backend = logged_in().await?;
+            let pl = backend.playlist(playlist_id).await?;
+            check_scratch(&pl, force)?;
+            let mut entries = Vec::new();
+            for id in ids {
+                let entry = pl
+                    .tracks
+                    .iter()
+                    .zip(&pl.entry_ids)
+                    .find(|(t, _)| t.id == *id)
+                    .and_then(|(_, e)| e.clone())
+                    .ok_or_else(|| format!("{id}: not in the playlist or no entry id"))?;
+                entries.push(((*id).to_owned(), entry));
+            }
+            backend.remove_from_playlist(playlist_id, &entries).await?;
+            for (id, entry) in &entries {
+                println!("removed {id} (entry {entry})");
+            }
+        }
+        ["record-owned", dir, playlist_id] => record_owned(Path::new(dir), playlist_id).await?,
+        ["record-radio", dir, video_id] => record_radio(Path::new(dir), video_id).await?,
         ["library"] => {
             let path = std::env::var("RUSTLE_COOKIES_FILE")
                 .map_err(|_| "set RUSTLE_COOKIES_FILE to a cookies.txt or Cookie header file")?;
@@ -105,12 +168,51 @@ async fn main() -> AnyResult<()> {
         _ => {
             eprintln!(
                 "usage: spike search <query> [--json] | stream <id> | playlist <id> [--json] \
-                 | library | record <dir> [playlist_id]"
+                 | library | record <dir> [playlist_id] | radio <id> | like <id> | unlike <id> \
+                 | add <playlist_id> <id>... [--force] | remove <playlist_id> <id>... [--force] \
+                 | record-owned <dir> <playlist_id> | record-radio <dir> <id>"
             );
             std::process::exit(2);
         }
     }
     Ok(())
+}
+
+/// The cookies file named by `RUSTLE_COOKIES_FILE`, if set.
+fn cookies_from_env() -> AnyResult<Option<String>> {
+    match std::env::var("RUSTLE_COOKIES_FILE") {
+        Ok(path) => Ok(Some(std::fs::read_to_string(path)?)),
+        Err(_) => Ok(None),
+    }
+}
+
+async fn logged_in() -> AnyResult<RustyPipeBackend> {
+    let cookies = cookies_from_env()?
+        .ok_or("set RUSTLE_COOKIES_FILE to a cookies.txt or Cookie header file")?;
+    let backend = RustyPipeBackend::new()?;
+    backend.set_cookies(&cookies).await?;
+    eprintln!("cookies accepted");
+    Ok(backend)
+}
+
+async fn maybe_logged_in() -> AnyResult<RustyPipeBackend> {
+    match cookies_from_env()? {
+        Some(_) => logged_in().await,
+        None => Ok(RustyPipeBackend::new()?),
+    }
+}
+
+/// Writes go only to the scratch playlist the live test creates.
+fn check_scratch(pl: &Playlist, force: bool) -> AnyResult<()> {
+    if pl.summary.name == "Rustle test" || force {
+        Ok(())
+    } else {
+        Err(format!(
+            "refusing to edit {:?}: only \"Rustle test\" without --force",
+            pl.summary.name
+        )
+        .into())
+    }
 }
 
 fn url_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
@@ -175,9 +277,16 @@ fn print_search(res: &SearchResults) {
 
 fn print_playlist(pl: &Playlist) {
     println!("{}", playlist_line(&pl.summary));
-    println!("{} tracks fetched:", pl.tracks.len());
-    for t in &pl.tracks {
-        println!("  {}", track_line(t));
+    println!(
+        "{} tracks fetched, {} entry ids:",
+        pl.tracks.len(),
+        pl.entry_ids.iter().flatten().count()
+    );
+    for (i, t) in pl.tracks.iter().enumerate() {
+        match pl.entry_ids.get(i).cloned().flatten() {
+            Some(e) => println!("  {}  entry {e}", track_line(t)),
+            None => println!("  {}", track_line(t)),
+        }
     }
 }
 
@@ -231,4 +340,147 @@ async fn record(dir: &Path, playlist_id: Option<&str>) -> AnyResult<()> {
         playlist.tracks.items.len()
     );
     Ok(())
+}
+
+/// Saves two raw `browse` pages of an owned playlist (after one typed
+/// `music_playlist` call that checks the playlist is readable). Reads only.
+async fn record_owned(dir: &Path, playlist_id: &str) -> AnyResult<()> {
+    use rustypipe::client::ClientType;
+    use serde_json::{Value, json};
+
+    let cookies = cookies_from_env()?.ok_or("set RUSTLE_COOKIES_FILE")?;
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let login = if cookies.contains('\t') {
+        rp.user_auth_set_cookie_txt(&cookies).await
+    } else {
+        rp.user_auth_set_cookie(cookies.trim()).await
+    };
+    login.map_err(|e| format!("login: {e}"))?;
+    let q = rp.query().authenticated();
+    let vd = q.get_visitor_data(false).await?;
+    let q = q.visitor_data(vd);
+
+    let typed = q
+        .music_playlist(playlist_id)
+        .await
+        .map_err(|e| format!("typed browse: {e}"))?;
+    println!(
+        "typed browse ok: {} tracks on page 1",
+        typed.tracks.items.len()
+    );
+
+    let first: Value = serde_json::from_str(
+        &q.raw(
+            ClientType::DesktopMusic,
+            "browse",
+            &json!({ "browseId": format!("VL{playlist_id}") }),
+        )
+        .await
+        .map_err(|e| format!("browse: {e}"))?,
+    )?;
+    let token = find_token(&first).ok_or("first page has no continuation token")?;
+    let next: Value = serde_json::from_str(
+        &q.raw(
+            ClientType::DesktopMusic,
+            "browse",
+            &json!({ "continuation": token }),
+        )
+        .await
+        .map_err(|e| format!("continuation: {e}"))?,
+    )?;
+
+    for (name, mut v) in [
+        ("browse_owned_playlist.json", first),
+        ("browse_owned_playlist_continuation.json", next),
+    ] {
+        trim(&mut v);
+        std::fs::write(dir.join(name), serde_json::to_string_pretty(&v)? + "\n")?;
+    }
+    println!("recorded 2 browse pages of {playlist_id}");
+    Ok(())
+}
+
+/// Saves one radio page, fetched without cookies.
+async fn record_radio(dir: &Path, video_id: &str) -> AnyResult<()> {
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let mut radio = rp
+        .query()
+        .unauthenticated()
+        .music_radio_track(video_id)
+        .await?;
+    radio.visitor_data = None;
+    radio.ctoken = None;
+    std::fs::write(
+        dir.join("rp_radio.json"),
+        serde_json::to_string_pretty(&radio)? + "\n",
+    )?;
+    println!("recorded {} radio tracks for {video_id}", radio.items.len());
+    Ok(())
+}
+
+fn find_token(v: &serde_json::Value) -> Option<String> {
+    use serde_json::Value;
+    match v {
+        Value::Object(m) => m
+            .get("continuationCommand")
+            .and_then(|c| c.get("token"))
+            .or_else(|| {
+                m.get("nextContinuationData")
+                    .and_then(|c| c.get("continuation"))
+            })
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| m.values().find_map(find_token)),
+        Value::Array(a) => a.iter().find_map(find_token),
+        _ => None,
+    }
+}
+
+/// Drops account and tracking data and keeps three rows (plus the
+/// continuation item) of each track list.
+fn trim(v: &mut serde_json::Value) {
+    use serde_json::Value;
+    const DROP: [&str; 8] = [
+        "responseContext",
+        "trackingParams",
+        "header",
+        "musicEditablePlaylistDetailHeaderRenderer",
+        "musicResponsiveHeaderRenderer",
+        "microformat",
+        "frameworkUpdates",
+        "clickTrackingParams",
+    ];
+    match v {
+        Value::Object(m) => {
+            for k in DROP {
+                m.remove(k);
+            }
+            for (k, child) in m.iter_mut() {
+                let track_list = (k == "contents" || k == "continuationItems")
+                    && child.as_array().is_some_and(|items| {
+                        items
+                            .iter()
+                            .any(|i| i.get("musicResponsiveListItemRenderer").is_some())
+                    });
+                if track_list && let Value::Array(items) = child {
+                    let (rows, cont): (Vec<Value>, Vec<Value>) = std::mem::take(items)
+                        .into_iter()
+                        .partition(|i| i.get("continuationItemRenderer").is_none());
+                    items.extend(rows.into_iter().take(3));
+                    items.extend(cont);
+                }
+                trim(child);
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(trim),
+        _ => {}
+    }
 }

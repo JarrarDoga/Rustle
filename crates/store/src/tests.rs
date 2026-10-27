@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use model::{AlbumRef, ArtistRef, Playlist, PlaylistSummary, Thumbnail, Track, TrackId};
 
-use super::Store;
+use super::{NameCount, Store};
 
 fn track(n: usize) -> Track {
     Track {
@@ -409,5 +409,347 @@ fn save_5000_track_playlist_is_fast() {
     eprintln!("5,000-track playlist: save {save:?}, load {load:?}");
     if !cfg!(debug_assertions) {
         assert!(save < Duration::from_secs(1), "save took {save:?}");
+    }
+}
+
+fn artist(id: Option<&str>, name: &str) -> ArtistRef {
+    ArtistRef {
+        id: id.map(Into::into),
+        name: name.into(),
+    }
+}
+
+fn song(id: &str, artists: Vec<ArtistRef>, album: Option<(&str, &str)>) -> Track {
+    Track {
+        id: id.into(),
+        title: id.into(),
+        artists,
+        album: album.map(|(id, name)| AlbumRef {
+            id: id.into(),
+            name: name.into(),
+        }),
+        duration: None,
+        thumbnails: vec![],
+    }
+}
+
+fn nc(id: Option<&str>, name: &str, count: u32) -> NameCount {
+    NameCount {
+        id: id.map(Into::into),
+        name: name.into(),
+        count,
+    }
+}
+
+fn save(s: &Store, n: usize, tracks: Vec<Track>) {
+    s.save_playlist(&Playlist {
+        summary: summary(n),
+        tracks,
+        entry_ids: Vec::new(),
+    })
+    .unwrap();
+}
+
+#[test]
+fn entry_ids_round_trip() {
+    let s = store();
+    let mut pl = Playlist {
+        summary: summary(1),
+        tracks: tracks(0..3),
+        entry_ids: vec![Some("SET0".into()), None, Some("SET2".into())],
+    };
+    s.save_playlist(&pl).unwrap();
+    assert_eq!(s.playlist("PL1").unwrap(), Some(pl.clone()));
+
+    pl.entry_ids = vec![Some("A".into()), Some("B".into()), Some("C".into())];
+    s.save_playlist(&pl).unwrap();
+    assert_eq!(s.playlist("PL1").unwrap(), Some(pl.clone()));
+
+    // All NULL reads back as "unknown".
+    pl.entry_ids = vec![None, None, None];
+    s.save_playlist(&pl).unwrap();
+    assert!(s.playlist("PL1").unwrap().unwrap().entry_ids.is_empty());
+
+    pl.entry_ids = Vec::new();
+    s.save_playlist(&pl).unwrap();
+    assert_eq!(s.playlist("PL1").unwrap(), Some(pl.clone()));
+
+    // A short list is padded with None instead of panicking.
+    pl.entry_ids = vec![Some("A".into())];
+    s.save_playlist(&pl).unwrap();
+    assert_eq!(
+        s.playlist("PL1").unwrap().unwrap().entry_ids,
+        vec![Some("A".into()), None, None]
+    );
+}
+
+#[test]
+fn main_playlist_set_and_replace() {
+    let s = store();
+    assert_eq!(s.main_playlist().unwrap(), None);
+    s.set_main_playlist("PL1").unwrap();
+    assert_eq!(s.main_playlist().unwrap().as_deref(), Some("PL1"));
+    s.set_main_playlist("PL2").unwrap();
+    assert_eq!(s.main_playlist().unwrap().as_deref(), Some("PL2"));
+}
+
+#[test]
+fn last_played_returns_latest_play() {
+    let s = store();
+    s.record_play("a", 100, 30_000).unwrap();
+    s.record_play("a", 300, 30_000).unwrap();
+    s.record_play("a", 200, 30_000).unwrap();
+    // Plays of uncached ids are fine, and huge durations do not overflow.
+    s.record_play("b", 50, u64::MAX).unwrap();
+    let got = s
+        .last_played(&["a".into(), "b".into(), "never".into(), "a".into()])
+        .unwrap();
+    assert_eq!(got.len(), 2);
+    assert_eq!(got["a"], 300);
+    assert_eq!(got["b"], 50);
+    assert!(s.last_played(&[]).unwrap().is_empty());
+}
+
+#[test]
+fn not_heard_since_filters_main_playlist() {
+    let s = store();
+    let ts = vec![
+        song("old", vec![], None),
+        song("never", vec![], None),
+        song("recent", vec![], None),
+        song("edge", vec![], None),
+        song("old", vec![], None), // duplicate entry
+        song("mixed", vec![], None),
+    ];
+    save(&s, 1, ts);
+    save(&s, 2, vec![song("other", vec![], None)]);
+    s.record_play("old", 500, 1).unwrap();
+    s.record_play("recent", 1_500, 1).unwrap();
+    s.record_play("edge", 1_000, 1).unwrap();
+    s.record_play("mixed", 10, 1).unwrap();
+    s.record_play("mixed", 2_000, 1).unwrap();
+
+    // No main playlist yet.
+    assert!(s.not_heard_since(1_000).unwrap().is_empty());
+
+    s.set_main_playlist("PL1").unwrap();
+    // A play at exactly the cutoff counts as heard; duplicates appear once.
+    assert_eq!(s.not_heard_since(1_000).unwrap(), vec!["old", "never"]);
+    assert_eq!(
+        s.not_heard_since(1_001).unwrap(),
+        vec!["old", "never", "edge"]
+    );
+    assert_eq!(
+        s.not_heard_since(i64::MAX).unwrap(),
+        vec!["old", "never", "recent", "edge", "mixed"]
+    );
+
+    // Main playlist whose tracks are not cached.
+    s.set_main_playlist("PL9").unwrap();
+    assert!(s.not_heard_since(1_000).unwrap().is_empty());
+}
+
+#[test]
+fn art_colors_round_trip_and_overwrite() {
+    let s = store();
+    s.set_art_colors(&[("a".into(), [1, 2, 3]), ("b".into(), [255, 0, 128])])
+        .unwrap();
+    s.set_art_colors(&[("a".into(), [9, 8, 7])]).unwrap();
+    let got = s
+        .art_colors(&["a".into(), "b".into(), "none".into()])
+        .unwrap();
+    assert_eq!(got.len(), 2);
+    assert_eq!(got["a"], [9, 8, 7]);
+    assert_eq!(got["b"], [255, 0, 128]);
+    s.set_art_colors(&[]).unwrap();
+}
+
+#[test]
+fn artist_counts_sort_and_featured_artists() {
+    let s = store();
+    let sj = || artist(Some("UCsj"), "Saint Juniper");
+    let ts = vec![
+        song("t1", vec![sj(), artist(None, "Feat Guest")], None),
+        song("t2", vec![sj()], None),
+        // Same channel under a different display name stays one group.
+        song(
+            "t3",
+            vec![artist(Some("UCsj"), "Saint Juniper (Official)")],
+            None,
+        ),
+        song("t4", vec![artist(Some("UCb"), "beta")], None),
+        song("t5", vec![artist(Some("UCa"), "Alpha")], None),
+        song("t6", vec![artist(Some("UCz"), "Zed")], None),
+        // An unlinked credit with the same name as a channel stays separate.
+        song("t7", vec![artist(None, "Alpha")], None),
+        song("t8", vec![], None),
+    ];
+    let mut with_dup = ts.clone();
+    with_dup.push(ts[1].clone());
+    save(&s, 1, with_dup);
+    save(&s, 2, vec![song("x", vec![sj()], None)]);
+
+    assert_eq!(
+        s.artist_counts("PL1").unwrap(),
+        vec![
+            nc(Some("UCsj"), "Saint Juniper", 3),
+            nc(None, "Alpha", 1),
+            nc(Some("UCa"), "Alpha", 1),
+            nc(Some("UCb"), "beta", 1),
+            nc(None, "Feat Guest", 1),
+            nc(Some("UCz"), "Zed", 1),
+        ]
+    );
+    assert!(s.artist_counts("missing").unwrap().is_empty());
+}
+
+#[test]
+fn album_counts_sort_and_tie_break() {
+    let s = store();
+    let ts = vec![
+        song("t1", vec![], Some(("MPa", "Night Songs"))),
+        song("t2", vec![], Some(("MPa", "Night Songs"))),
+        song("t3", vec![], Some(("MPb", "apple"))),
+        song("t4", vec![], Some(("MPc", "Banana"))),
+        song("t5", vec![], None),
+        song("t1", vec![], Some(("MPa", "Night Songs"))), // duplicate entry
+    ];
+    save(&s, 1, ts);
+    assert_eq!(
+        s.album_counts("PL1").unwrap(),
+        vec![
+            nc(Some("MPa"), "Night Songs", 2),
+            nc(Some("MPb"), "apple", 1),
+            nc(Some("MPc"), "Banana", 1),
+        ]
+    );
+    assert!(s.album_counts("missing").unwrap().is_empty());
+}
+
+#[test]
+fn fetched_at_set_and_replace() {
+    let s = store();
+    assert_eq!(s.fetched_at("library").unwrap(), None);
+    s.set_fetched_at("library", 100).unwrap();
+    s.set_fetched_at("playlist:PL1", 200).unwrap();
+    s.set_fetched_at("library", 300).unwrap();
+    assert_eq!(s.fetched_at("library").unwrap(), Some(300));
+    assert_eq!(s.fetched_at("playlist:PL1").unwrap(), Some(200));
+    assert_eq!(s.fetched_at("liked").unwrap(), None);
+}
+
+#[test]
+fn version_1_database_upgrades() {
+    let dir = TempDir::new();
+    let path = dir.0.join("cache.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(super::MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, title, artists, thumbnails)
+                 VALUES ('t1', 'One', '[{\"id\":\"UCa\",\"name\":\"A\"}]', '[]');
+             INSERT INTO playlists (id, name, thumbnails, has_tracks)
+                 VALUES ('PL1', 'Main', '[]', 1);
+             INSERT INTO playlist_tracks (playlist_id, position, track_id)
+                 VALUES ('PL1', 0, 't1');",
+        )
+        .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    let version: i64 = s
+        .conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 2);
+    let pl = s.playlist("PL1").unwrap().unwrap();
+    assert_eq!(ids(&pl.tracks), vec!["t1"]);
+    assert!(pl.entry_ids.is_empty());
+
+    s.set_main_playlist("PL1").unwrap();
+    s.record_play("t1", 10, 1_000).unwrap();
+    s.set_art_colors(&[("t1".into(), [1, 2, 3])]).unwrap();
+    s.set_fetched_at("library", 5).unwrap();
+    assert_eq!(s.not_heard_since(20).unwrap(), vec!["t1"]);
+    assert_eq!(
+        s.artist_counts("PL1").unwrap(),
+        vec![nc(Some("UCa"), "A", 1)]
+    );
+    drop(s);
+
+    // Reopening the upgraded file keeps everything.
+    let s = Store::open(&path).unwrap();
+    assert_eq!(s.main_playlist().unwrap().as_deref(), Some("PL1"));
+    assert_eq!(s.last_played(&["t1".into()]).unwrap()["t1"], 10);
+    assert_eq!(s.fetched_at("library").unwrap(), Some(5));
+}
+
+#[test]
+fn queries_on_5000_tracks_and_50000_plays_are_fast() {
+    let s = store();
+    let pl = Playlist {
+        summary: summary(1),
+        tracks: tracks(0..5000),
+        entry_ids: (0..5000).map(|n| Some(format!("SET{n}"))).collect(),
+    };
+    s.save_playlist(&pl).unwrap();
+    s.set_main_playlist("PL1").unwrap();
+    {
+        let tx = s.conn.unchecked_transaction().unwrap();
+        let mut insert = tx
+            .prepare("INSERT INTO plays (track_id, played_at, played_ms) VALUES (?1, ?2, ?3)")
+            .unwrap();
+        // Ten plays per track for the first 4,000 tracks; the rest never played.
+        for n in 0..50_000usize {
+            let id = &pl.tracks[n % 4000].id;
+            insert
+                .execute(rusqlite::params![id, n as i64, 180_000])
+                .unwrap();
+        }
+        drop(insert);
+        tx.commit().unwrap();
+    }
+    let all = ids(&pl.tracks);
+    let colors: Vec<_> = all.iter().map(|id| (id.clone(), [1, 2, 3])).collect();
+
+    let mut timings = Vec::new();
+    let mut time = |name: &'static str, f: &mut dyn FnMut()| {
+        let start = Instant::now();
+        f();
+        timings.push((name, start.elapsed()));
+    };
+    time("playlist", &mut || {
+        assert_eq!(s.playlist("PL1").unwrap().unwrap().entry_ids.len(), 5000)
+    });
+    time("last_played", &mut || {
+        assert_eq!(s.last_played(&all).unwrap().len(), 4000)
+    });
+    time("not_heard_since", &mut || {
+        // Track k's last play is 46,000 + k, so cutoff 48,000 leaves
+        // tracks 0..2000 old plus 1,000 never played.
+        assert_eq!(s.not_heard_since(48_000).unwrap().len(), 3000)
+    });
+    time("set_art_colors", &mut || s.set_art_colors(&colors).unwrap());
+    time("art_colors", &mut || {
+        assert_eq!(s.art_colors(&all).unwrap().len(), 5000)
+    });
+    time("artist_counts", &mut || {
+        assert_eq!(s.artist_counts("PL1").unwrap().len(), 5001)
+    });
+    time("album_counts", &mut || {
+        assert_eq!(s.album_counts("PL1").unwrap().len(), 3333)
+    });
+    time("record_play", &mut || {
+        s.record_play("trk00000001", 1, 1).unwrap()
+    });
+    time("fetched_at", &mut || {
+        s.set_fetched_at("playlist:PL1", 1).unwrap();
+        s.fetched_at("playlist:PL1").unwrap();
+    });
+    eprintln!("5,000 tracks, 50,000 plays: {timings:?}");
+    if !cfg!(debug_assertions) {
+        for (name, t) in timings {
+            assert!(t < Duration::from_millis(20), "{name} took {t:?}");
+        }
     }
 }
