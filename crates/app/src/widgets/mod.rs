@@ -238,17 +238,6 @@ pub fn entity_row(
     resp
 }
 
-/// A small all-caps section label.
-pub fn section(ui: &mut Ui, text: &str) {
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(text)
-            .size(11.5)
-            .strong()
-            .color(theme::pal().text_3),
-    );
-}
-
 /// A page title.
 pub fn title(ui: &mut Ui, text: &str) {
     ui.label(

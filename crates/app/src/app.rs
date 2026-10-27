@@ -208,8 +208,12 @@ impl RustleApp {
                         views::first_run::show(ui, state, &mut out);
                     });
                 } else if collection {
-                    let (main, spine) = rect.split_left_right_at_x(rect.right() - theme::SPINE_W);
-                    ui.scope_builder(UiBuilder::new().max_rect(main), |ui| {
+                    // The collection gets the full width: its header and filter
+                    // row span the spine column; its table leaves the right
+                    // `SPINE_COLUMN_W` free for the spine.
+                    let (_, spine) =
+                        rect.split_left_right_at_x(rect.right() - theme::SPINE_COLUMN_W);
+                    ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
                         views::collection::show(ui, state, view, &mut out);
                     });
                     ui.scope_builder(UiBuilder::new().max_rect(spine), |ui| {
@@ -238,10 +242,9 @@ impl RustleApp {
                         .fill(p.bg)
                         .stroke(theme::hairline())
                         .shadow(ui.visuals().window_shadow)
-                        .inner_margin(Margin::symmetric(12, 12))
                         .show(ui, |ui| {
-                            ui.set_min_size(drawer.size() - egui::vec2(24.0, 24.0));
-                            ui.set_max_size(drawer.size() - egui::vec2(24.0, 24.0));
+                            ui.set_min_size(drawer.size());
+                            ui.set_max_size(drawer.size());
                             views::queue::show(ui, state, view, &mut out);
                         });
                 });
