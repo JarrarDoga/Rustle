@@ -67,19 +67,21 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, id: &str, out: &mut Out
             }
         },
     );
-    track_table::show(
-        ui,
-        state,
-        view,
-        track_table::Table {
-            salt: "album",
-            tracks: &d.tracks,
-            rows: None,
-            columns: track_table::ALBUM,
-            scroll_to: None,
-        },
-        out,
-    );
+    bleed(ui, 0.0, 0.0, |ui| {
+        track_table::show(
+            ui,
+            state,
+            view,
+            track_table::Table {
+                salt: "album",
+                tracks: &d.tracks,
+                rows: None,
+                columns: track_table::ALBUM,
+                scroll_to: None,
+            },
+            out,
+        )
+    });
 }
 
 /// What the album page shows, recomputed only when the album or the main
@@ -335,11 +337,17 @@ pub(crate) fn button_with(
     }
     let cy = rect.center().y;
     let mut x = rect.left() + PAD;
+    // The boards draw Play filled; other button icons are regular.
+    let icon_font = if icon == icons::PLAY {
+        theme::icon_fill(icon_size)
+    } else {
+        theme::icon(icon_size)
+    };
     painter.text(
         Pos2::new(x + icon_size / 2.0, cy),
         Align2::CENTER_CENTER,
         icon,
-        theme::icon(icon_size),
+        icon_font,
         fg,
     );
     x += icon_size + theme::SPACE_8;
@@ -431,6 +439,22 @@ pub(crate) fn line(
     );
     w
 }
+
+/// Runs `add` in the page's remaining rect widened through `app.rs`'s
+/// 24 px page inset, less `left` and `right`. The track table insets
+/// itself 12 / 8 px, so with no extra inset it lands where the boards put
+/// it; list rows pass the same 12 / 8 to line up with table rows.
+pub(crate) fn bleed<R>(ui: &mut Ui, left: f32, right: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let r = ui.available_rect_before_wrap();
+    let rect = Rect::from_min_max(
+        Pos2::new(r.left() - theme::SPACE_24 + left, r.top()),
+        Pos2::new(r.right() + theme::SPACE_24 - right, r.bottom()),
+    );
+    ui.scope_builder(UiBuilder::new().max_rect(rect), add).inner
+}
+
+/// The left / right inset of list rows, matching the track table's rows.
+pub(crate) const LIST_INSET: (f32, f32) = (theme::SPACE_12, theme::SPACE_8);
 
 /// A full-bleed 1 px rule across the page, through the page margin.
 pub(crate) fn rule(ui: &mut Ui) {

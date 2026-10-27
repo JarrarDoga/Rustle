@@ -12,7 +12,8 @@ use model::{AlbumSummary, Artist, Track};
 
 use crate::state::{Loadable, State};
 use crate::views::album::{
-    Art, Header, button, button_with, cover, header, line, main_name, main_tracks, memo, play, same,
+    Art, Header, bleed, button, button_with, cover, header, line, main_name, main_tracks, memo,
+    play, same,
 };
 use crate::views::{Action, Chip, Out, Route, View, loading_or_error, open_album};
 use crate::widgets::track_table;
@@ -80,43 +81,53 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, id: &str, out: &mut Out
         out.push(Action::Go(Route::Collection));
     }
 
-    ScrollArea::vertical()
-        .id_salt("artist-page")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            if !d.top.is_empty() {
-                section(ui, "Top songs");
-                let h = theme::TABLE_HEADER_H + d.top.len() as f32 * theme::ROW_H + theme::SPACE_8;
-                let (rect, _) =
-                    ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
-                ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
-                    track_table::show(
-                        ui,
-                        state,
-                        view,
-                        track_table::Table {
-                            salt: "artist-top",
-                            tracks: &d.top,
-                            rows: None,
-                            columns: track_table::OUTSIDE,
-                            scroll_to: None,
-                        },
-                        out,
-                    );
-                });
-            }
-            for (title, albums, counts) in [
-                ("Albums", &artist.albums, &d.album_counts),
-                ("Singles and EPs", &artist.singles, &d.single_counts),
-            ] {
-                if albums.is_empty() {
-                    continue;
+    // The page scrolls as one, edge to edge through the page inset so the
+    // table lines up with the boards; headings and cards keep the inset.
+    bleed(ui, 0.0, 0.0, |ui| {
+        ScrollArea::vertical()
+            .id_salt("artist-page")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if !d.top.is_empty() {
+                    section(ui, "Top songs");
+                    let h =
+                        theme::TABLE_HEADER_H + theme::SPACE_4 + d.top.len() as f32 * theme::ROW_H;
+                    let (rect, _) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+                    ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+                        track_table::show(
+                            ui,
+                            state,
+                            view,
+                            track_table::Table {
+                                salt: "artist-top",
+                                tracks: &d.top,
+                                rows: None,
+                                columns: track_table::OUTSIDE,
+                                scroll_to: None,
+                            },
+                            out,
+                        );
+                    });
                 }
-                section(ui, title);
-                cards(ui, albums, counts, main.is_some().then_some(main_name), out);
-            }
-            ui.add_space(theme::SPACE_16);
-        });
+                for (title, albums, counts) in [
+                    ("Albums", &artist.albums, &d.album_counts),
+                    ("Singles and EPs", &artist.singles, &d.single_counts),
+                ] {
+                    if albums.is_empty() {
+                        continue;
+                    }
+                    section(ui, title);
+                    let r = ui
+                        .available_rect_before_wrap()
+                        .shrink2(vec2(theme::SPACE_24, 0.0));
+                    ui.scope_builder(UiBuilder::new().max_rect(r), |ui| {
+                        cards(ui, albums, counts, main.is_some().then_some(main_name), out);
+                    });
+                }
+                ui.add_space(theme::SPACE_16);
+            });
+    });
 }
 
 /// What the artist page shows, recomputed only when the artist or the main
@@ -151,11 +162,14 @@ fn derive(artist: &Artist, main: Option<&[Arc<Track>]>) -> Derived {
 /// A 16/600 section heading with D-Artist's spacing.
 fn section(ui: &mut Ui, text: &str) {
     ui.add_space(theme::SPACE_16);
-    ui.label(
-        egui::RichText::new(text)
-            .font(theme::section())
-            .color(theme::pal().text_1),
-    );
+    ui.horizontal(|ui| {
+        ui.add_space(theme::SPACE_24);
+        ui.label(
+            egui::RichText::new(text)
+                .font(theme::section())
+                .color(theme::pal().text_1),
+        );
+    });
     ui.add_space(theme::SPACE_4);
 }
 

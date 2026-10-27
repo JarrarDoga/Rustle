@@ -9,7 +9,9 @@ use egui::{
 };
 
 use crate::state::{Command, Loadable, SearchView, State};
-use crate::views::album::{Art, ListRow, list_row, main_name, main_tracks, memo, note, rule, same};
+use crate::views::album::{
+    Art, LIST_INSET, ListRow, bleed, list_row, main_name, main_tracks, memo, note, rule, same,
+};
 use crate::views::artist::{card_subtitle, in_main_label, songs_in_main};
 use crate::views::library::playlist_sub;
 use crate::views::{Out, SearchTab, View, cmd, open_album, open_artist, open_playlist, rows};
@@ -68,104 +70,112 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
     match tab {
         SearchTab::Songs => {
             ui.add_space(theme::SPACE_4);
-            track_table::show(
-                ui,
-                state,
-                view,
-                track_table::Table {
-                    salt: "search-songs",
-                    tracks: &data.tracks,
-                    rows: None,
-                    columns: track_table::OUTSIDE,
-                    scroll_to: None,
-                },
-                out,
-            );
+            bleed(ui, 0.0, 0.0, |ui| {
+                track_table::show(
+                    ui,
+                    state,
+                    view,
+                    track_table::Table {
+                        salt: "search-songs",
+                        tracks: &data.tracks,
+                        rows: None,
+                        columns: track_table::OUTSIDE,
+                        scroll_to: None,
+                    },
+                    out,
+                )
+            });
         }
         SearchTab::Albums => {
             ui.add_space(theme::SPACE_8);
-            rows(
-                ui,
-                "search-albums",
-                theme::QUEUE_ROW_H,
-                r.albums.len(),
-                |ui, i| {
-                    let a = &r.albums[i];
-                    let by: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
-                    let mut sub = format!("Album · {}", by.join(", "));
-                    let tail = card_subtitle(a.year, counts.albums[i], main_name);
-                    if !tail.is_empty() {
-                        sub = format!("{sub} · {tail}");
-                    }
-                    let row = ListRow {
-                        key: &a.id,
-                        art: Art::Square(&a.thumbnails),
-                        title: &a.name,
-                        sub: &sub,
-                        chip: None,
-                        reserve: 0.0,
-                    };
-                    if list_row(ui, row).clicked() {
-                        open_album(out, &a.id);
-                    }
-                },
-            );
+            bleed(ui, LIST_INSET.0, LIST_INSET.1, |ui| {
+                rows(
+                    ui,
+                    "search-albums",
+                    theme::QUEUE_ROW_H,
+                    r.albums.len(),
+                    |ui, i| {
+                        let a = &r.albums[i];
+                        let by: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
+                        let mut sub = format!("Album · {}", by.join(", "));
+                        let tail = card_subtitle(a.year, counts.albums[i], main_name);
+                        if !tail.is_empty() {
+                            sub = format!("{sub} · {tail}");
+                        }
+                        let row = ListRow {
+                            key: &a.id,
+                            art: Art::Square(&a.thumbnails),
+                            title: &a.name,
+                            sub: &sub,
+                            chip: None,
+                            reserve: 0.0,
+                        };
+                        if list_row(ui, row).clicked() {
+                            open_album(out, &a.id);
+                        }
+                    },
+                )
+            });
         }
         SearchTab::Artists => {
             ui.add_space(theme::SPACE_8);
-            rows(
-                ui,
-                "search-artists",
-                theme::QUEUE_ROW_H,
-                r.artists.len(),
-                |ui, i| {
-                    let a = &r.artists[i];
-                    let sub = match main_name {
-                        Some(m) if counts.artists[i] > 0 => {
-                            format!("Artist · {}", in_main_label(counts.artists[i], m))
+            bleed(ui, LIST_INSET.0, LIST_INSET.1, |ui| {
+                rows(
+                    ui,
+                    "search-artists",
+                    theme::QUEUE_ROW_H,
+                    r.artists.len(),
+                    |ui, i| {
+                        let a = &r.artists[i];
+                        let sub = match main_name {
+                            Some(m) if counts.artists[i] > 0 => {
+                                format!("Artist · {}", in_main_label(counts.artists[i], m))
+                            }
+                            _ => "Artist".to_owned(),
+                        };
+                        let row = ListRow {
+                            key: &a.id,
+                            art: Art::Round(&a.thumbnails),
+                            title: &a.name,
+                            sub: &sub,
+                            chip: None,
+                            reserve: 0.0,
+                        };
+                        if list_row(ui, row).clicked() {
+                            open_artist(out, &a.id);
                         }
-                        _ => "Artist".to_owned(),
-                    };
-                    let row = ListRow {
-                        key: &a.id,
-                        art: Art::Round(&a.thumbnails),
-                        title: &a.name,
-                        sub: &sub,
-                        chip: None,
-                        reserve: 0.0,
-                    };
-                    if list_row(ui, row).clicked() {
-                        open_artist(out, &a.id);
-                    }
-                },
-            );
+                    },
+                )
+            });
         }
         SearchTab::Playlists => {
             ui.add_space(theme::SPACE_8);
-            rows(
-                ui,
-                "search-playlists",
-                theme::QUEUE_ROW_H,
-                r.playlists.len(),
-                |ui, i| {
-                    let pl = &r.playlists[i];
-                    let sub = playlist_sub(
-                        Some(pl.owner.as_deref().unwrap_or("YouTube Music")),
-                        pl.track_count,
-                    );
-                    let row = ListRow {
-                        key: &pl.id,
-                        art: Art::Square(&pl.thumbnails),
-                        title: &pl.name,
-                        sub: &sub,
-                        chip: None,
-                        reserve: 0.0,
-                    };
-                    if list_row(ui, row).clicked() {
-                        open_playlist(out, &pl.id);
-                    }
-                },
-            );
+            bleed(ui, LIST_INSET.0, LIST_INSET.1, |ui| {
+                rows(
+                    ui,
+                    "search-playlists",
+                    theme::QUEUE_ROW_H,
+                    r.playlists.len(),
+                    |ui, i| {
+                        let pl = &r.playlists[i];
+                        let sub = playlist_sub(
+                            Some(pl.owner.as_deref().unwrap_or("YouTube Music")),
+                            pl.track_count,
+                        );
+                        let row = ListRow {
+                            key: &pl.id,
+                            art: Art::Square(&pl.thumbnails),
+                            title: &pl.name,
+                            sub: &sub,
+                            chip: None,
+                            reserve: 0.0,
+                        };
+                        if list_row(ui, row).clicked() {
+                            open_playlist(out, &pl.id);
+                        }
+                    },
+                )
+            });
         }
     }
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use egui::{Align2, CornerRadius, CursorIcon, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, vec2};
 
 use crate::state::{Command, Loadable, NEEDS_LOGIN, State};
-use crate::views::album::{Art, ListRow, list_row, note, rule, songs};
+use crate::views::album::{Art, LIST_INSET, ListRow, bleed, list_row, note, rule, songs};
 use crate::views::{Action, Out, Route, cmd, loading_or_error, open_playlist, rows};
 use crate::{icons, theme};
 
@@ -48,67 +48,69 @@ pub fn show(ui: &mut Ui, state: &State, out: &mut Out) {
         |l| format!("Playlist · {}", songs(l.len())),
     );
     ui.add_space(theme::SPACE_8);
-    rows(
-        ui,
-        "library",
-        theme::QUEUE_ROW_H,
-        playlists.len() + 1,
-        |ui, i| {
-            if i == 0 {
+    bleed(ui, LIST_INSET.0, LIST_INSET.1, |ui| {
+        rows(
+            ui,
+            "library",
+            theme::QUEUE_ROW_H,
+            playlists.len() + 1,
+            |ui, i| {
+                if i == 0 {
+                    let resp = list_row(
+                        ui,
+                        ListRow {
+                            key: "liked",
+                            art: Art::Liked,
+                            title: "Liked songs",
+                            sub: &liked,
+                            chip: None,
+                            reserve: 0.0,
+                        },
+                    );
+                    if resp.clicked() {
+                        out.push(Action::Go(Route::Liked));
+                    }
+                    return;
+                }
+                let pl = &playlists[i - 1];
+                let is_main = main_id == Some(pl.id.as_str());
+                let sub = playlist_sub(pl.owner.as_deref(), pl.track_count);
                 let resp = list_row(
                     ui,
                     ListRow {
-                        key: "liked",
-                        art: Art::Liked,
-                        title: "Liked songs",
-                        sub: &liked,
-                        chip: None,
-                        reserve: 0.0,
+                        key: &pl.id,
+                        art: Art::Square(&pl.thumbnails),
+                        title: &pl.name,
+                        sub: &sub,
+                        chip: is_main.then_some("Main"),
+                        reserve: if is_main { 0.0 } else { 120.0 },
                     },
                 );
-                if resp.clicked() {
-                    out.push(Action::Go(Route::Liked));
+                let mut make_main = false;
+                if !is_main && resp.contains_pointer() {
+                    make_main = row_action(ui, resp.rect, &pl.id);
                 }
-                return;
-            }
-            let pl = &playlists[i - 1];
-            let is_main = main_id == Some(pl.id.as_str());
-            let sub = playlist_sub(pl.owner.as_deref(), pl.track_count);
-            let resp = list_row(
-                ui,
-                ListRow {
-                    key: &pl.id,
-                    art: Art::Square(&pl.thumbnails),
-                    title: &pl.name,
-                    sub: &sub,
-                    chip: is_main.then_some("Main"),
-                    reserve: if is_main { 0.0 } else { 120.0 },
-                },
-            );
-            let mut make_main = false;
-            if !is_main && resp.contains_pointer() {
-                make_main = row_action(ui, resp.rect, &pl.id);
-            }
-            if !is_main {
-                resp.context_menu(|ui| {
-                    if ui.button(MAKE_MAIN).clicked() {
-                        make_main = true;
-                        ui.close();
-                    }
-                });
-            }
-            if make_main {
-                cmd(out, Command::SetMainPlaylist(pl.id.clone()));
-                out.push(Action::Go(Route::Collection));
-            } else if resp.clicked() {
-                if is_main {
+                if !is_main {
+                    resp.context_menu(|ui| {
+                        if ui.button(MAKE_MAIN).clicked() {
+                            make_main = true;
+                            ui.close();
+                        }
+                    });
+                }
+                if make_main {
+                    cmd(out, Command::SetMainPlaylist(pl.id.clone()));
                     out.push(Action::Go(Route::Collection));
-                } else {
-                    open_playlist(out, &pl.id);
+                } else if resp.clicked() {
+                    if is_main {
+                        out.push(Action::Go(Route::Collection));
+                    } else {
+                        open_playlist(out, &pl.id);
+                    }
                 }
-            }
-        },
-    );
+            },
+        )
+    });
 }
 
 /// "Playlist · You · 120 songs".

@@ -9,7 +9,7 @@ use model::Track;
 
 use crate::state::{Loadable, NEEDS_LOGIN, PlaylistView, State};
 use crate::theme;
-use crate::views::album::{Art, Header, count_and_length, header, memo, note, play_buttons};
+use crate::views::album::{Art, Header, bleed, count_and_length, header, memo, note, play_buttons};
 use crate::views::{Out, View, loading_or_error};
 use crate::widgets::track_table;
 
@@ -119,17 +119,19 @@ fn table(
     tracks: &Arc<Vec<Arc<Track>>>,
     out: &mut Out,
 ) {
-    track_table::show(
-        ui,
-        state,
-        view,
-        track_table::Table {
-            salt,
-            tracks,
-            rows: None,
-            columns: track_table::OUTSIDE,
-            scroll_to: None,
-        },
-        out,
-    );
+    bleed(ui, 0.0, 0.0, |ui| {
+        track_table::show(
+            ui,
+            state,
+            view,
+            track_table::Table {
+                salt,
+                tracks,
+                rows: None,
+                columns: track_table::OUTSIDE,
+                scroll_to: None,
+            },
+            out,
+        )
+    });
 }
