@@ -277,9 +277,9 @@ fn agent() -> ureq::Agent {
                     // less.
                     .input_buffer_size(16 << 10)
                     .output_buffer_size(4 << 10)
-                    // Every worker of both kinds may hit the same CDN host;
-                    // the default of 3 would close and reopen connections,
-                    // and each new one spawns a DNS thread.
+                    // Keep one idle connection per worker of either kind:
+                    // they all hit the same CDN host, and each new
+                    // connection spawns a DNS thread.
                     .max_idle_connections_per_host(WORKERS + COLOR_WORKERS)
                     .build(),
             )
@@ -479,7 +479,6 @@ const COLOR_MAX_ALLOC: u64 = 1 << 20;
 const COLOR_BATCH: usize = 50;
 /// Failed fetches in a row after which the pass gives up (no network).
 const MAX_FETCH_FAILURES: usize = 8;
-const COLOR_STACK: usize = 256 << 10;
 
 type ColorSink = Arc<dyn Fn(Vec<(TrackId, [u8; 3])>) + Send + Sync>;
 
@@ -545,7 +544,6 @@ impl ColorPass {
             let pass = Arc::clone(self);
             let spawned = std::thread::Builder::new()
                 .name(format!("rustle-colors-{i}"))
-                .stack_size(COLOR_STACK)
                 .spawn(move || pass.work(&agent()));
             if let Err(e) = spawned {
                 eprintln!("rustle: could not start color worker: {e}");
