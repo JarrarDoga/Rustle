@@ -12,6 +12,9 @@ use model::Thumbnail;
 
 use crate::{theme, thumbs};
 
+pub mod spine;
+pub mod track_table;
+
 /// `m:ss`, or `h:mm:ss` from an hour up.
 pub fn fmt_time(d: Duration) -> String {
     let s = d.as_secs();
@@ -103,11 +106,11 @@ pub fn icon_button(
 ) -> Response {
     let resp = ui.interact(rect, ui.scope_id().with(name), Sense::click());
     let color = if active {
-        theme::ACCENT
+        theme::accent()
     } else if resp.hovered() {
-        theme::TEXT
+        theme::pal().text_1
     } else {
-        theme::TEXT_DIM
+        theme::pal().text_2
     };
     ui.painter().text(
         rect.center(),
@@ -120,7 +123,7 @@ pub fn icon_button(
         ui.painter().circle_filled(
             Pos2::new(rect.center().x, rect.bottom() - 1.0),
             1.5,
-            theme::ACCENT,
+            theme::accent(),
         );
     }
     resp.on_hover_text(tip)
@@ -152,13 +155,14 @@ pub fn round_button(
 }
 
 /// A cover card for the home grid.
+#[allow(dead_code)] // ui-batch: album cards on the artist page
 pub fn card(ui: &mut Ui, key: &str, title: &str, subtitle: &str, kind: ArtKind<'_>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(172.0, 230.0), Sense::click());
     let painter = ui.painter_at(rect);
     let fill = if resp.hovered() {
-        theme::HOVER
+        theme::pal().surface_3
     } else {
-        theme::SURFACE
+        theme::pal().surface_2
     };
     painter.rect_filled(rect, CornerRadius::same(8), fill);
     let art_rect = Rect::from_min_size(rect.min + vec2(12.0, 12.0), vec2(148.0, 148.0));
@@ -170,7 +174,7 @@ pub fn card(ui: &mut Ui, key: &str, title: &str, subtitle: &str, kind: ArtKind<'
         Pos2::new(x, art_rect.bottom() + 22.0),
         title,
         FontId::proportional(15.0),
-        theme::TEXT,
+        theme::pal().text_1,
         w,
     );
     text_line(
@@ -178,7 +182,7 @@ pub fn card(ui: &mut Ui, key: &str, title: &str, subtitle: &str, kind: ArtKind<'
         Pos2::new(x, art_rect.bottom() + 44.0),
         subtitle,
         FontId::proportional(12.5),
-        theme::TEXT_DIM,
+        theme::pal().text_2,
         w,
     );
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -198,9 +202,9 @@ pub fn entity_row(
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
     let painter = ui.painter_at(rect);
     if selected {
-        painter.rect_filled(rect, CornerRadius::same(6), theme::SELECTED);
+        painter.rect_filled(rect, CornerRadius::same(6), theme::pal().surface_3);
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(6), theme::HOVER);
+        painter.rect_filled(rect, CornerRadius::same(6), theme::pal().surface_2);
     }
     let art_size = height - 14.0;
     let art_rect = Rect::from_min_size(
@@ -210,7 +214,11 @@ pub fn entity_row(
     art(&painter, art_rect, key, title, kind);
     let x = art_rect.right() + 12.0;
     let w = rect.right() - x - 8.0;
-    let title_color = if selected { theme::ACCENT } else { theme::TEXT };
+    let title_color = if selected {
+        theme::accent()
+    } else {
+        theme::pal().text_1
+    };
     text_line(
         &painter,
         Pos2::new(x, rect.center().y - 9.0),
@@ -224,7 +232,7 @@ pub fn entity_row(
         Pos2::new(x, rect.center().y + 10.0),
         subtitle,
         FontId::proportional(12.5),
-        theme::TEXT_DIM,
+        theme::pal().text_2,
         w,
     );
     resp
@@ -237,7 +245,7 @@ pub fn section(ui: &mut Ui, text: &str) {
         egui::RichText::new(text)
             .size(11.5)
             .strong()
-            .color(theme::TEXT_FAINT),
+            .color(theme::pal().text_3),
     );
 }
 
@@ -247,7 +255,7 @@ pub fn title(ui: &mut Ui, text: &str) {
         egui::RichText::new(text)
             .size(28.0)
             .strong()
-            .color(theme::TEXT),
+            .color(theme::pal().text_1),
     );
 }
 

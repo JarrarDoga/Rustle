@@ -1,4 +1,7 @@
-//! The login screen: paste a `Cookie` header or a cookies.txt export.
+//! The login screen (D-Login, D-LoginError): paste a `Cookie` header or a
+//! cookies.txt export.
+//!
+//! The `onboarding` worker owns this file.
 
 use egui::{Key, Modifiers, RichText, Ui, vec2};
 
@@ -22,14 +25,14 @@ pub fn login(ui: &mut Ui, state: &State, cookies: &mut String, out: &mut Out) {
             RichText::new("Rustle")
                 .size(36.0)
                 .strong()
-                .color(theme::TEXT),
+                .color(theme::pal().text_1),
         );
         ui.add_space(6.0);
         ui.label(
             RichText::new(
                 "Paste the Cookie header or a cookies.txt export from music.youtube.com.",
             )
-            .color(theme::TEXT_DIM),
+            .color(theme::pal().text_2),
         );
         ui.add_space(14.0);
         ui.add_enabled(
@@ -42,7 +45,7 @@ pub fn login(ui: &mut Ui, state: &State, cookies: &mut String, out: &mut Out) {
         );
         if let Session::Failed(message) = &state.session {
             ui.add_space(6.0);
-            ui.label(RichText::new(message).color(theme::ACCENT));
+            ui.label(RichText::new(message).color(theme::accent()));
         }
         ui.add_space(12.0);
 
@@ -71,12 +74,20 @@ pub fn login(ui: &mut Ui, state: &State, cookies: &mut String, out: &mut Out) {
 
         ui.add_space(18.0);
         instructions(ui);
+        ui.add_space(16.0);
+        // Search and public playlists work without an account.
+        if ui
+            .link(RichText::new("Continue without logging in").color(theme::pal().text_2))
+            .clicked()
+        {
+            out.push(Action::Guest(true));
+        }
     });
 }
 
 fn instructions(ui: &mut Ui) {
     let step = |ui: &mut Ui, text: &str| {
-        ui.label(RichText::new(text).size(12.5).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(text).size(12.5).color(theme::pal().text_3));
     };
     step(
         ui,

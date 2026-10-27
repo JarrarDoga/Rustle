@@ -11,7 +11,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
+use model::{
+    Album, Artist, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
+};
 use player::{PlaybackStatus, PlayerState};
 use ytm_core::BackendError;
 
@@ -139,6 +141,14 @@ pub struct State {
     pub main: Option<(String, Loadable<Arc<PlaylistView>>)>,
     /// Album-art accent colors (sRGB) by track id, for the spine and accent.
     pub art_colors: Arc<HashMap<TrackId, [u8; 3]>>,
+    /// The album page that is open, by browse id.
+    pub album: Option<(String, Loadable<Arc<Album>>)>,
+    /// The artist page that is open, by channel id.
+    pub artist: Option<(String, Loadable<Arc<Artist>>)>,
+    /// When each main-playlist track was last played (unix seconds), from
+    /// the local play history. Missing means never played here. Feeds the
+    /// "Last played" column and "Not heard in 3 months".
+    pub last_played: Arc<HashMap<TrackId, i64>>,
     /// Optimistic edits waiting for YouTube Music's answer, to roll back.
     pub(crate) pending: Vec<Pending>,
     /// The seed of the radio fetch in flight, so it goes out once.
@@ -280,6 +290,13 @@ impl State {
             .is_some_and(|l| l.iter().any(|t| t.id == id))
     }
 
+    /// The track's 0-based position in the main playlist, for the "In
+    /// Everything" column. A linear scan: call it for visible rows only.
+    #[allow(dead_code)] // the UI batch's pages read it
+    pub fn main_position(&self, id: &str) -> Option<usize> {
+        self.main_view()?.tracks.iter().position(|t| t.id == id)
+    }
+
     /// A track the app already knows, by id.
     fn find_track(&self, id: &str) -> Option<Arc<Track>> {
         let page = self.playlist.as_ref().and_then(|(_, p)| p.ready());
@@ -387,6 +404,12 @@ pub enum Command {
     },
     #[allow(dead_code)] // the UI batch sends it
     SetAutoplay(bool),
+    /// Open an album page by browse id.
+    #[allow(dead_code)] // the UI batch sends it
+    OpenAlbum(String),
+    /// Open an artist page by channel id.
+    #[allow(dead_code)] // the UI batch sends it
+    OpenArtist(String),
 }
 
 /// Work the backend does after a reducer step. The UI ignores these.
@@ -436,6 +459,8 @@ pub enum Effect {
     /// Show the cached copy and fetch only if the store's `fetched_at` for
     /// the feed is missing or older than 10 minutes.
     RefreshIfStale(Feed),
+    FetchAlbum(String),
+    FetchArtist(String),
 }
 
 /// What the backend learns from YouTube Music and the player.
@@ -512,6 +537,21 @@ pub enum Event {
     CachedMainPlaylist(String),
     /// Art colors read from the store.
     CachedArtColors(Vec<(TrackId, [u8; 3])>),
+    Album {
+        id: String,
+        result: Result<Album, BackendError>,
+    },
+    Artist {
+        id: String,
+        result: Result<Artist, BackendError>,
+    },
+    /// Last-played times (unix seconds) read from the store at startup.
+    CachedPlayStats(Vec<(TrackId, i64)>),
+    /// A play was recorded at `at` (unix seconds).
+    Played {
+        track_id: TrackId,
+        at: i64,
+    },
 }
 
 fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
@@ -557,6 +597,14 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             state.playlist = Some((id.clone(), Loadable::Loading));
             state.sync_page();
             vec![Effect::FetchPlaylist(id.clone())]
+        }
+        Command::OpenAlbum(id) => {
+            state.album = Some((id.clone(), Loadable::Loading));
+            vec![Effect::FetchAlbum(id.clone())]
+        }
+        Command::OpenArtist(id) => {
+            state.artist = Some((id.clone(), Loadable::Loading));
+            vec![Effect::FetchArtist(id.clone())]
         }
         Command::PlayTracks {
             tracks,
@@ -1386,6 +1434,36 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
         Event::Radio { seed, result } => return on_radio(state, seed, result, now),
         Event::ArtColors(colors) | Event::CachedArtColors(colors) => {
             Arc::make_mut(&mut state.art_colors).extend(colors);
+        }
+        Event::Album { id, result } => {
+            let message = result.as_ref().err().map(|e| describe(e, state));
+            if let Some((open, page)) = &mut state.album
+                && *open == id
+            {
+                *page = match (result, message) {
+                    (Ok(album), _) => Loadable::Ready(Arc::new(album)),
+                    (Err(_), m) => Loadable::Failed(m.unwrap_or_default()),
+                };
+            }
+        }
+        Event::Artist { id, result } => {
+            let message = result.as_ref().err().map(|e| describe(e, state));
+            if let Some((open, page)) = &mut state.artist
+                && *open == id
+            {
+                *page = match (result, message) {
+                    (Ok(artist), _) => Loadable::Ready(Arc::new(artist)),
+                    (Err(_), m) => Loadable::Failed(m.unwrap_or_default()),
+                };
+            }
+        }
+        Event::CachedPlayStats(stats) => {
+            Arc::make_mut(&mut state.last_played).extend(stats);
+        }
+        Event::Played { track_id, at } => {
+            let last = Arc::make_mut(&mut state.last_played);
+            let entry = last.entry(track_id).or_insert(at);
+            *entry = (*entry).max(at);
         }
         Event::CachedMainPlaylist(id) => {
             // The user may have picked one already.

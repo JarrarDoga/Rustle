@@ -7,6 +7,7 @@ mod app;
 mod art_color;
 mod auth;
 mod backend;
+mod icons;
 mod media_keys;
 mod playback;
 mod queue;
@@ -18,6 +19,8 @@ mod widgets;
 
 fn main() -> eframe::Result {
     let demo = std::env::args().any(|a| a == "--demo");
+    // With `--demo`: start with no main playlist, to show the first-run picker.
+    let first_run = std::env::args().any(|a| a == "--first-run");
     let perf = std::env::var_os("RUSTLE_PERF").is_some_and(|v| v == "1");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -40,6 +43,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Rustle",
         options,
-        Box::new(move |cc| Ok(Box::new(app::RustleApp::new(cc, &handle, demo, perf)))),
+        Box::new(move |cc| {
+            Ok(Box::new(app::RustleApp::new(
+                cc, &handle, demo, first_run, perf,
+            )))
+        }),
     )
 }

@@ -6,7 +6,9 @@
 use std::future::Future;
 
 pub use model;
-use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
+use model::{
+    Album, Artist, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
+};
 
 mod fixture;
 mod innertube;
@@ -14,7 +16,7 @@ mod rustypipe_backend;
 mod stream_cache;
 mod ytdlp;
 
-pub use fixture::FixtureBackend;
+pub use fixture::{DEMO_MAIN, FixtureBackend};
 pub use rustypipe_backend::{RustyPipeBackend, StreamInfo, StreamOrigin};
 
 #[derive(Debug, thiserror::Error)]
@@ -81,4 +83,10 @@ pub trait MusicBackend: Send + Sync + 'static {
 
     /// Log out: forget the cookies this backend holds.
     fn clear_cookies(&self) -> impl Future<Output = Result<()>> + Send;
+
+    /// An album by its browse id, tracks in album order.
+    fn album(&self, id: &str) -> impl Future<Output = Result<Album>> + Send;
+
+    /// An artist by channel id: top songs, albums, singles.
+    fn artist(&self, id: &str) -> impl Future<Output = Result<Artist>> + Send;
 }

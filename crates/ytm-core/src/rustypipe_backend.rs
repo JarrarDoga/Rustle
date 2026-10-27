@@ -428,6 +428,16 @@ impl MusicBackend for RustyPipeBackend {
         lock(&self.streams).clear();
         Ok(())
     }
+
+    async fn album(&self, _id: &str) -> Result<model::Album> {
+        // ui-ytm-pages
+        Err(BackendError::Extraction("not implemented".to_owned()))
+    }
+
+    async fn artist(&self, _id: &str) -> Result<model::Artist> {
+        // ui-ytm-pages
+        Err(BackendError::Extraction("not implemented".to_owned()))
+    }
 }
 
 /// Wraps rustypipe's JSON cache file and drops the login cookie and OAuth

@@ -88,46 +88,60 @@ the scripts in `~/Coding/spotify-ytm-migration/`).
 
 ## Batch 4: polish (Phase 3)
 
-Runs after the UI batch. Revised 2026-10-26. Full brief for the team lead:
-`docs/handoff/BATCH4.md`. Before the integrator step, the lead confirms
-with the user whether to drop theme choice (Direction D has one palette)
-and whether to add Discord presence (needs a Discord application ID).
+Runs after the UI batch. Revised 2026-10-27. Full brief for the team lead:
+`docs/handoff/BATCH4.md`. User decisions (2026-10-27): no Discord presence;
+theme choice stays, as dark and medium presets only (no light palettes),
+built by a `themes` worker in the presence slot.
 
 | Worker | Owns | Scope |
 | --- | --- | --- |
 | lyrics | lyrics in `ytm-core`, `views/lyrics.rs` | Synced lyrics (timed via the Android Music client, plain fallback) in a drawer |
 | control | `crates/app/src/control.rs` | Keyboard shortcuts, control socket, `rustle play/next/status` CLI, single instance |
-| settings | `crates/store/`, `settings.rs`, `views/settings.rs`, `queue.rs` | Saved settings (autoplay, accent from art, presence); queue label and radio marks survive restart |
-| presence | `crates/app/src/presence.rs` | Discord rich presence, off by default |
+| settings | `crates/store/`, `settings.rs`, `views/settings.rs`, `queue.rs` | Saved settings (autoplay, accent from art, theme); queue label and radio marks survive restart |
+| themes | `theme.rs` palettes, the theme picker in `views/settings.rs` | Well-known dark and medium palettes (no light) mapped onto the D neutrals; album art stays the only hue source |
 | packaging | `packaging/`, RPM metadata in `crates/app/Cargo.toml` | RPM for Nobara with desktop file, icon and the botguard helper |
 | memory (serial, last) | any crate | Large-library perf mode; cut peak RSS under 135 MiB |
 
 ## UI batch: Direction D ("One playlist")
 
-The design is done: `docs/design/README.md` (brief and rules) and the 12 D
-boards in `docs/design/png/`. Every worker reads the README and D-Tokens
-first, and compares a screenshot of its screen against its board before it
-reports done.
+Runs before Batch 4 (decided 2026-10-27). The design is done:
+`docs/design/README.md` (brief and rules) and the 12 D boards in
+`docs/design/png/`. Every worker reads the README and D-Tokens first, and
+compares a screenshot of its screen against its board before it reports
+done.
 
-Integrator step:
-- `theme.rs`: every D-Tokens value as a constant (neutrals, sizes, radii,
-  spacing), the 5 Inter text styles, and the accent math (OKLCH L 0.80,
-  chroma clamped 0.09 to 0.11, 14% player tint, text-1 fallback).
-- Fonts and icons: embed Inter 400/500/600 (OFL) and add `egui-phosphor`.
-- `state.rs`: main playlist id, `Scope` (all / filter / range), filter chips,
-  quick filter, sort, selection, and the new commands.
-- Stub files for every path below, and the new shell layout in `app.rs`
-  (rail, browse panel, content, spine, player bar) calling those stubs.
+Integrator step (done 2026-10-27):
+- `theme.rs`: D tokens behind a `Palette` (`theme::pal()`), so Batch 4 can
+  add presets; sizes, spacing, radii and the 5 Inter text styles as
+  constants; the accent from the playing art (`theme::accent()`,
+  `theme::tint()`), set by `app.rs` each frame.
+- Fonts: Inter 400/500/600 (OFL) and Phosphor regular and fill (MIT)
+  embedded from `crates/app/assets/fonts/`; glyph constants in `icons.rs`
+  (egui-phosphor pins egui 0.36, so it is not a dependency). eframe's and
+  egui's bundled fonts are off. Measured: peak RSS 140.2 to 140.3 MiB,
+  binary 20.8 to 21.5 MiB.
+- `model::Album`, `model::Artist`; `MusicBackend::album` / `artist`
+  (`FixtureBackend` real, `RustyPipeBackend` "not implemented").
+- `State`: `album`, `artist`, `last_played`; `OpenAlbum` / `OpenArtist`
+  commands; play history read at startup and updated per recorded play.
+- `views::View` holds the UI-only state; `CollectionView` is the handoff
+  between collection, browse, spine and player (filter, chips, range,
+  `visible`, `scope`, `on_screen`, `scroll_to`).
+- Stub files for every owned path below, seeded with the old views so
+  `rustle --demo` keeps working, and the D shell in `app.rs`.
+- Demo: `rustle --demo` opens the "Everything" demo playlist;
+  `rustle --demo --first-run` shows the main-playlist picker.
 
 | Worker | Owns | Scope | Board |
 | --- | --- | --- | --- |
-| track-table | `widgets/track_table.rs` | The one table every song list uses: `show_rows`, columns per screen (Last played or In Everything), row states default / hover / selected / playing, like on hover, scroll-to-row for Locate | D-Tokens track rows |
-| collection | `views/collection.rs` | Page header with scope-aware Shuffle / Play in order, filter field with removable chips, "Not heard in 3 months", sort menu, local filtering | D-Collection, D-Filter |
+| track-table | `widgets/track_table.rs` | The one table every song list uses: `show_rows`, columns per screen (Last played or In Everything), row states default / hover / selected / playing, like on hover, scroll-to-row, loading skeleton | D-Tokens track rows |
+| collection | `views/collection.rs` | Page header with scope-aware Shuffle / Play in order, filter field with removable chips, "Not heard in 3 months", sort menu, local filtering (`update`) | D-Collection, D-Filter |
 | spine | `widgets/spine.rs` | 20 px strip, 4 px segment per ~10 songs colored by art, viewport box, playing line, filter ticks, click to jump, drag to select a range with resize handles | D-Range |
 | browse | `views/browse.rs`, `views/rail.rs` | Icon rail; Artists / Albums panel with counts, playing marker, click to filter | D-Collection |
 | player | `views/player_bar.rs`, `views/queue.rs` | Player bar with 14% accent tint, Locate and "#412", "Playing from" scope chip, seek and volume; queue drawer with autoplay toggle | D-Queue, D-States buffering |
-| pages | `views/search.rs`, `views/album.rs`, `views/artist.rs` | Search, Album, Artist pages on the shared table with the In Everything column and Add buttons | D-Search, D-Album, D-Artist |
-| onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, loading skeleton, offline and session-expired banners | D-Login, D-LoginError, D-Empty, D-States |
+| pages | `views/search.rs`, `views/album.rs`, `views/artist.rs`, `views/library.rs`, `views/playlist.rs` | Search, Album, Artist pages on the shared table with the In Everything column and Add buttons; Library and other playlists restyled | D-Search, D-Album, D-Artist |
+| onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, offline and session-expired banners, "Sign in to see your library" for guests | D-Login, D-LoginError, D-Empty, D-States |
+| ytm-pages | `crates/ytm-core/` | `RustyPipeBackend::album` and `artist` with recorded fixtures | none |
 
 The data these screens need (play history, art colors, counts, scope
 shuffle, add/remove) comes from Batch 3, so the UI batch runs after it.
@@ -150,3 +164,6 @@ shuffle, add/remove) comes from Batch 3, so the UI batch runs after it.
    does not need a Spotify client ID.
 5. **Decided 2026-10-26: Direction D UI.** No Home screen; the main playlist
    is the app. See `docs/design/README.md`.
+6. **Decided 2026-10-27: UI batch before Batch 4; no Discord presence;
+   themes as dark and medium presets only.** A preset swaps the D neutrals;
+   the accent still comes from album art.

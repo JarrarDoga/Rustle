@@ -87,11 +87,17 @@ pub fn dominant(image: &ColorImage) -> [u8; 3] {
 /// clamped to 0.09..=0.11, reduced further if needed to stay in sRGB. A
 /// source with no hue gives a neutral gray at L 0.80.
 pub fn accent(rgb: [u8; 3]) -> [u8; 3] {
+    with_lightness(rgb, ACCENT_L)
+}
+
+/// Like [`accent`] at OKLCH lightness `l` (D-Tokens: hover 0.86, pressed
+/// 0.72).
+pub fn with_lightness(rgb: [u8; 3], l: f64) -> [u8; 3] {
     let (c, h) = chroma_hue(srgb_to_oklab(rgb));
     if c < MIN_HUE_CHROMA {
-        return oklab_to_srgb([ACCENT_L, 0.0, 0.0]);
+        return oklab_to_srgb([l, 0.0, 0.0]);
     }
-    let lab_at = |c: f64| [ACCENT_L, c * h.cos(), c * h.sin()];
+    let lab_at = |c: f64| [l, c * h.cos(), c * h.sin()];
     let mut c = c.clamp(MIN_CHROMA, MAX_CHROMA);
     if !in_gamut(oklab_to_linear(lab_at(c))) {
         // Bisect for the largest chroma that fits; chroma 0 always does.
@@ -109,12 +115,17 @@ pub fn accent(rgb: [u8; 3]) -> [u8; 3] {
     oklab_to_srgb(lab_at(c))
 }
 
+/// The player bar background over Direction D's `bg`; see [`tint_over`].
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn tint(accent: [u8; 3]) -> [u8; 3] {
+    tint_over(accent, BG)
+}
+
 /// The player bar background: `accent` at 14% over `bg`, blended in sRGB
 /// like the design board.
-#[allow(dead_code)] // b3-ui: the player bar
-pub fn tint(accent: [u8; 3]) -> [u8; 3] {
+pub fn tint_over(accent: [u8; 3], bg: [u8; 3]) -> [u8; 3] {
     std::array::from_fn(|i| {
-        let (a, b) = (f64::from(accent[i]), f64::from(BG[i]));
+        let (a, b) = (f64::from(accent[i]), f64::from(bg[i]));
         to_u8(b + (a - b) * TINT)
     })
 }

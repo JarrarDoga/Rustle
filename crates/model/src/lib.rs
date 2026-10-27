@@ -77,6 +77,22 @@ pub struct Playlist {
     pub entry_ids: Vec<Option<String>>,
 }
 
+/// An album page: its summary and tracks in album order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Album {
+    pub summary: AlbumSummary,
+    pub tracks: Vec<Track>,
+}
+
+/// An artist page (D-Artist): top songs, then albums, then singles and EPs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Artist {
+    pub summary: ArtistSummary,
+    pub top_songs: Vec<Track>,
+    pub albums: Vec<AlbumSummary>,
+    pub singles: Vec<AlbumSummary>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchResults {
     pub tracks: Vec<Track>,

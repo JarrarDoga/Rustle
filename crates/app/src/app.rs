@@ -3,15 +3,15 @@
 
 use std::time::{Duration, Instant};
 
-use egui::{CentralPanel, Frame, Key, Margin, Panel, RichText};
+use egui::{Area, CentralPanel, Frame, Key, Margin, Order, Panel, Pos2, Rect, RichText, UiBuilder};
 use tokio::runtime::Handle;
 
 use crate::backend::{self, Client, Keyring, Setup};
 use crate::media_keys::MediaKeys;
 use crate::playback::{self, SimulatedPlayback};
 use crate::state::{Command, Session, State, apply};
-use crate::theme;
 use crate::views::{self, Action, Route, View};
+use crate::{theme, widgets};
 
 pub struct RustleApp {
     client: Client,
@@ -33,7 +33,13 @@ pub struct RustleApp {
 impl RustleApp {
     /// Starts the backend task and returns at once. Building the real backend
     /// reads files and runs a helper binary, so it happens on `rt`.
-    pub fn new(cc: &eframe::CreationContext<'_>, rt: &Handle, demo: bool, perf: bool) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        rt: &Handle,
+        demo: bool,
+        first_run: bool,
+        perf: bool,
+    ) -> Self {
         theme::apply(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         let notify: backend::Notify = Box::new(move || ctx.request_repaint());
@@ -43,7 +49,15 @@ impl RustleApp {
             let setup = Setup {
                 initial: initial.clone(),
                 make: || Ok((ytm_core::FixtureBackend::new(), SimulatedPlayback::new())),
-                store: Box::new(|| store::Store::open_in_memory().map_err(|e| e.to_string())),
+                store: Box::new(move || {
+                    let s = store::Store::open_in_memory().map_err(|e| e.to_string())?;
+                    // `--first-run` shows the main-playlist picker instead.
+                    if !first_run {
+                        s.set_main_playlist(ytm_core::DEMO_MAIN)
+                            .map_err(|e| e.to_string())?;
+                    }
+                    Ok(s)
+                }),
                 keyring: None,
             };
             backend::spawn(rt, setup, notify)
@@ -116,129 +130,122 @@ impl RustleApp {
                     }
                     self.view.route = route;
                 }
+                Action::Guest(guest) => self.guest = guest,
             }
         }
-    }
-
-    /// The one-line message at the top of the window, if any.
-    fn banner(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
-        let Some(banner) = &self.state.banner else {
-            return;
-        };
-        Panel::top("banner")
-            .frame(
-                Frame::NONE
-                    .fill(theme::ACCENT)
-                    .inner_margin(Margin::symmetric(16, 6)),
-            )
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(banner).color(egui::Color32::BLACK).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Dismiss").clicked() {
-                            out.push(Action::Cmd(Command::DismissBanner));
-                        }
-                    });
-                });
-            });
     }
 
     /// Shown while the backend starts and checks the keyring.
     fn starting(ui: &mut egui::Ui) {
         CentralPanel::default()
-            .frame(Frame::NONE.fill(theme::BG))
+            .frame(Frame::NONE.fill(theme::pal().bg))
             .show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
-                    ui.label(RichText::new("Loading…").color(theme::TEXT_DIM));
+                    ui.label(RichText::new("Loading…").color(theme::pal().text_2));
                 });
             });
     }
 
     fn login(&mut self, ui: &mut egui::Ui) {
         let mut out = Vec::new();
-        self.banner(ui, &mut out);
-        let mut skip = false;
+        views::banners::show(ui, &self.state, &mut out);
         CentralPanel::default()
-            .frame(Frame::NONE.fill(theme::BG).inner_margin(Margin::same(24)))
+            .frame(
+                Frame::NONE
+                    .fill(theme::pal().bg)
+                    .inner_margin(Margin::same(24)),
+            )
             .show(ui, |ui| {
-                views::login(ui, &self.state, &mut self.cookies, &mut out);
-                ui.add_space(16.0);
-                ui.vertical_centered(|ui| {
-                    // Search and public playlists work without an account.
-                    skip = ui
-                        .link(RichText::new("Continue without logging in").color(theme::TEXT_DIM))
-                        .clicked();
-                });
+                views::login::login(ui, &self.state, &mut self.cookies, &mut out);
             });
-        if skip {
-            self.guest = true;
-        }
         self.act(out);
     }
 
+    /// Direction D shell: rail | browse panel (Collection only) | content |
+    /// spine (Collection only), the player bar along the bottom, and the
+    /// queue drawer over the right of the content.
     fn shell(&mut self, ui: &mut egui::Ui) {
         let now = Instant::now();
         let mut out = Vec::new();
-        self.banner(ui, &mut out);
-        if self.state.session != Session::LoggedIn {
-            let mut log_in = false;
-            Panel::top("guest")
-                .frame(
-                    Frame::NONE
-                        .fill(theme::SIDEBAR)
-                        .inner_margin(Margin::symmetric(16, 6)),
-                )
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Not logged in").color(theme::TEXT_DIM));
-                        log_in = ui.link("Log in").clicked();
-                    });
-                });
-            if log_in {
-                self.guest = false;
-            }
-        }
+        let p = *theme::pal();
+        views::banners::show(ui, &self.state, &mut out);
         let state = &self.state;
         let view = &mut self.view;
+        views::collection::update(state, view);
+        let first_run = views::first_run::wanted(state);
+        let collection = view.route == Route::Collection && !first_run;
+        let region = |fill| Frame::NONE.fill(fill);
+
         Panel::bottom("player")
-            .exact_size(88.0)
+            .exact_size(theme::PLAYER_H)
             .resizable(false)
-            .show_separator_line(false)
-            .frame(
-                Frame::NONE
-                    .fill(theme::BAR)
-                    .inner_margin(Margin::symmetric(16, 10)),
-            )
-            .show(ui, |ui| views::player_bar(ui, state, view, now, &mut out));
-        Panel::left("nav")
-            .exact_size(232.0)
+            .show_separator_line(true)
+            .frame(region(theme::tint()).inner_margin(Margin::symmetric(8, 0)))
+            .show(ui, |ui| {
+                views::player_bar::show(ui, state, view, now, &mut out)
+            });
+        Panel::left("rail")
+            .exact_size(theme::RAIL_W)
             .resizable(false)
-            .show_separator_line(false)
-            .frame(
-                Frame::NONE
-                    .fill(theme::SIDEBAR)
-                    .inner_margin(Margin::symmetric(12, 12)),
-            )
-            .show(ui, |ui| views::sidebar(ui, state, view, &mut out));
-        if view.show_queue {
-            Panel::right("queue")
-                .exact_size(300.0)
+            .show_separator_line(true)
+            .frame(region(p.bg))
+            .show(ui, |ui| views::rail::show(ui, state, view, &mut out));
+        if collection {
+            Panel::left("browse")
+                .exact_size(theme::FACET_PANEL_W)
                 .resizable(false)
-                .show_separator_line(false)
-                .frame(
-                    Frame::NONE
-                        .fill(theme::SIDEBAR)
-                        .inner_margin(Margin::symmetric(12, 12)),
-                )
-                .show(ui, |ui| views::queue_panel(ui, state, &mut out));
+                .show_separator_line(true)
+                .frame(region(p.bg).inner_margin(Margin::symmetric(16, 12)))
+                .show(ui, |ui| views::browse::show(ui, state, view, &mut out));
         }
-        CentralPanel::default()
-            .frame(
-                Frame::NONE
-                    .fill(theme::BG)
-                    .inner_margin(Margin::symmetric(28, 22)),
-            )
-            .show(ui, |ui| views::page(ui, state, view, &mut out));
+        let content = CentralPanel::default()
+            .frame(region(p.bg))
+            .show(ui, |ui| {
+                let rect = ui.max_rect();
+                if first_run {
+                    let inner = rect.shrink(theme::SPACE_24);
+                    ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
+                        views::first_run::show(ui, state, &mut out);
+                    });
+                } else if collection {
+                    let (main, spine) = rect.split_left_right_at_x(rect.right() - theme::SPINE_W);
+                    ui.scope_builder(UiBuilder::new().max_rect(main), |ui| {
+                        views::collection::show(ui, state, view, &mut out);
+                    });
+                    ui.scope_builder(UiBuilder::new().max_rect(spine), |ui| {
+                        widgets::spine::show(ui, state, view, &mut out);
+                    });
+                } else {
+                    let inner = rect.shrink2(egui::vec2(theme::SPACE_24, theme::SPACE_16));
+                    ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
+                        views::page(ui, state, view, &mut out);
+                    });
+                }
+                rect
+            })
+            .inner;
+
+        if view.show_queue {
+            let drawer = Rect::from_min_max(
+                Pos2::new(content.right() - theme::QUEUE_W, content.top()),
+                content.max,
+            );
+            Area::new(egui::Id::unique("queue-drawer"))
+                .fixed_pos(drawer.min)
+                .order(Order::Middle)
+                .show(ui.ctx(), |ui| {
+                    Frame::NONE
+                        .fill(p.bg)
+                        .stroke(theme::hairline())
+                        .shadow(ui.visuals().window_shadow)
+                        .inner_margin(Margin::symmetric(12, 12))
+                        .show(ui, |ui| {
+                            ui.set_min_size(drawer.size() - egui::vec2(24.0, 24.0));
+                            ui.set_max_size(drawer.size() - egui::vec2(24.0, 24.0));
+                            views::queue::show(ui, state, &mut out);
+                        });
+                });
+        }
 
         let space = ui.input(|i| i.key_pressed(Key::Space));
         if space && !ui.ctx().egui_wants_keyboard_input() {
@@ -256,6 +263,11 @@ impl eframe::App for RustleApp {
             self.send(command);
         }
         self.media_keys.sync(&self.state);
+        let accent = self
+            .state
+            .current_track()
+            .and_then(|t| self.state.art_colors.get(&t.id).copied());
+        theme::set_art_accent(accent);
         match self.state.session {
             Session::LoggedIn => self.shell(ui),
             _ if self.guest => self.shell(ui),
@@ -281,6 +293,6 @@ impl eframe::App for RustleApp {
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        theme::BG.to_normalized_gamma_f32()
+        theme::pal().bg.to_normalized_gamma_f32()
     }
 }

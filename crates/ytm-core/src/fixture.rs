@@ -1,6 +1,9 @@
 use std::sync::{Mutex, MutexGuard};
 
-use model::{AudioCodec, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
+use model::{
+    Album, AlbumSummary, Artist, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
+    SearchResults, StreamSource, Track, TrackId,
+};
 
 use crate::{BackendError, MusicBackend, Result};
 
@@ -12,6 +15,9 @@ const PLAYLIST_JSON: &str = include_str!("../fixtures/playlist.json");
 /// The recorded playlist's first this-many tracks form "Focus"; the rest form
 /// "Evening".
 const FOCUS_LEN: usize = 20;
+
+/// The demo's main playlist id; `rustle --demo` opens it.
+pub const DEMO_MAIN: &str = "PLdemo_everything";
 
 /// Most tracks `radio` returns.
 const RADIO_LEN: usize = 25;
@@ -59,7 +65,7 @@ impl FixtureBackend {
                 .map(|i| Some(format!("{id}-entry-{i}")))
                 .collect(),
         };
-        let playlists = vec![
+        let mut playlists = vec![
             demo("PLdemo_focus", "Focus", &recorded.tracks[..split]),
             demo("PLdemo_evening", "Evening", &recorded.tracks[split..]),
         ];
@@ -69,6 +75,8 @@ impl FixtureBackend {
             .step_by(2)
             .map(|t| t.id.clone())
             .collect();
+        // The demo's main playlist: every recorded track, in recorded order.
+        playlists.push(demo(DEMO_MAIN, "Everything", &recorded.tracks));
         Self {
             search,
             data: Mutex::new(Data {
@@ -91,6 +99,18 @@ impl FixtureBackend {
             .chain(data.playlists.iter().flat_map(|p| &p.tracks))
             .find(|t| t.id == id)
             .cloned()
+    }
+
+    /// Known tracks matching `keep`, each id once, search results first.
+    fn unique_tracks(&self, data: &Data, keep: impl Fn(&Track) -> bool) -> Vec<Track> {
+        let mut seen = std::collections::HashSet::new();
+        self.search
+            .tracks
+            .iter()
+            .chain(data.playlists.iter().flat_map(|p| &p.tracks))
+            .filter(|t| keep(t) && seen.insert(t.id.clone()))
+            .cloned()
+            .collect()
     }
 
     fn known(&self, data: &Data, id: &str) -> Result<Track> {
@@ -247,7 +267,13 @@ impl MusicBackend for FixtureBackend {
         let data = self.data();
         self.known(&data, track_id)?;
         // Deterministic: the playlist tracks that follow the seed, wrapping.
-        let all: Vec<&Track> = data.playlists.iter().flat_map(|p| &p.tracks).collect();
+        let mut seen = std::collections::HashSet::new();
+        let all: Vec<&Track> = data
+            .playlists
+            .iter()
+            .flat_map(|p| &p.tracks)
+            .filter(|t| seen.insert(t.id.as_str()))
+            .collect();
         let start = all.iter().position(|t| t.id == track_id).unwrap_or(0);
         Ok(all
             .iter()
@@ -263,6 +289,66 @@ impl MusicBackend for FixtureBackend {
     async fn clear_cookies(&self) -> Result<()> {
         Ok(())
     }
+
+    async fn album(&self, id: &str) -> Result<Album> {
+        let data = self.data();
+        let tracks = self.unique_tracks(&data, |t| t.album.as_ref().is_some_and(|a| a.id == id));
+        let first = tracks
+            .first()
+            .ok_or_else(|| BackendError::NotFound(id.to_owned()))?;
+        let summary = album_summary(first).expect("matched on album");
+        Ok(Album { summary, tracks })
+    }
+
+    async fn artist(&self, id: &str) -> Result<Artist> {
+        let data = self.data();
+        let by = |t: &Track| t.artists.iter().any(|a| a.id.as_deref() == Some(id));
+        let tracks = self.unique_tracks(&data, by);
+        let first = tracks
+            .first()
+            .ok_or_else(|| BackendError::NotFound(id.to_owned()))?;
+        let name = first
+            .artists
+            .iter()
+            .find(|a| a.id.as_deref() == Some(id))
+            .map(|a| a.name.clone())
+            .unwrap_or_default();
+        let mut albums: Vec<AlbumSummary> = Vec::new();
+        for summary in tracks.iter().filter_map(album_summary) {
+            if !albums.iter().any(|a| a.id == summary.id) {
+                albums.push(summary);
+            }
+        }
+        // Deterministic split: albums with one track here count as singles.
+        let (singles, albums) = albums.into_iter().partition(|a| {
+            tracks
+                .iter()
+                .filter(|t| t.album.as_ref().is_some_and(|b| b.id == a.id))
+                .count()
+                == 1
+        });
+        Ok(Artist {
+            summary: ArtistSummary {
+                id: id.to_owned(),
+                name,
+                thumbnails: first.thumbnails.clone(),
+            },
+            top_songs: tracks.into_iter().take(10).collect(),
+            albums,
+            singles,
+        })
+    }
+}
+
+/// The album a track belongs to, as a summary with the track's art.
+fn album_summary(t: &Track) -> Option<AlbumSummary> {
+    t.album.as_ref().map(|a| AlbumSummary {
+        id: a.id.clone(),
+        name: a.name.clone(),
+        artists: t.artists.clone(),
+        year: None,
+        thumbnails: t.thumbnails.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -281,7 +367,7 @@ mod tests {
         let b = FixtureBackend::new();
         let lib = block_on(b.library_playlists()).unwrap();
         let ids: Vec<&str> = lib.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, ["PLdemo_focus", "PLdemo_evening"]);
+        assert_eq!(ids, ["PLdemo_focus", "PLdemo_evening", DEMO_MAIN]);
         for summary in &lib {
             let pl = block_on(b.playlist(&summary.id)).unwrap();
             assert!(!pl.tracks.is_empty());

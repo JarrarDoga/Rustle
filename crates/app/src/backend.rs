@@ -274,9 +274,22 @@ fn read_main_playlist(store: &Store, tx: &Inputs) {
             let tracks = p.tracks.clone();
             send_event(tx, Event::CachedPlaylist(p));
             art_pass(store, tx, &tracks);
+            play_stats(store, tx, &tracks);
         }
         Ok(None) => {}
         Err(e) => log("main playlist", e),
+    }
+}
+
+/// Reads when each of `tracks` was last played into the state.
+fn play_stats(store: &Store, tx: &Inputs, tracks: &[Track]) {
+    let ids: Vec<TrackId> = tracks.iter().map(|t| t.id.clone()).collect();
+    match store.last_played(&ids) {
+        Ok(last) if !last.is_empty() => {
+            send_event(tx, Event::CachedPlayStats(last.into_iter().collect()));
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("rustle: read play history: {e}"),
     }
 }
 
@@ -967,8 +980,13 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                     Some((id, at)) if *id == track_id => *at,
                     _ => unix_now() - (played_ms / 1000) as i64,
                 };
+                let tx = self.tx.clone();
                 self.store.run(move |s| {
-                    log_store_error("play", s.record_play(&track_id, at, played_ms));
+                    let r = s.record_play(&track_id, at, played_ms);
+                    if r.is_ok() {
+                        send_event(&tx, Event::Played { track_id, at });
+                    }
+                    log_store_error("play", r);
                 });
             }
             Effect::NeedArtColors(tracks) => {
@@ -981,6 +999,14 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                 let tx = self.tx.clone();
                 self.store.run_any(move |s| refresh_if_stale(s, &tx, feed));
             }
+            Effect::FetchAlbum(id) => self.fetch(|b| async move {
+                let result = b.album(&id).await;
+                Event::Album { id, result }
+            }),
+            Effect::FetchArtist(id) => self.fetch(|b| async move {
+                let result = b.artist(&id).await;
+                Event::Artist { id, result }
+            }),
         }
     }
 
@@ -1131,6 +1157,12 @@ mod tests {
         async fn clear_cookies(&self) -> ytm_core::Result<()> {
             self.flags.cookies_cleared.store(true, Ordering::SeqCst);
             self.inner.clear_cookies().await
+        }
+        async fn album(&self, id: &str) -> ytm_core::Result<model::Album> {
+            self.inner.album(id).await
+        }
+        async fn artist(&self, id: &str) -> ytm_core::Result<model::Artist> {
+            self.inner.artist(id).await
         }
     }
 
@@ -1296,7 +1328,7 @@ mod tests {
         let s = h.wait_for("library", |s| {
             s.acked == 1 && s.library.ready().is_some() && s.liked.ready().is_some()
         });
-        assert_eq!(s.library.ready().unwrap().len(), 2);
+        assert_eq!(s.library.ready().unwrap().len(), 3);
         let liked = Arc::clone(s.liked.ready().unwrap());
 
         h.client.send(
@@ -1396,7 +1428,7 @@ mod tests {
         let s = h.wait_for("library", |s| {
             s.session == Session::LoggedIn && s.library.ready().is_some()
         });
-        assert_eq!(s.library.ready().unwrap().len(), 2);
+        assert_eq!(s.library.ready().unwrap().len(), 3);
         eventually("save", || SAVED.lock().unwrap().is_some());
         assert_eq!(SAVED.lock().unwrap().as_deref(), Some("SID=pasted"));
 
