@@ -104,6 +104,14 @@ const MIGRATIONS: &[&str] = &[
         at  INTEGER NOT NULL -- Unix seconds
     ) STRICT, WITHOUT ROWID;
 ",
+    "
+    -- 1 for an entry autoplay radio appended (save_queue_extras).
+    ALTER TABLE queue ADD COLUMN radio INTEGER NOT NULL DEFAULT 0;
+
+    -- The queue's Playing from label. It lives with the queue snapshot,
+    -- not in settings, because it is replaced and cleared with the queue.
+    ALTER TABLE queue_state ADD COLUMN label TEXT;
+",
 ];
 
 /// `settings` key holding the main playlist id.
@@ -389,16 +397,45 @@ impl Store {
 
     /// Saves what `save_queue` does not: the "Playing from" label and which
     /// entries are autoplay radio, parallel to the saved queue.
+    ///
+    /// Call it after `save_queue`: `radio[i]` marks queue position `i`, and
+    /// flags past the end of the saved queue are dropped.
     pub fn save_queue_extras(&self, label: Option<&str>, radio: &[bool]) -> Result<()> {
-        // b4-settings
-        let _ = (label, radio);
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("UPDATE queue SET radio = 0 WHERE radio <> 0", [])?;
+        {
+            let mut mark = tx.prepare_cached("UPDATE queue SET radio = 1 WHERE position = ?1")?;
+            for (pos, _) in radio.iter().enumerate().filter(|(_, r)| **r) {
+                mark.execute([pos as i64])?;
+            }
+        }
+        tx.execute(
+            "INSERT INTO queue_state (id, label) VALUES (0, ?1)
+             ON CONFLICT (id) DO UPDATE SET label = excluded.label",
+            [label],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// The label and radio flags saved with the queue. Empty when none.
+    /// The label and radio flags saved with the queue. The flags are
+    /// parallel to the tracks `load_queue` returns: entries it skips for
+    /// missing metadata are skipped here too. Empty when none.
     pub fn queue_extras(&self) -> Result<(Option<String>, Vec<bool>)> {
-        // b4-settings
-        Ok((None, Vec::new()))
+        let label: Option<String> = self
+            .conn
+            .prepare_cached("SELECT label FROM queue_state WHERE id = 0")?
+            .query_row([], |r| r.get(0))
+            .optional()?
+            .flatten();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT q.radio FROM queue q JOIN tracks t ON t.id = q.track_id
+             ORDER BY q.position",
+        )?;
+        let radio = stmt
+            .query_map([], |r| r.get::<_, i64>(0).map(|v| v != 0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok((label, radio))
     }
 
     /// Remember which playlist is the user's main playlist ("Everything").

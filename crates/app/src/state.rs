@@ -453,7 +453,6 @@ pub enum Command {
     /// lyrics; a track change while open fetches again.
     ShowLyrics(bool),
     /// Change one saved setting.
-    #[allow(dead_code)] // b4-settings: the settings popover sends it
     SetSetting(SettingChange),
 }
 

@@ -285,9 +285,24 @@ impl Queue {
     /// Puts back what `Store::save_queue_extras` saved after a restore: the
     /// "Playing from" label and each entry's radio mark. Flags whose length
     /// does not match the queue are ignored.
+    ///
+    /// The flags follow the saved order. `play_list` keeps that order unless
+    /// shuffle is on; then it is the unshuffled order.
     pub fn restore_extras(&mut self, label: Option<String>, radio: &[bool]) {
-        // b4-settings
-        let _ = (label, radio);
+        self.playing_from = label;
+        if radio.len() != self.entries.len() {
+            return;
+        }
+        let saved: Vec<u64> = if self.shuffle {
+            self.unshuffled.clone()
+        } else {
+            self.entries.iter().map(|e| e.uid).collect()
+        };
+        for (uid, &on) in saved.iter().zip(radio) {
+            if let Some(e) = self.entries.iter_mut().find(|e| e.uid == *uid) {
+                e.radio = on;
+            }
+        }
     }
 
     /// The autoplay setting. Repeat all or one still keeps radio off.
@@ -399,6 +414,75 @@ pub(crate) mod tests {
 
     fn current_id(q: &Queue) -> Option<String> {
         q.current().map(|e| e.track.id.clone())
+    }
+
+    fn radio_ids(q: &Queue) -> Vec<String> {
+        q.entries()
+            .iter()
+            .filter(|e| e.radio)
+            .map(|e| e.track.id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn restore_extras_sets_label_and_radio_marks() {
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a", "b", "c", "d"]), 1, 7);
+        q.restore_extras(
+            Some("Everything \u{b7} 2".into()),
+            &[false, false, true, true],
+        );
+        assert_eq!(q.playing_from(), Some("Everything \u{b7} 2"));
+        assert_eq!(radio_ids(&q), ["c", "d"]);
+        assert_eq!(ids(&q), ["a", "b", "c", "d"]);
+        assert_eq!(current_id(&q).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn restore_extras_ignores_flags_of_another_length() {
+        for flags in [&[true][..], &[true, true, true, true, true][..], &[][..]] {
+            let mut q = Queue::default();
+            q.play_list(&tracks(&["a", "b", "c"]), 0, 7);
+            q.restore_extras(Some("Saint Juniper \u{b7} 3".into()), flags);
+            assert_eq!(q.playing_from(), Some("Saint Juniper \u{b7} 3"));
+            assert!(radio_ids(&q).is_empty(), "{flags:?}");
+        }
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a"]), 0, 7);
+        q.restore_extras(None, &[true]);
+        assert_eq!(q.playing_from(), None);
+        assert_eq!(radio_ids(&q), ["a"]);
+    }
+
+    #[test]
+    fn restore_extras_follows_saved_order_while_shuffled() {
+        let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let mut q = Queue::default();
+        q.set_shuffle(true, 3);
+        q.play_list(&tracks(&names), 0, 11);
+        assert_ne!(ids(&q), names, "seed must shuffle");
+        let flags: Vec<bool> = names.iter().map(|n| *n == "c" || *n == "h").collect();
+        q.restore_extras(None, &flags);
+        let mut marked = radio_ids(&q);
+        marked.sort();
+        assert_eq!(marked, ["c", "h"]);
+    }
+
+    #[test]
+    fn restore_after_save_keeps_radio_marks() {
+        let mut q = Queue::default();
+        q.set_autoplay(true);
+        q.play_scope(&tracks(&["a", "b"]), "Everything \u{b7} 2".into(), false, 1);
+        q.extend_radio(tracks(&["r1", "r2"]));
+        let saved: Vec<Arc<Track>> = q.entries().iter().map(|e| e.track.clone()).collect();
+        let flags: Vec<bool> = q.entries().iter().map(|e| e.radio).collect();
+        let label = q.playing_from().map(str::to_owned);
+
+        let mut restored = Queue::default();
+        restored.play_list(&saved, 0, 0);
+        restored.restore_extras(label, &flags);
+        assert_eq!(restored.playing_from(), Some("Everything \u{b7} 2"));
+        assert_eq!(radio_ids(&restored), ["r1", "r2"]);
     }
 
     #[test]
