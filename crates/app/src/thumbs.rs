@@ -87,7 +87,6 @@ pub fn get(ctx: &Context, thumbs: &[Thumbnail], size: f32) -> Option<TextureId> 
 /// session are skipped, as are tracks whose art cannot be decoded. After
 /// `MAX_FETCH_FAILURES` failed fetches in a row (no network) the pass
 /// drops its queue; a later call retries those tracks.
-#[allow(dead_code)] // b3-wiring calls it on Effect::NeedArtColors
 pub fn request_colors<F>(tracks: Vec<Arc<model::Track>>, sink: F)
 where
     F: Fn(Vec<(model::TrackId, [u8; 3])>) + Send + Sync + 'static,

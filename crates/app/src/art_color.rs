@@ -29,7 +29,6 @@ const HUE_BINS: usize = 36;
 /// example 3: pink circles on navy give a pink accent). Near-black and
 /// near-white pixels do not vote unless the art is only that. Returns the
 /// mean color of the winning hue window.
-#[allow(dead_code)] // called by the color pass in thumbs; the UI batch may call it too
 pub fn dominant(image: &ColorImage) -> [u8; 3] {
     let samples = grid_samples(image);
     if samples.is_empty() {
@@ -87,7 +86,6 @@ pub fn dominant(image: &ColorImage) -> [u8; 3] {
 /// The accent for a source color: its OKLCH hue at L 0.80 with chroma
 /// clamped to 0.09..=0.11, reduced further if needed to stay in sRGB. A
 /// source with no hue gives a neutral gray at L 0.80.
-#[allow(dead_code)] // called by the color pass in thumbs; the UI batch may call it too
 pub fn accent(rgb: [u8; 3]) -> [u8; 3] {
     let (c, h) = chroma_hue(srgb_to_oklab(rgb));
     if c < MIN_HUE_CHROMA {
