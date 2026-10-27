@@ -368,6 +368,39 @@ impl Store {
         Ok((tracks, index))
     }
 
+    /// One app setting by key, as plain text. `None` when never set.
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT value FROM settings WHERE key = ?1")?
+            .query_row([key], |r| r.get(0))
+            .optional()?)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn
+            .prepare_cached(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            )?
+            .execute([key, value])?;
+        Ok(())
+    }
+
+    /// Saves what `save_queue` does not: the "Playing from" label and which
+    /// entries are autoplay radio, parallel to the saved queue.
+    pub fn save_queue_extras(&self, label: Option<&str>, radio: &[bool]) -> Result<()> {
+        // b4-settings
+        let _ = (label, radio);
+        Ok(())
+    }
+
+    /// The label and radio flags saved with the queue. Empty when none.
+    pub fn queue_extras(&self) -> Result<(Option<String>, Vec<bool>)> {
+        // b4-settings
+        Ok((None, Vec::new()))
+    }
+
     /// Remember which playlist is the user's main playlist ("Everything").
     pub fn set_main_playlist(&self, id: &str) -> Result<()> {
         self.conn

@@ -77,6 +77,22 @@ pub struct Playlist {
     pub entry_ids: Vec<Option<String>>,
 }
 
+/// A song's lyrics. `synced` is true only when every line has a start time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lyrics {
+    pub lines: Vec<LyricLine>,
+    pub synced: bool,
+    /// Where the lyrics come from, e.g. "Source: LyricFind".
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LyricLine {
+    /// When the line starts, from the song's start. `None` for plain lyrics.
+    pub start: Option<Duration>,
+    pub text: String,
+}
+
 /// An album page: its summary and tracks in album order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Album {

@@ -17,7 +17,7 @@ use player::PlaybackStatus;
 
 use crate::queue::Repeat;
 use crate::state::{Command, State};
-use crate::views::{Action, Out, Route, View, artists, cmd};
+use crate::views::{Out, View, artists, cmd};
 use crate::widgets::{fmt_time, seed, text_line};
 use crate::{icons, theme, thumbs};
 
@@ -113,20 +113,10 @@ fn now_playing(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, out: &mu
         p.text_2,
         w,
     );
-    if let (Some(pos), Some(r)) = (position, locate) {
+    if let (Some(_), Some(r)) = (position, locate) {
         let resp = icon_button(ui, r, "locate", icons::CROSSHAIR, p.text_2, true);
         if resp.on_hover_text("Show playing song in list").clicked() {
-            out.push(Action::Go(Route::Collection));
-            // Locate always lands on the song: drop whatever hides it. The
-            // collection scrolls a hidden target to the nearest shown row.
-            if !view.collection.visible.contains(&pos) {
-                let c = &mut view.collection;
-                c.filter_text.clear();
-                c.chips.clear();
-                c.not_heard = false;
-                c.range = None;
-            }
-            view.collection.scroll_to = Some(pos);
+            crate::views::locate(state, view, out);
         }
     }
 }
@@ -342,6 +332,8 @@ fn extras(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, out: &mut Out
     );
     let mute_r = Rect::from_center_size(Pos2::new(volume_r.left() - 6.0 - b / 2.0, cy), vec2(b, b));
     let queue_r = Rect::from_center_size(Pos2::new(mute_r.left() - 6.0 - b / 2.0, cy), vec2(b, b));
+    let lyrics_r =
+        Rect::from_center_size(Pos2::new(queue_r.left() - 6.0 - b / 2.0, cy), vec2(b, b));
 
     let volume = state.playback.volume;
     let resp = ui.interact(
@@ -388,13 +380,21 @@ fn extras(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, out: &mut Out
     if resp.on_hover_text("Queue").clicked() {
         view.show_queue = !view.show_queue;
     }
+    // Lyrics drawer: the reducer holds `lyrics_open`; app.rs keeps it and the
+    // queue drawer mutually exclusive.
+    let open = state.lyrics_open;
+    let color = if open { theme::accent() } else { p.text_2 };
+    let resp = icon_button(ui, lyrics_r, "lyrics", icons::MICROPHONE_STAGE, color, true);
+    if resp.on_hover_text("Lyrics").clicked() {
+        cmd(out, Command::ShowLyrics(!open));
+    }
 
     if let Some(label) = state.queue.playing_from() {
-        let room = queue_r.left() - 6.0 - rect.left();
+        let room = lyrics_r.left() - 6.0 - rect.left();
         if scope_chip(
             ui,
             room,
-            queue_r.left() - 6.0,
+            lyrics_r.left() - 6.0,
             cy,
             label,
             state.queue.shuffle(),

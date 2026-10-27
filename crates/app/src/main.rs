@@ -7,20 +7,29 @@ mod app;
 mod art_color;
 mod auth;
 mod backend;
+mod control;
 mod icons;
 mod media_keys;
 mod playback;
 mod queue;
+mod settings;
 mod state;
 mod theme;
 mod thumbs;
 mod views;
 mod widgets;
 
-fn main() -> eframe::Result {
-    let demo = std::env::args().any(|a| a == "--demo");
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `rustle next` and friends: no tokio, no window.
+    if let Some(code) = control::run_cli(&args) {
+        return code;
+    }
+    let demo = args.iter().any(|a| a == "--demo");
     // With `--demo`: start with no main playlist, to show the first-run picker.
-    let first_run = std::env::args().any(|a| a == "--first-run");
+    let first_run = args.iter().any(|a| a == "--first-run");
     let perf = std::env::var_os("RUSTLE_PERF").is_some_and(|v| v == "1");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -40,7 +49,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     let handle = rt.handle().clone();
-    eframe::run_native(
+    let result = eframe::run_native(
         "Rustle",
         options,
         Box::new(move |cc| {
@@ -48,5 +57,12 @@ fn main() -> eframe::Result {
                 cc, &handle, demo, first_run, perf,
             )))
         }),
-    )
+    );
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("rustle: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }

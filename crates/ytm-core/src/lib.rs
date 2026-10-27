@@ -7,7 +7,7 @@ use std::future::Future;
 
 pub use model;
 use model::{
-    Album, Artist, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
+    Album, Artist, Lyrics, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
 };
 
 mod fixture;
@@ -89,4 +89,8 @@ pub trait MusicBackend: Send + Sync + 'static {
 
     /// An artist by channel id: top songs, albums, singles.
     fn artist(&self, id: &str) -> impl Future<Output = Result<Artist>> + Send;
+
+    /// The song's lyrics, timed when YouTube Music has timed ones.
+    /// `Ok(None)` when the song has no lyrics.
+    fn lyrics(&self, track_id: &str) -> impl Future<Output = Result<Option<Lyrics>>> + Send;
 }

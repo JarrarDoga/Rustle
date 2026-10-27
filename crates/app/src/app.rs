@@ -3,10 +3,11 @@
 
 use std::time::{Duration, Instant};
 
-use egui::{Area, CentralPanel, Frame, Key, Margin, Order, Panel, Pos2, Rect, RichText, UiBuilder};
+use egui::{Area, CentralPanel, Frame, Margin, Order, Panel, Pos2, Rect, RichText, UiBuilder};
 use tokio::runtime::Handle;
 
 use crate::backend::{self, Client, Keyring, Setup};
+use crate::control::{self, Control};
 use crate::media_keys::MediaKeys;
 use crate::playback::{self, SimulatedPlayback};
 use crate::state::{Command, Session, State, apply};
@@ -28,6 +29,7 @@ pub struct RustleApp {
     perf: bool,
     first_frame_done: bool,
     media_keys: MediaKeys,
+    control: Control,
 }
 
 impl RustleApp {
@@ -87,6 +89,7 @@ impl RustleApp {
             perf,
             first_frame_done: false,
             media_keys: MediaKeys::new(cc.egui_ctx.clone()),
+            control: Control::start(rt, cc.egui_ctx.clone(), demo),
         }
     }
 
@@ -123,6 +126,11 @@ impl RustleApp {
     fn act(&mut self, actions: Vec<Action>) {
         for action in actions {
             match action {
+                // The lyrics and queue drawers share one slot.
+                Action::Cmd(Command::ShowLyrics(true)) => {
+                    self.view.show_queue = false;
+                    self.send(Command::ShowLyrics(true));
+                }
                 Action::Cmd(command) => self.send(command),
                 Action::Go(route) => {
                     if route == Route::Search && self.view.route != Route::Search {
@@ -189,7 +197,11 @@ impl RustleApp {
             .resizable(false)
             .show_separator_line(true)
             .frame(region(p.bg))
-            .show(ui, |ui| views::rail::show(ui, state, view, &mut out));
+            .show(ui, |ui| {
+                views::rail::show(ui, state, view, &mut out);
+                let anchor = views::rail::settings_button(ui);
+                views::settings::show(ui, &anchor, state, view, &mut out);
+            });
         if collection {
             Panel::left("browse")
                 .exact_size(theme::FACET_PANEL_W)
@@ -229,6 +241,30 @@ impl RustleApp {
             })
             .inner;
 
+        // The queue drawer opened while lyrics were open: close the lyrics.
+        if view.show_queue && state.lyrics_open {
+            out.push(Action::Cmd(Command::ShowLyrics(false)));
+        }
+        if state.lyrics_open && !view.show_queue {
+            let drawer = Rect::from_min_max(
+                Pos2::new(content.right() - theme::QUEUE_W, content.top()),
+                content.max,
+            );
+            Area::new(egui::Id::unique("lyrics-drawer"))
+                .fixed_pos(drawer.min)
+                .order(Order::Middle)
+                .show(ui.ctx(), |ui| {
+                    Frame::NONE
+                        .fill(p.bg)
+                        .stroke(theme::hairline())
+                        .shadow(ui.visuals().window_shadow)
+                        .show(ui, |ui| {
+                            ui.set_min_size(drawer.size());
+                            ui.set_max_size(drawer.size());
+                            views::lyrics::show(ui, state, now, &mut out);
+                        });
+                });
+        }
         if view.show_queue {
             let drawer = Rect::from_min_max(
                 Pos2::new(content.right() - theme::QUEUE_W, content.top()),
@@ -250,10 +286,7 @@ impl RustleApp {
                 });
         }
 
-        let space = ui.input(|i| i.key_pressed(Key::Space));
-        if space && !ui.ctx().egui_wants_keyboard_input() {
-            out.push(Action::Cmd(Command::TogglePlay));
-        }
+        out.extend(control::shortcuts(ui.ctx(), state, view));
         self.act(out);
     }
 }
@@ -266,9 +299,15 @@ impl eframe::App for RustleApp {
             self.send(command);
         }
         self.media_keys.sync(&self.state);
+        for command in self.control.poll() {
+            self.send(command);
+        }
+        self.control.publish(&self.state);
+        theme::set_palette_by_name(ui.ctx(), &self.state.settings.theme);
         let accent = self
             .state
             .current_track()
+            .filter(|_| self.state.settings.accent_from_art)
             .and_then(|t| self.state.art_colors.get(&t.id).copied());
         theme::set_art_accent(accent);
         match self.state.session {

@@ -1,8 +1,8 @@
 use std::sync::{Mutex, MutexGuard};
 
 use model::{
-    Album, AlbumSummary, Artist, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
-    SearchResults, StreamSource, Track, TrackId,
+    Album, AlbumSummary, Artist, ArtistSummary, AudioCodec, LyricLine, Lyrics, Playlist,
+    PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
 };
 
 use crate::{BackendError, MusicBackend, Result};
@@ -337,6 +337,32 @@ impl MusicBackend for FixtureBackend {
             albums,
             singles,
         })
+    }
+
+    async fn lyrics(&self, track_id: &str) -> Result<Option<Lyrics>> {
+        let data = self.data();
+        self.known(&data, track_id)?;
+        // Synced placeholder lines for the demo's first track; none for the
+        // rest. Not the song's real lyrics.
+        let first = data
+            .playlists
+            .iter()
+            .find(|p| p.summary.id == DEMO_MAIN)
+            .and_then(|p| p.tracks.first());
+        if first.is_none_or(|t| t.id != track_id) {
+            return Ok(None);
+        }
+        let lines = (0..24)
+            .map(|i| LyricLine {
+                start: Some(std::time::Duration::from_secs(8 + i * 6)),
+                text: format!("Demo lyric line {} for Rustle", i + 1),
+            })
+            .collect();
+        Ok(Some(Lyrics {
+            lines,
+            synced: true,
+            source: Some("Source: Rustle demo".to_owned()),
+        }))
     }
 }
 

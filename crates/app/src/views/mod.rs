@@ -22,11 +22,14 @@ pub mod collection;
 pub mod first_run;
 pub mod library;
 pub mod login;
+pub mod lyrics;
 pub mod player_bar;
 pub mod playlist;
 pub mod queue;
 pub mod rail;
 pub mod search;
+pub mod settings;
+pub mod theme_picker;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Route {
@@ -176,6 +179,27 @@ pub fn open_album(out: &mut Out, id: &str) {
 pub fn open_artist(out: &mut Out, id: &str) {
     cmd(out, Command::OpenArtist(id.to_owned()));
     out.push(Action::Go(Route::Artist(id.to_owned())));
+}
+
+/// Locate (player bar button, Ctrl+L): open the Collection scrolled to the
+/// playing song. Drops whatever filter hides it, so it always lands there.
+/// Does nothing when the song is not in the main playlist.
+pub fn locate(state: &crate::state::State, view: &mut View, out: &mut Out) {
+    let Some(pos) = state
+        .current_track()
+        .and_then(|t| state.main_position(&t.id))
+    else {
+        return;
+    };
+    out.push(Action::Go(Route::Collection));
+    let c = &mut view.collection;
+    if !c.visible.contains(&pos) {
+        c.filter_text.clear();
+        c.chips.clear();
+        c.not_heard = false;
+        c.range = None;
+    }
+    c.scroll_to = Some(pos);
 }
 
 /// "A, B & C" style credit line.

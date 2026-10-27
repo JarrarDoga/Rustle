@@ -93,12 +93,23 @@ Runs after the UI batch. Revised 2026-10-27. Full brief for the team lead:
 theme choice stays, as dark and medium presets only (no light palettes),
 built by a `themes` worker in the presence slot.
 
+Integrator step (done 2026-10-27): `model::Lyrics`, `MusicBackend::lyrics`
+(demo: synced placeholder lines on the first Everything track);
+`State::settings` (`Settings { autoplay, accent_from_art, theme }`, saved
+through `settings.rs`), `Command::SetSetting`, `Command::ShowLyrics(bool)`
+with `state.lyrics_open` (the reducer fetches on track change while open);
+queue label and radio marks ride on `Event::CachedQueue`; `control.rs`
+(`Control` like `MediaKeys`: socket commands go through the UI thread),
+`run_cli` in `main.rs` before tokio; lyrics button in the player bar,
+settings button and popover from the rail, `views/theme_picker.rs`;
+`theme::set_palette_by_name`, `theme::body()` and `small()`.
+
 | Worker | Owns | Scope |
 | --- | --- | --- |
 | lyrics | lyrics in `ytm-core`, `views/lyrics.rs` | Synced lyrics (timed via the Android Music client, plain fallback) in a drawer |
 | control | `crates/app/src/control.rs` | Keyboard shortcuts, control socket, `rustle play/next/status` CLI, single instance |
 | settings | `crates/store/`, `settings.rs`, `views/settings.rs`, `queue.rs` | Saved settings (autoplay, accent from art, theme); queue label and radio marks survive restart |
-| themes | `theme.rs` palettes, the theme picker in `views/settings.rs` | Well-known dark and medium palettes (no light) mapped onto the D neutrals; album art stays the only hue source |
+| themes | `theme.rs` palettes, `views/theme_picker.rs` | Well-known dark and medium palettes (no light) mapped onto the D neutrals; album art stays the only hue source |
 | packaging | `packaging/`, RPM metadata in `crates/app/Cargo.toml` | RPM for Nobara with desktop file, icon and the botguard helper |
 | memory (serial, last) | any crate | Large-library perf mode; cut peak RSS under 135 MiB |
 

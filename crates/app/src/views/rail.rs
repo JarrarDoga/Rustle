@@ -75,6 +75,34 @@ pub fn show(ui: &mut Ui, state: &State, view: &View, out: &mut Out) {
     }
 }
 
+/// The settings button at the bottom of the rail; opens the settings
+/// popover (`views::settings`).
+pub fn settings_button(ui: &mut Ui) -> egui::Response {
+    let p = theme::pal();
+    let rect = ui.max_rect();
+    let center = Pos2::new(
+        rect.center().x,
+        rect.bottom() - theme::SPACE_16 - BUTTON / 2.0,
+    );
+    let r = Rect::from_center_size(center, vec2(BUTTON, BUTTON));
+    let resp = ui
+        .allocate_rect(r, Sense::click())
+        .on_hover_text("Settings");
+    if resp.hovered() {
+        ui.painter()
+            .rect_filled(r, theme::RADIUS_CONTROL, p.surface_2);
+    }
+    let color = if resp.hovered() { p.text_1 } else { p.text_2 };
+    ui.painter().text(
+        center,
+        Align2::CENTER_CENTER,
+        icons::GEAR_SIX,
+        theme::icon(GLYPH),
+        color,
+    );
+    resp
+}
+
 /// The rail button a route lights: other playlists and liked songs live
 /// under Library; album and artist pages light none.
 fn lights(route: &Route) -> Option<Route> {

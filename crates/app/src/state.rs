@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use model::{
-    Album, Artist, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
+    Album, Artist, Lyrics, Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
 };
 use player::{PlaybackStatus, PlayerState};
 use ytm_core::BackendError;
@@ -149,6 +149,13 @@ pub struct State {
     /// the local play history. Missing means never played here. Feeds the
     /// "Last played" column and "Not heard in 3 months".
     pub last_played: Arc<HashMap<TrackId, i64>>,
+    /// Saved user settings. Loaded from the store at startup.
+    pub settings: Settings,
+    /// The lyrics drawer is open. In the state, not the view, so the reducer
+    /// can fetch lyrics when the track changes while it is open.
+    pub lyrics_open: bool,
+    /// Lyrics for this track id, fetched while the drawer is open.
+    pub lyrics: Option<(TrackId, Loadable<Option<Arc<Lyrics>>>)>,
     /// Optimistic edits waiting for YouTube Music's answer, to roll back.
     pub(crate) pending: Vec<Pending>,
     /// The seed of the radio fetch in flight, so it goes out once.
@@ -326,6 +333,38 @@ impl State {
     }
 }
 
+/// Saved user settings (the settings popover). The store keeps one key per
+/// field as plain text (`settings::load` / `settings::save`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// Radio follows when the queue runs out.
+    pub autoplay: bool,
+    /// Take the accent from the playing art; off means the palette's
+    /// fallback accent, as with nothing playing.
+    pub accent_from_art: bool,
+    /// The palette's name (`theme::PALETTES`); unknown names fall back to
+    /// the default.
+    pub theme: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            autoplay: true,
+            accent_from_art: true,
+            theme: "Graphite".to_owned(),
+        }
+    }
+}
+
+/// One settings change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingChange {
+    Autoplay(bool),
+    AccentFromArt(bool),
+    Theme(String),
+}
+
 /// What the track table currently shows, and what Shuffle / Play in order
 /// act on.
 #[allow(dead_code)] // the UI batch sends it
@@ -410,6 +449,12 @@ pub enum Command {
     /// Open an artist page by channel id.
     #[allow(dead_code)] // the UI batch sends it
     OpenArtist(String),
+    /// Open or close the lyrics drawer. Opening fetches the current track's
+    /// lyrics; a track change while open fetches again.
+    ShowLyrics(bool),
+    /// Change one saved setting.
+    #[allow(dead_code)] // b4-settings: the settings popover sends it
+    SetSetting(SettingChange),
 }
 
 /// Work the backend does after a reducer step. The UI ignores these.
@@ -461,6 +506,9 @@ pub enum Effect {
     RefreshIfStale(Feed),
     FetchAlbum(String),
     FetchArtist(String),
+    FetchLyrics(TrackId),
+    /// Write all settings to the store.
+    SaveSettings(Settings),
 }
 
 /// What the backend learns from YouTube Music and the player.
@@ -508,6 +556,10 @@ pub enum Event {
     CachedQueue {
         tracks: Vec<Track>,
         current: Option<usize>,
+        /// The "Playing from" label and per-entry radio marks
+        /// (`Store::queue_extras`).
+        label: Option<String>,
+        radio: Vec<bool>,
     },
     CachedPlaylist(Playlist),
     LikeResult {
@@ -552,6 +604,13 @@ pub enum Event {
         track_id: TrackId,
         at: i64,
     },
+    /// `Ok(None)`: the song has no lyrics.
+    Lyrics {
+        track_id: TrackId,
+        result: Result<Option<Lyrics>, BackendError>,
+    },
+    /// Settings read from the store at startup.
+    CachedSettings(Settings),
 }
 
 fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
@@ -564,12 +623,40 @@ fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
             state.playback.start_track(now, playing);
             state.play_serial += 1;
             state.resume_on_radio = false;
-            vec![effect]
+            let mut effects = vec![effect];
+            effects.extend(fetch_lyrics(state));
+            effects
         }
         None => {
             state.playback.stop();
             vec![Effect::Stop]
         }
+    }
+}
+
+/// Fetches the current track's lyrics while the drawer is open, once per
+/// track.
+fn fetch_lyrics(state: &mut State) -> Option<Effect> {
+    if !state.lyrics_open {
+        return None;
+    }
+    let id = state.current_track()?.id.clone();
+    if state.lyrics.as_ref().is_some_and(|(have, _)| *have == id) {
+        return None;
+    }
+    state.lyrics = Some((id.clone(), Loadable::Loading));
+    Some(Effect::FetchLyrics(id))
+}
+
+/// Applies one settings change to the state; the caller saves.
+fn change_setting(state: &mut State, change: &SettingChange) {
+    match change {
+        SettingChange::Autoplay(on) => {
+            state.settings.autoplay = *on;
+            state.queue.set_autoplay(*on);
+        }
+        SettingChange::AccentFromArt(on) => state.settings.accent_from_art = *on,
+        SettingChange::Theme(name) => state.settings.theme.clone_from(name),
     }
 }
 
@@ -769,8 +856,16 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             load_current(state, now, true)
         }
         Command::SetAutoplay(on) => {
-            state.queue.set_autoplay(*on);
-            Vec::new()
+            change_setting(state, &SettingChange::Autoplay(*on));
+            vec![Effect::SaveSettings(state.settings.clone())]
+        }
+        Command::SetSetting(change) => {
+            change_setting(state, change);
+            vec![Effect::SaveSettings(state.settings.clone())]
+        }
+        Command::ShowLyrics(open) => {
+            state.lyrics_open = *open;
+            fetch_lyrics(state).into_iter().collect()
         }
     }
 }
@@ -1399,12 +1494,18 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
                 state.liked = Loadable::Ready(arc_tracks(v));
             }
         }
-        Event::CachedQueue { tracks, current } => {
+        Event::CachedQueue {
+            tracks,
+            current,
+            label,
+            radio,
+        } => {
             // Restore it stopped; the user presses play to resume.
             if state.queue.is_empty() {
                 state
                     .queue
                     .play_list(&arc_tracks(tracks), current.unwrap_or(0), 0);
+                state.queue.restore_extras(label, &radio);
             }
         }
         Event::CachedPlaylist(p) => {
@@ -1456,6 +1557,21 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
                     (Err(_), m) => Loadable::Failed(m.unwrap_or_default()),
                 };
             }
+        }
+        Event::Lyrics { track_id, result } => {
+            let message = result.as_ref().err().map(|e| describe(e, state));
+            if let Some((id, page)) = &mut state.lyrics
+                && *id == track_id
+            {
+                *page = match (result, message) {
+                    (Ok(lyrics), _) => Loadable::Ready(lyrics.map(Arc::new)),
+                    (Err(_), m) => Loadable::Failed(m.unwrap_or_default()),
+                };
+            }
+        }
+        Event::CachedSettings(settings) => {
+            state.queue.set_autoplay(settings.autoplay);
+            state.settings = settings;
         }
         Event::CachedPlayStats(stats) => {
             Arc::make_mut(&mut state.last_played).extend(stats);
@@ -1901,6 +2017,8 @@ mod tests {
         let cached = || Event::CachedQueue {
             tracks: vec![Track::clone(&track("a")), Track::clone(&track("b"))],
             current: Some(1),
+            label: None,
+            radio: Vec::new(),
         };
         let mut s = State::default();
         on_event(&mut s, cached(), now);
@@ -2624,6 +2742,8 @@ mod tests {
             Event::CachedQueue {
                 tracks: vec![Track::clone(&track("a"))],
                 current: Some(0),
+                label: None,
+                radio: Vec::new(),
             },
             now,
         );

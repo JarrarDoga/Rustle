@@ -282,6 +282,14 @@ impl Queue {
         self.autoplay = on;
     }
 
+    /// Puts back what `Store::save_queue_extras` saved after a restore: the
+    /// "Playing from" label and each entry's radio mark. Flags whose length
+    /// does not match the queue are ignored.
+    pub fn restore_extras(&mut self, label: Option<String>, radio: &[bool]) {
+        // b4-settings
+        let _ = (label, radio);
+    }
+
     /// The autoplay setting. Repeat all or one still keeps radio off.
     #[allow(dead_code)] // b3-queue; read by the UI batch
     pub fn autoplay(&self) -> bool {

@@ -99,6 +99,15 @@ pub fn set_palette(ctx: &egui::Context, index: usize) {
     ctx.request_repaint();
 }
 
+/// Switches to the palette called `name`; an unknown name picks the
+/// default. Does nothing when it is already in use.
+pub fn set_palette_by_name(ctx: &egui::Context, name: &str) {
+    let index = PALETTES.iter().position(|p| p.name == name).unwrap_or(0);
+    if index != CURRENT.load(Ordering::Relaxed) {
+        set_palette(ctx, index);
+    }
+}
+
 // ------------------------------------------------------------------- accent
 
 thread_local! {
@@ -195,6 +204,16 @@ pub fn row_strong() -> FontId {
 /// 12 / 400: secondary text, chips.
 pub fn secondary() -> FontId {
     FontId::new(12.0, FontFamily::Proportional)
+}
+
+/// 13 / 400: body text (lyrics, settings rows, notes).
+pub fn body() -> FontId {
+    FontId::new(13.0, FontFamily::Proportional)
+}
+
+/// 11 / 400: small regular text (sources, hints).
+pub fn small() -> FontId {
+    FontId::new(11.0, FontFamily::Proportional)
 }
 
 /// 11 / 500: caption, table header.

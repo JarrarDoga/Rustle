@@ -446,6 +446,11 @@ impl MusicBackend for RustyPipeBackend {
         let artist = q.music_artist(id, false).await.map_err(map_error)?;
         Ok(map_music_artist(artist))
     }
+
+    async fn lyrics(&self, _track_id: &str) -> Result<Option<model::Lyrics>> {
+        // b4-lyrics
+        Err(BackendError::Extraction("not implemented".to_owned()))
+    }
 }
 
 /// Wraps rustypipe's JSON cache file and drops the login cookie and OAuth

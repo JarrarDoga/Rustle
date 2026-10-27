@@ -241,6 +241,8 @@ impl StoreHandle {
 
 fn read_cache(store: &Store, tx: &Inputs) {
     let log = |what: &str, e: store::StoreError| eprintln!("rustle: read cached {what}: {e}");
+    // Settings before the queue: they hold the autoplay switch.
+    send_event(tx, Event::CachedSettings(crate::settings::load(store)));
     // The main playlist id first: with a library and no main id in one
     // snapshot, the UI would flash the first-run picker.
     read_main_playlist(store, tx);
@@ -259,7 +261,19 @@ fn read_cache(store: &Store, tx: &Inputs) {
         log("queue", e);
         (Vec::new(), None)
     });
-    send_event(tx, Event::CachedQueue { tracks, current });
+    let (label, radio) = store.queue_extras().unwrap_or_else(|e| {
+        log("queue extras", e);
+        (None, Vec::new())
+    });
+    send_event(
+        tx,
+        Event::CachedQueue {
+            tracks,
+            current,
+            label,
+            radio,
+        },
+    );
 }
 
 /// Reads the saved main playlist, its cached tracks and their art colors.
@@ -446,8 +460,9 @@ async fn run<B, P, F>(
     };
     forward_player_events(playback.events(), tx.clone());
     playback.set_volume(state.playback.volume);
-    // Like YouTube Music: radio follows when the queue runs out.
-    state.queue.set_autoplay(true);
+    // Like YouTube Music: radio follows when the queue runs out, unless the
+    // saved setting (`Event::CachedSettings`) turns it off.
+    state.queue.set_autoplay(state.settings.autoplay);
 
     let mut ctx = Ctx {
         backend: Arc::new(backend),
@@ -700,13 +715,16 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
             .map(|e| Track::clone(&e.track))
             .collect();
         let current = state.queue.current_index();
+        let label = state.queue.playing_from().map(str::to_owned);
+        let radio: Vec<bool> = state.queue.entries().iter().map(|e| e.radio).collect();
         self.store.run(move |store| {
             // `load_queue` skips ids without cached metadata, so cache the
             // tracks first; search results are not cached anywhere else.
             let ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
             let r = store
                 .upsert_tracks(&tracks)
-                .and_then(|()| store.save_queue(&ids, current));
+                .and_then(|()| store.save_queue(&ids, current))
+                .and_then(|()| store.save_queue_extras(label.as_deref(), &radio));
             log_store_error("queue", r);
         });
     }
@@ -1009,6 +1027,13 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                 let result = b.artist(&id).await;
                 Event::Artist { id, result }
             }),
+            Effect::FetchLyrics(track_id) => self.fetch(|b| async move {
+                let result = b.lyrics(&track_id).await;
+                Event::Lyrics { track_id, result }
+            }),
+            Effect::SaveSettings(settings) => self.store.run(move |s| {
+                log_store_error("settings", crate::settings::save(s, &settings));
+            }),
         }
     }
 
@@ -1165,6 +1190,9 @@ mod tests {
         }
         async fn artist(&self, id: &str) -> ytm_core::Result<model::Artist> {
             self.inner.artist(id).await
+        }
+        async fn lyrics(&self, id: &str) -> ytm_core::Result<Option<model::Lyrics>> {
+            self.inner.lyrics(id).await
         }
     }
 
