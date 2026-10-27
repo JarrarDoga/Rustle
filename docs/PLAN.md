@@ -60,8 +60,8 @@ one debugging session after the UI batch and Batch 4. Still open:
   (guests still see "Loading…").
 - Not persisted across restarts: the autoplay setting, the queue's "Playing
   from" label, and radio entry marks (`save_queue`/`load_queue`).
-- The color pass uses 1 fetch worker to fit the 3 MB RSS budget (about
-  1 minute for 1,535 tracks, not measured on the real CDN). Art with no hue
+- The color pass now uses 2 fetch workers (Batch 4 memory pass: about 16 s
+  for 1,535 generated thumbnails from a local server; real CDN not measured). Art with no hue
   gets a gray accent at L 0.80.
 
 Revised 2026-10-26 for Direction D. Batch 3 builds the data and behavior the
@@ -87,6 +87,21 @@ Cut: `home` (Direction D has no Home screen). Deferred: `spotify-import`
 the scripts in `~/Coding/spotify-ytm-migration/`).
 
 ## Batch 4: polish (Phase 3)
+
+**Merged 2026-10-27** (`main` at `7448932`). `scripts/check.sh` passes.
+perf-check: demo peak RSS 117.5 MiB, large mode (`--large`, 1,535 tracks)
+137.9 MiB (goal 135 missed; about 100 MiB of it is llvmpipe under Xvfb),
+binary 21.3 MiB, idle CPU 0%, cold start 76 ms (demo) / 123 ms (large).
+RPM: `packaging/build-rpm.sh` builds `target/generate-rpm/rustle-0.1.0-1.x86_64.rpm`
+(21 MB, 5 files); not installed. The art color pass now runs 2 fetch
+workers. Still open, all for the live debugging session:
+- Real-desktop RSS on the NVIDIA GPU: `scripts/perf-check.sh --no-headless`
+  and `--large` is headless-only.
+- `rustle next` while the window is minimized on Wayland (socket commands
+  are handled when a frame runs); `raise` focus under KWin.
+- Escape closing the settings popover (not confirmed under Xvfb).
+- Live lyrics through the app (verified only through the spike).
+- No `LICENSE` file: the RPM declares GPL-3.0-or-later without the text.
 
 Runs after the UI batch. Revised 2026-10-27. Full brief for the team lead:
 `docs/handoff/BATCH4.md`. User decisions (2026-10-27): no Discord presence;
