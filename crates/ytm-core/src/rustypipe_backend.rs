@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use model::{
-    AlbumRef, AlbumSummary, ArtistRef, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
-    SearchResults, StreamSource, Thumbnail, Track, TrackId,
+    Album, AlbumRef, AlbumSummary, Artist, ArtistRef, ArtistSummary, AudioCodec, Playlist,
+    PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track, TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
 use rustypipe::client::{ClientType, RustyPipe, RustyPipeQuery};
@@ -429,14 +429,22 @@ impl MusicBackend for RustyPipeBackend {
         Ok(())
     }
 
-    async fn album(&self, _id: &str) -> Result<model::Album> {
-        // ui-ytm-pages
-        Err(BackendError::Extraction("not implemented".to_owned()))
+    async fn album(&self, id: &str) -> Result<Album> {
+        // Album and artist pages are public, and authenticated reads got
+        // HTTP 403 (2026-10-26), so these never send the cookies. rustypipe
+        // also fetches the album's playlist when some rows are music videos
+        // or the page lists fewer tracks than the album has.
+        let q = self.rp.query().unauthenticated();
+        let album = q.music_album(id).await.map_err(map_error)?;
+        Ok(map_music_album(album))
     }
 
-    async fn artist(&self, _id: &str) -> Result<model::Artist> {
-        // ui-ytm-pages
-        Err(BackendError::Extraction("not implemented".to_owned()))
+    async fn artist(&self, id: &str) -> Result<Artist> {
+        // One request: the albums and singles shown on the page, not the
+        // full discography behind "More".
+        let q = self.rp.query().unauthenticated();
+        let artist = q.music_artist(id, false).await.map_err(map_error)?;
+        Ok(map_music_artist(artist))
     }
 }
 
@@ -524,6 +532,13 @@ pub(crate) fn map_error(e: RpError) -> BackendError {
         RpError::Auth(_) | RpError::HttpStatus(401, _) => BackendError::Auth,
         RpError::Extraction(ExtractionError::NotFound { id, .. }) => BackendError::NotFound(id),
         RpError::Http(_) | RpError::HttpStatus(..) => BackendError::Network(e.to_string()),
+        // YouTube's throttling answers with an empty body, which serde
+        // reports as EOF; a body cut short does too.
+        RpError::Extraction(ExtractionError::InvalidData(ref m))
+            if m.starts_with("EOF while parsing") =>
+        {
+            BackendError::Network(format!("empty or truncated response from YouTube: {m}"))
+        }
         RpError::Extraction(_) | RpError::Other(_) => BackendError::Extraction(e.to_string()),
     }
 }
@@ -622,11 +637,7 @@ fn ytimg_video_id(url: &str) -> Option<&str> {
         .strip_prefix("https://i.ytimg.com/vi/")
         .or_else(|| url.strip_prefix("https://i.ytimg.com/vi_webp/"))?;
     let id = rest.split('/').next()?;
-    let valid = id.len() == 11
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    valid.then_some(id)
+    is_video_id(id).then_some(id)
 }
 
 fn map_artists(artists: Vec<rp::ArtistId>) -> Vec<ArtistRef> {
@@ -717,6 +728,79 @@ fn map_search(
         albums: albums.into_iter().map(map_album).collect(),
         artists: artists.into_iter().map(map_artist).collect(),
         playlists: playlists.into_iter().map(map_playlist_item).collect(),
+    }
+}
+
+/// A YouTube video id: 11 chars of `[A-Za-z0-9_-]`. Unavailable rows have
+/// none.
+fn is_video_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// An album page. Tracks keep the page order (track numbers restart on each
+/// disc); rows without a video id are skipped. Album rows carry no art and
+/// sometimes no artists, so they get the album's.
+fn map_music_album(a: rp::MusicAlbum) -> Album {
+    let album_ref = AlbumRef {
+        id: a.id.clone(),
+        name: a.name.clone(),
+    };
+    let summary = AlbumSummary {
+        id: a.id,
+        name: a.name,
+        artists: map_artists(a.artists),
+        year: a.year,
+        thumbnails: map_thumbnails(a.cover),
+    };
+    let tracks = a
+        .tracks
+        .into_iter()
+        .filter(|t| is_video_id(&t.id))
+        .map(|t| {
+            let mut track = map_track(t);
+            track.album = Some(album_ref.clone());
+            if track.artists.is_empty() {
+                track.artists.clone_from(&summary.artists);
+            }
+            if track.thumbnails.is_empty() {
+                track.thumbnails.clone_from(&summary.thumbnails);
+            }
+            track
+        })
+        .collect();
+    Album { summary, tracks }
+}
+
+/// An artist page. rustypipe puts the "Songs" shelf and the "Videos"
+/// carousel into one track list; shelf rows name their album and carousel
+/// videos never do, so only tracks with an album count as top songs.
+/// Singles and EPs go to `singles`, everything else to `albums`.
+fn map_music_artist(a: rp::MusicArtist) -> Artist {
+    let top_songs = a
+        .tracks
+        .into_iter()
+        .filter(|t| t.album.is_some() && is_video_id(&t.id))
+        .map(map_track)
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    let (singles, albums): (Vec<rp::AlbumItem>, Vec<rp::AlbumItem>) = a
+        .albums
+        .into_iter()
+        .filter(|al| seen.insert(al.id.clone()))
+        .partition(|al| matches!(al.album_type, rp::AlbumType::Single | rp::AlbumType::Ep));
+    Artist {
+        summary: ArtistSummary {
+            id: a.id,
+            name: a.name,
+            // The wide header image: no square sizes exist for it.
+            thumbnails: map_thumbnails(a.header_image),
+        },
+        top_songs,
+        albums: albums.into_iter().map(map_album).collect(),
+        singles: singles.into_iter().map(map_album).collect(),
     }
 }
 
@@ -831,6 +915,21 @@ mod tests {
             map_error(RpError::HttpStatus(503, "unavailable".into())),
             BackendError::Network(_)
         ));
+    }
+
+    #[test]
+    fn empty_bodies_map_to_network() {
+        // What rustypipe returns for a throttled 2xx with an empty body.
+        let empty = serde_json::from_str::<serde_json::Value>("").unwrap_err();
+        let e = RpError::Extraction(ExtractionError::from(empty));
+        assert!(matches!(map_error(e), BackendError::Network(_)));
+        let cut = serde_json::from_str::<serde_json::Value>("{\"contents\": [").unwrap_err();
+        let e = RpError::Extraction(ExtractionError::from(cut));
+        assert!(matches!(map_error(e), BackendError::Network(_)));
+        // Valid JSON of the wrong shape is still an extraction failure.
+        let wrong = serde_json::from_str::<Vec<u8>>("{}").unwrap_err();
+        let e = RpError::Extraction(ExtractionError::from(wrong));
+        assert!(matches!(map_error(e), BackendError::Extraction(_)));
     }
 
     #[test]
@@ -1180,6 +1279,150 @@ mod tests {
         b.clear_cookies().await.unwrap();
         b.clear_cookies().await.unwrap();
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn sorted(thumbs: &[Thumbnail]) -> bool {
+        thumbs
+            .windows(2)
+            .all(|w| (w[0].width, w[0].height) <= (w[1].width, w[1].height))
+    }
+
+    /// `album.json` and `artist.json` are the mapping of the recorded pages.
+    /// Run with `UPDATE_FIXTURES=1` after `spike record-pages`.
+    #[test]
+    fn recorded_pages_map_to_fixtures() {
+        let rp_album: rp::MusicAlbum =
+            serde_json::from_str(include_str!("../fixtures/rp_album.json")).unwrap();
+        let rp_artist: rp::MusicArtist =
+            serde_json::from_str(include_str!("../fixtures/rp_artist.json")).unwrap();
+        let rp_covers = rp_album.cover.len();
+        let rp_tracks = rp_album.tracks.len();
+        let track_count = usize::from(rp_album.track_count);
+        let album = map_music_album(rp_album.clone());
+        let artist = map_music_artist(rp_artist.clone());
+
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        if std::env::var_os("UPDATE_FIXTURES").is_some() {
+            let write = |name: &str, json: String| {
+                std::fs::write(dir.join(name), json + "\n").unwrap();
+            };
+            write("album.json", serde_json::to_string_pretty(&album).unwrap());
+            write(
+                "artist.json",
+                serde_json::to_string_pretty(&artist).unwrap(),
+            );
+            return;
+        }
+        let want_album: Album =
+            serde_json::from_str(include_str!("../fixtures/album.json")).unwrap();
+        let want_artist: Artist =
+            serde_json::from_str(include_str!("../fixtures/artist.json")).unwrap();
+        assert_eq!(album, want_album);
+        assert_eq!(artist, want_artist);
+
+        // Album: every track, in page order, pointing at this album.
+        let s = &album.summary;
+        assert_eq!(s.id, "MPREb_OgeEnoHTsCm");
+        assert_eq!(s.name, "Random Access Memories (Drumless Edition)");
+        assert_eq!(s.year, Some(2023));
+        assert_eq!(s.artists[0].name, "Daft Punk");
+        assert_eq!(album.tracks.len(), track_count);
+        assert_eq!(album.tracks.len(), rp_tracks);
+        let ids: Vec<&str> = album.tracks.iter().map(|t| t.id.as_str()).collect();
+        let rp_ids: Vec<&str> = rp_album.tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, rp_ids);
+        assert_eq!(ids.first(), Some(&"asPohQE-tB4"));
+        assert_eq!(ids.last(), Some(&"gPdua5JqBgw"));
+        let album_ref = AlbumRef {
+            id: s.id.clone(),
+            name: s.name.clone(),
+        };
+        // The 24, 32 and 40 px slots get a 40 px copy of the cover.
+        assert!(s.thumbnails.len() > rp_covers);
+        assert_eq!(s.thumbnails[0].width, 40);
+        assert!(sorted(&s.thumbnails));
+        for t in &album.tracks {
+            assert_eq!(t.album.as_ref(), Some(&album_ref), "{t:?}");
+            assert!(!t.artists.is_empty(), "{t:?}");
+            assert!(t.duration.is_some(), "{t:?}");
+            assert_eq!(t.thumbnails, s.thumbnails, "{t:?}");
+        }
+
+        // Artist: the five shelf songs, then albums and singles split by type.
+        assert_eq!(artist.summary.id, "UCRr1xG_2WIDs18a6cIiCxeA");
+        assert_eq!(artist.summary.name, "Daft Punk");
+        assert!(!artist.summary.thumbnails.is_empty());
+        assert!(sorted(&artist.summary.thumbnails));
+        let top: Vec<&str> = artist.top_songs.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(
+            top,
+            [
+                "khnokW3Mw24",
+                "Rgrt_8mXrK8",
+                "wU26xVT_vBU",
+                "Jb6gcoR266U",
+                "qe8Q7mjxjig"
+            ]
+        );
+        for t in &artist.top_songs {
+            assert!(t.album.is_some(), "{t:?}");
+            assert!(sorted(&t.thumbnails), "{t:?}");
+        }
+        let type_of = |id: &str| {
+            rp_artist
+                .albums
+                .iter()
+                .find(|a| a.id == id)
+                .map(|a| a.album_type)
+                .unwrap()
+        };
+        assert_eq!(artist.albums.len(), 10);
+        assert_eq!(artist.singles.len(), 10);
+        assert_eq!(artist.albums[1].name, "Random Access Memories");
+        assert_eq!(artist.albums[1].year, Some(2013));
+        for a in &artist.albums {
+            assert!(!matches!(
+                type_of(&a.id),
+                rp::AlbumType::Single | rp::AlbumType::Ep
+            ));
+        }
+        for a in &artist.singles {
+            assert!(matches!(
+                type_of(&a.id),
+                rp::AlbumType::Single | rp::AlbumType::Ep
+            ));
+        }
+        for a in artist.albums.iter().chain(&artist.singles) {
+            assert!(a.year.is_some(), "{a:?}");
+            assert!(sorted(&a.thumbnails), "{a:?}");
+        }
+    }
+
+    #[test]
+    fn album_skips_rows_without_a_video_id() {
+        let mut a: rp::MusicAlbum =
+            serde_json::from_str(include_str!("../fixtures/rp_album.json")).unwrap();
+        let n = a.tracks.len();
+        a.tracks[1].id = String::new();
+        let album = map_music_album(a);
+        assert_eq!(album.tracks.len(), n - 1);
+        assert_eq!(album.tracks[1].id, "CAoX8vchMqU");
+    }
+
+    #[test]
+    fn artist_dedupes_albums_and_puts_eps_with_singles() {
+        let mut a: rp::MusicArtist =
+            serde_json::from_str(include_str!("../fixtures/rp_artist.json")).unwrap();
+        let mut ep = a.albums[0].clone();
+        ep.id = "MPREb_epepepepepep".to_owned();
+        ep.album_type = rp::AlbumType::Ep;
+        let repeat = a.albums[0].clone();
+        a.albums.push(ep);
+        a.albums.push(repeat);
+        let artist = map_music_artist(a);
+        assert_eq!(artist.albums.len(), 10);
+        assert_eq!(artist.singles.len(), 11);
+        assert_eq!(artist.singles[10].id, "MPREb_epepepepepep");
     }
 
     /// The model JSON fixtures are the mapping of the recorded rustypipe
