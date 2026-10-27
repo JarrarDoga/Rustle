@@ -9,13 +9,13 @@ use egui::{CornerRadius, Pos2, Rect, RichText, ScrollArea, Sense, Stroke, Ui, ve
 
 use crate::state::{Command, State};
 use crate::theme;
-use crate::views::{Out, artists, cmd};
+use crate::views::{Out, View, artists, cmd};
 use crate::widgets::{ArtKind, art, icon_button, section, text_line};
 
 /// Drag payload for reordering the queue: the dragged entry's index.
 struct QueueDrag(usize);
 
-pub fn show(ui: &mut Ui, state: &State, out: &mut Out) {
+pub fn show(ui: &mut Ui, state: &State, _view: &mut View, out: &mut Out) {
     ui.add_space(8.0);
     ui.label(
         RichText::new("Queue")

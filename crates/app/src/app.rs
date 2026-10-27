@@ -242,7 +242,7 @@ impl RustleApp {
                         .show(ui, |ui| {
                             ui.set_min_size(drawer.size() - egui::vec2(24.0, 24.0));
                             ui.set_max_size(drawer.size() - egui::vec2(24.0, 24.0));
-                            views::queue::show(ui, state, &mut out);
+                            views::queue::show(ui, state, view, &mut out);
                         });
                 });
         }

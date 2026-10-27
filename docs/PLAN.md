@@ -140,7 +140,7 @@ Integrator step (done 2026-10-27):
 | browse | `views/browse.rs`, `views/rail.rs` | Icon rail; Artists / Albums panel with counts, playing marker, click to filter | D-Collection |
 | player | `views/player_bar.rs`, `views/queue.rs` | Player bar with 14% accent tint, Locate and "#412", "Playing from" scope chip, seek and volume; queue drawer with autoplay toggle | D-Queue, D-States buffering |
 | pages | `views/search.rs`, `views/album.rs`, `views/artist.rs`, `views/library.rs`, `views/playlist.rs` | Search, Album, Artist pages on the shared table with the In Everything column and Add buttons; Library and other playlists restyled | D-Search, D-Album, D-Artist |
-| onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, offline and session-expired banners, "Sign in to see your library" for guests | D-Login, D-LoginError, D-Empty, D-States |
+| onboarding | `views/login.rs`, `views/first_run.rs`, `views/banners.rs` | Sign in and its error, pick-your-main-playlist, offline and session-expired banners, the guest bar | D-Login, D-LoginError, D-Empty, D-States |
 | ytm-pages | `crates/ytm-core/` | `RustyPipeBackend::album` and `artist` with recorded fixtures | none |
 
 The data these screens need (play history, art colors, counts, scope
