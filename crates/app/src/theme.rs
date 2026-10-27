@@ -228,6 +228,8 @@ pub const RADIUS_ROW: u8 = 2;
 /// Buttons, fields, chips.
 pub const RADIUS_CONTROL: u8 = 4;
 
+/// Horizontal inset of page content (D-Search, D-Album: text at x = 72).
+pub const PAGE_INSET_X: f32 = SPACE_20;
 pub const RAIL_W: f32 = 52.0;
 pub const FACET_PANEL_W: f32 = 232.0;
 pub const PAGE_HEADER_H: f32 = 64.0;
