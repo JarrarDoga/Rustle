@@ -1,0 +1,65 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGQUtFVklTSVRPUijTlvW4BjIKCgJVUxIEGgAgOQ%3D%3D",
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "logged_in",
+            "value": "1"
+          },
+          {
+            "key": "e",
+            "value": "1714246,23804281"
+          }
+        ]
+      },
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB_REMIX"
+          },
+          {
+            "key": "cver",
+            "value": "1.20261020.01.00"
+          },
+          {
+            "key": "yt_li",
+            "value": "1"
+          }
+        ]
+      },
+      {
+        "service": "ECATCHER",
+        "params": [
+          {
+            "key": "client.version",
+            "value": "1.20261020"
+          }
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "clickTrackingParams": "CAAQ",
+      "addToToastAction": {
+        "item": {
+          "notificationTextRenderer": {
+            "successResponseText": {
+              "runs": [
+                {
+                  "text": "Saved to liked music"
+                }
+              ]
+            },
+            "trackingParams": "CAAQ"
+          }
+        }
+      }
+    }
+  ]
+}

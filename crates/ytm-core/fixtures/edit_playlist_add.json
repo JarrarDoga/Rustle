@@ -1,0 +1,90 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGQUtFVklTSVRPUijTlvW4BjIKCgJVUxIEGgAgOQ%3D%3D",
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "logged_in",
+            "value": "1"
+          },
+          {
+            "key": "e",
+            "value": "1714246,23804281"
+          }
+        ]
+      },
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB_REMIX"
+          },
+          {
+            "key": "cver",
+            "value": "1.20261020.01.00"
+          },
+          {
+            "key": "yt_li",
+            "value": "1"
+          }
+        ]
+      },
+      {
+        "service": "ECATCHER",
+        "params": [
+          {
+            "key": "client.version",
+            "value": "1.20261020"
+          }
+        ]
+      }
+    ]
+  },
+  "status": "STATUS_SUCCEEDED",
+  "playlistEditResults": [
+    {
+      "playlistEditVideoAddedResultData": {
+        "videoId": "lYBUbBu4W08",
+        "setVideoId": "1F3E5D7C9B0A2468",
+        "multiSelectData": {
+          "multiSelectParams": "CAE",
+          "multiSelectItem": "Ch5O"
+        }
+      }
+    },
+    {
+      "playlistEditVideoAddedResultData": {
+        "videoId": "dQw4w9WgXcQ",
+        "setVideoId": "525CFB6D9DD9F1E0",
+        "multiSelectData": {
+          "multiSelectParams": "CAE",
+          "multiSelectItem": "Ch5P"
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "addToToastAction": {
+        "item": {
+          "notificationActionRenderer": {
+            "responseText": {
+              "runs": [
+                {
+                  "text": "Saved to "
+                },
+                {
+                  "text": "Rustle test"
+                }
+              ]
+            },
+            "trackingParams": "CAAQ"
+          }
+        }
+      }
+    }
+  ]
+}

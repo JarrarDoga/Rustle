@@ -9,16 +9,20 @@ use model::{
     SearchResults, StreamSource, Thumbnail, Track, TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
-use rustypipe::client::{ClientType, RustyPipe};
+use rustypipe::client::{ClientType, RustyPipe, RustyPipeQuery};
 use rustypipe::error::{Error as RpError, ExtractionError};
 use rustypipe::model as rp;
 
+use crate::innertube;
 use crate::stream_cache::StreamCache;
 use crate::ytdlp::{self, YtDlp, YtDlpError};
 use crate::{BackendError, MusicBackend, Result};
 
 /// Upper bound on items fetched when following a paginator to the end.
 const MAX_ITEMS: usize = 5_000;
+
+/// Radio tracks to return when YouTube has that many.
+const RADIO_MIN: usize = 20;
 
 const BOTGUARD_BIN: &str = "rustypipe-botguard";
 
@@ -107,6 +111,16 @@ impl RustyPipeBackend {
 
     fn logged_in(&self) -> bool {
         self.rp.query().auth_enabled(ClientType::DesktopMusic)
+    }
+
+    /// An authenticated query for a write, or `Auth` before any request when
+    /// no cookies are set.
+    fn write_query(&self) -> Result<RustyPipeQuery> {
+        if self.logged_in() {
+            Ok(self.rp.query().authenticated())
+        } else {
+            Err(BackendError::Auth)
+        }
     }
 
     /// [`MusicBackend::stream`], plus which extractor produced the stream and
@@ -306,15 +320,46 @@ impl MusicBackend for RustyPipeBackend {
     async fn playlist(&self, id: &str) -> Result<Playlist> {
         let mut q = self.rp.query();
         // Private playlists need the cookies; public ones work either way.
-        if self.logged_in() {
+        let logged_in = self.logged_in();
+        if logged_in {
             q = q.authenticated();
         }
-        let mut pl = q.music_playlist(id).await.map_err(map_error)?;
-        pl.tracks
-            .extend_limit(&q, MAX_ITEMS)
-            .await
-            .map_err(map_error)?;
-        Ok(map_playlist(pl))
+        let tracks = async {
+            let mut pl = q.music_playlist(id).await.map_err(map_error)?;
+            pl.tracks
+                .extend_limit(&q, MAX_ITEMS)
+                .await
+                .map_err(map_error)?;
+            Ok(pl)
+        };
+        // rustypipe does not parse entry ids (`setVideoId`), which removing a
+        // song needs, so a second walk over the raw pages collects them. Only
+        // owned playlists have them; for others it stops after one request.
+        // Best effort: without them the playlist still loads, read-only.
+        let entries = async {
+            if !logged_in {
+                return Ok(Vec::new());
+            }
+            Ok(innertube::playlist_entries(&q, id, MAX_ITEMS)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("entry ids for playlist {id}: {e}");
+                    Vec::new()
+                }))
+        };
+        // A failed track fetch cancels the entry walk.
+        let (pl, entries) = tokio::try_join!(tracks, entries)?;
+        let mut playlist = map_playlist(pl);
+        let ids: Vec<&str> = playlist.tracks.iter().map(|t| t.id.as_str()).collect();
+        playlist.entry_ids = innertube::align_entry_ids(&ids, &entries);
+        if playlist.entry_ids.is_empty() && entries.iter().any(|e| e.set_video_id.is_some()) {
+            tracing::warn!(
+                "entry ids for playlist {id}: {} rows do not match {} tracks",
+                entries.len(),
+                playlist.tracks.len()
+            );
+        }
+        Ok(playlist)
     }
 
     async fn liked_tracks(&self) -> Result<Vec<Track>> {
@@ -331,44 +376,58 @@ impl MusicBackend for RustyPipeBackend {
         self.stream_info(track_id).await.map(|i| i.source)
     }
 
-    // b3-ytm-write: the methods below are stubs until the ytm-write worker
-    // implements them.
-
-    async fn like(&self, _track_id: &str) -> Result<()> {
-        Err(not_implemented())
+    async fn like(&self, track_id: &str) -> Result<()> {
+        innertube::rate(&self.write_query()?, track_id, true).await
     }
 
-    async fn unlike(&self, _track_id: &str) -> Result<()> {
-        Err(not_implemented())
+    async fn unlike(&self, track_id: &str) -> Result<()> {
+        innertube::rate(&self.write_query()?, track_id, false).await
     }
 
     async fn add_to_playlist(
         &self,
-        _playlist_id: &str,
-        _track_ids: &[TrackId],
+        playlist_id: &str,
+        track_ids: &[TrackId],
     ) -> Result<Vec<Option<String>>> {
-        Err(not_implemented())
+        innertube::add_videos(&self.write_query()?, playlist_id, track_ids).await
     }
 
     async fn remove_from_playlist(
         &self,
-        _playlist_id: &str,
-        _entries: &[(TrackId, String)],
+        playlist_id: &str,
+        entries: &[(TrackId, String)],
     ) -> Result<()> {
-        Err(not_implemented())
+        innertube::remove_entries(&self.write_query()?, playlist_id, entries).await
     }
 
-    async fn radio(&self, _track_id: &str) -> Result<Vec<Track>> {
-        Err(not_implemented())
+    async fn radio(&self, track_id: &str) -> Result<Vec<Track>> {
+        let mut q = self.rp.query();
+        if self.logged_in() {
+            q = q.authenticated();
+        }
+        let mut p = q.music_radio_track(track_id).await.map_err(map_error)?;
+        if p.items.iter().filter(|t| t.id != track_id).count() < RADIO_MIN {
+            // The first page usually holds ~50 tracks; a short one gets one
+            // more page. A failure there still leaves the first page.
+            if let Err(e) = p.extend_limit(&q, RADIO_MIN + 10).await {
+                tracing::warn!("radio for {track_id}: next page failed: {e}");
+            }
+        }
+        Ok(map_radio(track_id, p.items))
     }
 
     async fn clear_cookies(&self) -> Result<()> {
-        Err(not_implemented())
+        match self.rp.user_auth_remove_cookie().await {
+            // Nothing stored is already logged out.
+            Ok(()) | Err(RpError::Auth(_)) => {}
+            Err(e) => return Err(map_error(e)),
+        }
+        *lock(&self.ytdlp_cookies) = None;
+        // URLs resolved with the cookies (Premium itag 774) must not outlive
+        // the login.
+        lock(&self.streams).clear();
+        Ok(())
     }
-}
-
-fn not_implemented() -> BackendError {
-    BackendError::Extraction("not implemented".to_owned())
 }
 
 /// Wraps rustypipe's JSON cache file and drops the login cookie and OAuth
@@ -468,8 +527,96 @@ fn map_thumbnails(thumbs: Vec<rp::Thumbnail>) -> Vec<Thumbnail> {
             height: t.height,
         })
         .collect();
+    let extra = smaller_variants(&out);
+    out.extend(extra);
     out.sort_by_key(|t| (t.width, t.height));
     out
+}
+
+/// Sizes added for resizable Google image URLs. The art slots are 24, 32,
+/// 40 and 112 px (D-Tokens), drawn at 1x or 2x; the app picks the smallest
+/// thumbnail that covers the slot.
+const RESIZED_SIDES: [u32; 4] = [40, 60, 120, 226];
+
+/// Fixed-size frames every video has on i.ytimg.com: `default.jpg` and
+/// `mqdefault.jpg`. YouTube Music lists videos with a 400 px or larger frame.
+const YTIMG_FRAMES: [(&str, u32, u32); 2] = [("default", 120, 90), ("mqdefault", 320, 180)];
+
+/// Smaller copies of the art, for URL forms checked to accept a size
+/// (2026-10-26): `lh3`/`yt3.googleusercontent.com/...=wN-hN[-flags]` scales
+/// to any square size, and `i.ytimg.com/vi/<id>/` serves the fixed frames
+/// above. Other forms get nothing. Never adds a size that is already there or
+/// larger than the largest one YouTube gave.
+fn smaller_variants(thumbs: &[Thumbnail]) -> Vec<Thumbnail> {
+    let has = |w: u32, h: u32| thumbs.iter().any(|t| t.width == w && t.height == h);
+    let mut extra = Vec::new();
+    let resizable = thumbs
+        .iter()
+        .filter_map(|t| resizable_parts(&t.url).filter(|p| p.1 == t.width && t.width == t.height))
+        .max_by_key(|p| p.1);
+    if let Some((prefix, largest, flags)) = resizable {
+        for side in RESIZED_SIDES {
+            if side < largest && !has(side, side) {
+                extra.push(Thumbnail {
+                    url: format!("{prefix}=w{side}-h{side}{flags}"),
+                    width: side,
+                    height: side,
+                });
+            }
+        }
+    }
+    let frame = thumbs
+        .iter()
+        .filter_map(|t| ytimg_video_id(&t.url).map(|id| (id, t.width.min(t.height))))
+        .max_by_key(|f| f.1);
+    if let Some((id, largest_side)) = frame {
+        for (name, w, h) in YTIMG_FRAMES {
+            if h < largest_side && !has(w, h) {
+                extra.push(Thumbnail {
+                    url: format!("https://i.ytimg.com/vi/{id}/{name}.jpg"),
+                    width: w,
+                    height: h,
+                });
+            }
+        }
+    }
+    extra
+}
+
+/// `(prefix, side, flags)` of `https://{lh3,yt3}.googleusercontent.com/X=wN-hN<flags>`
+/// with N == N.
+fn resizable_parts(url: &str) -> Option<(&str, u32, &str)> {
+    if !(url.starts_with("https://lh3.googleusercontent.com/")
+        || url.starts_with("https://yt3.googleusercontent.com/"))
+        || url.contains('?')
+    {
+        return None;
+    }
+    let (prefix, params) = url.rsplit_once('=')?;
+    let (w, rest) = params.strip_prefix('w')?.split_once('-')?;
+    let rest = rest.strip_prefix('h')?;
+    let h_end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let (h, flags) = rest.split_at(h_end);
+    if !(flags.is_empty() || flags.starts_with('-')) {
+        return None;
+    }
+    let side: u32 = w.parse().ok()?;
+    (h.parse::<u32>().ok()? == side).then_some((prefix, side, flags))
+}
+
+/// The video id in `https://i.ytimg.com/vi/<id>/...` or `/vi_webp/<id>/...`.
+fn ytimg_video_id(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://i.ytimg.com/vi/")
+        .or_else(|| url.strip_prefix("https://i.ytimg.com/vi_webp/"))?;
+    let id = rest.split('/').next()?;
+    let valid = id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    valid.then_some(id)
 }
 
 fn map_artists(artists: Vec<rp::ArtistId>) -> Vec<ArtistRef> {
@@ -544,7 +691,7 @@ fn map_playlist(mut p: rp::MusicPlaylist) -> Playlist {
             thumbnails: map_thumbnails(p.thumbnail),
         },
         tracks: p.tracks.items.into_iter().map(map_track).collect(),
-        // b3-ytm-write: rustypipe does not parse setVideoId.
+        // Filled by `MusicBackend::playlist` from the raw pages.
         entry_ids: Vec::new(),
     }
 }
@@ -561,6 +708,16 @@ fn map_search(
         artists: artists.into_iter().map(map_artist).collect(),
         playlists: playlists.into_iter().map(map_playlist_item).collect(),
     }
+}
+
+/// Radio tracks without the seed and without repeats, in YouTube's order.
+fn map_radio(seed: &str, items: Vec<rp::TrackItem>) -> Vec<Track> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|t| t.id != seed && seen.insert(t.id.clone()))
+        .map(map_track)
+        .collect()
 }
 
 /// Picks the best audio-only stream. Skips DRM tracks and, for videos with
@@ -876,6 +1033,143 @@ mod tests {
         )
         .await;
         assert!(matches!(r, Err(BackendError::Network(_))));
+    }
+
+    fn thumb(url: &str, side: u32) -> Thumbnail {
+        Thumbnail {
+            url: url.to_owned(),
+            width: side,
+            height: side,
+        }
+    }
+
+    #[test]
+    fn resizable_art_gets_smaller_sizes() {
+        let base = "https://lh3.googleusercontent.com/abc";
+        let out: Vec<rp::Thumbnail> = serde_json::from_value(json!([
+            {"url": format!("{base}=w544-h544-l90-rj"), "width": 544, "height": 544},
+            {"url": format!("{base}=w60-h60-l90-rj"), "width": 60, "height": 60},
+        ]))
+        .unwrap();
+        let out = map_thumbnails(out);
+        let got: Vec<(u32, &str)> = out.iter().map(|t| (t.width, t.url.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                (40, "https://lh3.googleusercontent.com/abc=w40-h40-l90-rj"),
+                (60, "https://lh3.googleusercontent.com/abc=w60-h60-l90-rj"),
+                (
+                    120,
+                    "https://lh3.googleusercontent.com/abc=w120-h120-l90-rj"
+                ),
+                (
+                    226,
+                    "https://lh3.googleusercontent.com/abc=w226-h226-l90-rj"
+                ),
+                (
+                    544,
+                    "https://lh3.googleusercontent.com/abc=w544-h544-l90-rj"
+                ),
+            ]
+        );
+        // Flags between the size and the end stay; nothing larger is added.
+        let yt3 = smaller_variants(&[thumb(
+            "https://yt3.googleusercontent.com/x=w120-h120-p-l90-rj",
+            120,
+        )]);
+        let urls: Vec<&str> = yt3.iter().map(|t| t.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "https://yt3.googleusercontent.com/x=w40-h40-p-l90-rj",
+                "https://yt3.googleusercontent.com/x=w60-h60-p-l90-rj",
+            ]
+        );
+    }
+
+    #[test]
+    fn video_frames_get_small_fixed_frames() {
+        let hq = Thumbnail {
+            url: "https://i.ytimg.com/vi/D8K90hX4PrE/hqdefault.jpg?sqp=x&rs=y".to_owned(),
+            width: 400,
+            height: 225,
+        };
+        let extra = smaller_variants(std::slice::from_ref(&hq));
+        let got: Vec<(&str, u32, u32)> = extra
+            .iter()
+            .map(|t| (t.url.as_str(), t.width, t.height))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("https://i.ytimg.com/vi/D8K90hX4PrE/default.jpg", 120, 90),
+                ("https://i.ytimg.com/vi/D8K90hX4PrE/mqdefault.jpg", 320, 180),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_url_forms_are_left_alone() {
+        for t in [
+            thumb("https://lh3.googleusercontent.com/abc=s544", 544),
+            thumb(
+                "https://lh3.googleusercontent.com/abc=w544-h300-l90-rj",
+                544,
+            ),
+            thumb("https://lh3.googleusercontent.com/abc=w544-h544?x=1", 544),
+            thumb("https://example.com/abc=w544-h544", 544),
+            thumb("https://i.ytimg.com/vi/short/hqdefault.jpg", 360),
+            thumb("https://i.ytimg.com/vi/D8K90hX4PrE/default.jpg", 90),
+        ] {
+            assert!(
+                smaller_variants(std::slice::from_ref(&t)).is_empty(),
+                "{}",
+                t.url
+            );
+        }
+    }
+
+    #[test]
+    fn radio_drops_seed_and_repeats() {
+        let p: rp::paginator::Paginator<rp::TrackItem> =
+            serde_json::from_str(include_str!("../fixtures/rp_radio.json")).unwrap();
+        let seed = p.items[0].id.clone();
+        let tracks = map_radio(&seed, p.items);
+        assert!(tracks.len() >= RADIO_MIN, "{}", tracks.len());
+        assert!(tracks.iter().all(|t| t.id != seed));
+        let mut ids: Vec<&str> = tracks.iter().map(|t| t.id.as_str()).collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n);
+    }
+
+    #[tokio::test]
+    async fn writes_without_cookies_are_auth_errors_offline() {
+        let dir = std::env::temp_dir().join(format!("rustle-ytm-write-{}", std::process::id()));
+        let b = RustyPipeBackend::with_storage_dir(&dir).unwrap();
+        let ids = ["D8K90hX4PrE".to_owned()];
+        let entries = [("D8K90hX4PrE".to_owned(), "1F3E5D7C9B0A2468".to_owned())];
+        assert!(matches!(
+            b.like("D8K90hX4PrE").await,
+            Err(BackendError::Auth)
+        ));
+        assert!(matches!(
+            b.unlike("D8K90hX4PrE").await,
+            Err(BackendError::Auth)
+        ));
+        assert!(matches!(
+            b.add_to_playlist("PLx", &ids).await,
+            Err(BackendError::Auth)
+        ));
+        assert!(matches!(
+            b.remove_from_playlist("PLx", &entries).await,
+            Err(BackendError::Auth)
+        ));
+        // Logging out twice is fine.
+        b.clear_cookies().await.unwrap();
+        b.clear_cookies().await.unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The model JSON fixtures are the mapping of the recorded rustypipe
