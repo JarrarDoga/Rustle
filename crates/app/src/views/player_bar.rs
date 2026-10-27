@@ -117,6 +117,15 @@ fn now_playing(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, out: &mu
         let resp = icon_button(ui, r, "locate", icons::CROSSHAIR, p.text_2, true);
         if resp.on_hover_text("Show playing song in list").clicked() {
             out.push(Action::Go(Route::Collection));
+            // Locate always lands on the song: drop whatever hides it. The
+            // collection scrolls a hidden target to the nearest shown row.
+            if !view.collection.visible.contains(&pos) {
+                let c = &mut view.collection;
+                c.filter_text.clear();
+                c.chips.clear();
+                c.not_heard = false;
+                c.range = None;
+            }
             view.collection.scroll_to = Some(pos);
         }
     }
