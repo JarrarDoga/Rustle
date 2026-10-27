@@ -1,0 +1,1051 @@
+{
+ "contents": {
+  "elementRenderer": {
+   "newElement": {
+    "type": {
+     "componentType": {
+      "model": {
+       "timedLyricsModel": {
+        "lyricsData": {
+         "timedLyricsData": [
+          {
+           "lyricLine": "Television",
+           "cueRange": {
+            "startTimeMilliseconds": "840",
+            "endTimeMilliseconds": "4420",
+            "metadata": {
+             "id": "0"
+            }
+           }
+          },
+          {
+           "lyricLine": "Rules the nation",
+           "cueRange": {
+            "startTimeMilliseconds": "4420",
+            "endTimeMilliseconds": "6150",
+            "metadata": {
+             "id": "1"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "6150",
+            "endTimeMilliseconds": "8500",
+            "metadata": {
+             "id": "2"
+            }
+           }
+          },
+          {
+           "lyricLine": "Television",
+           "cueRange": {
+            "startTimeMilliseconds": "8500",
+            "endTimeMilliseconds": "11770",
+            "metadata": {
+             "id": "3"
+            }
+           }
+          },
+          {
+           "lyricLine": "Rules the nation",
+           "cueRange": {
+            "startTimeMilliseconds": "11770",
+            "endTimeMilliseconds": "13710",
+            "metadata": {
+             "id": "4"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "13710",
+            "endTimeMilliseconds": "15420",
+            "metadata": {
+             "id": "5"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "15420",
+            "endTimeMilliseconds": "16650",
+            "metadata": {
+             "id": "6"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "16650",
+            "endTimeMilliseconds": "17520",
+            "metadata": {
+             "id": "7"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "17520",
+            "endTimeMilliseconds": "18360",
+            "metadata": {
+             "id": "8"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "18360",
+            "endTimeMilliseconds": "19310",
+            "metadata": {
+             "id": "9"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "19310",
+            "endTimeMilliseconds": "20310",
+            "metadata": {
+             "id": "10"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "20310",
+            "endTimeMilliseconds": "21190",
+            "metadata": {
+             "id": "11"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "21190",
+            "endTimeMilliseconds": "22120",
+            "metadata": {
+             "id": "12"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "22120",
+            "endTimeMilliseconds": "23040",
+            "metadata": {
+             "id": "13"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "23040",
+            "endTimeMilliseconds": "24010",
+            "metadata": {
+             "id": "14"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "24010",
+            "endTimeMilliseconds": "25090",
+            "metadata": {
+             "id": "15"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "25090",
+            "endTimeMilliseconds": "25920",
+            "metadata": {
+             "id": "16"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "25920",
+            "endTimeMilliseconds": "26950",
+            "metadata": {
+             "id": "17"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "26950",
+            "endTimeMilliseconds": "27920",
+            "metadata": {
+             "id": "18"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "27920",
+            "endTimeMilliseconds": "28780",
+            "metadata": {
+             "id": "19"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "28780",
+            "endTimeMilliseconds": "29790",
+            "metadata": {
+             "id": "20"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "29790",
+            "endTimeMilliseconds": "30720",
+            "metadata": {
+             "id": "21"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "30720",
+            "endTimeMilliseconds": "31600",
+            "metadata": {
+             "id": "22"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "31600",
+            "endTimeMilliseconds": "32640",
+            "metadata": {
+             "id": "23"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "32640",
+            "endTimeMilliseconds": "33510",
+            "metadata": {
+             "id": "24"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "33510",
+            "endTimeMilliseconds": "34300",
+            "metadata": {
+             "id": "25"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "34300",
+            "endTimeMilliseconds": "35410",
+            "metadata": {
+             "id": "26"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "35410",
+            "endTimeMilliseconds": "36490",
+            "metadata": {
+             "id": "27"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "36490",
+            "endTimeMilliseconds": "37340",
+            "metadata": {
+             "id": "28"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "37340",
+            "endTimeMilliseconds": "38330",
+            "metadata": {
+             "id": "29"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "38330",
+            "endTimeMilliseconds": "39200",
+            "metadata": {
+             "id": "30"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "39200",
+            "endTimeMilliseconds": "40330",
+            "metadata": {
+             "id": "31"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "40330",
+            "endTimeMilliseconds": "41320",
+            "metadata": {
+             "id": "32"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "41320",
+            "endTimeMilliseconds": "42170",
+            "metadata": {
+             "id": "33"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "42170",
+            "endTimeMilliseconds": "43120",
+            "metadata": {
+             "id": "34"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "43120",
+            "endTimeMilliseconds": "44010",
+            "metadata": {
+             "id": "35"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "44010",
+            "endTimeMilliseconds": "45010",
+            "metadata": {
+             "id": "36"
+            }
+           }
+          },
+          {
+           "lyricLine": "The world",
+           "cueRange": {
+            "startTimeMilliseconds": "45010",
+            "endTimeMilliseconds": "45690",
+            "metadata": {
+             "id": "37"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it",
+           "cueRange": {
+            "startTimeMilliseconds": "45690",
+            "endTimeMilliseconds": "46540",
+            "metadata": {
+             "id": "38"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it",
+           "cueRange": {
+            "startTimeMilliseconds": "46540",
+            "endTimeMilliseconds": "47400",
+            "metadata": {
+             "id": "39"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it",
+           "cueRange": {
+            "startTimeMilliseconds": "47400",
+            "endTimeMilliseconds": "48150",
+            "metadata": {
+             "id": "40"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us",
+           "cueRange": {
+            "startTimeMilliseconds": "48150",
+            "endTimeMilliseconds": "50100",
+            "metadata": {
+             "id": "41"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "50100",
+            "endTimeMilliseconds": "51530",
+            "metadata": {
+             "id": "42"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "51530",
+            "endTimeMilliseconds": "53660",
+            "metadata": {
+             "id": "43"
+            }
+           }
+          },
+          {
+           "lyricLine": "Harder",
+           "cueRange": {
+            "startTimeMilliseconds": "53660",
+            "endTimeMilliseconds": "54510",
+            "metadata": {
+             "id": "44"
+            }
+           }
+          },
+          {
+           "lyricLine": "Better",
+           "cueRange": {
+            "startTimeMilliseconds": "54510",
+            "endTimeMilliseconds": "55480",
+            "metadata": {
+             "id": "45"
+            }
+           }
+          },
+          {
+           "lyricLine": "Faster",
+           "cueRange": {
+            "startTimeMilliseconds": "55480",
+            "endTimeMilliseconds": "56310",
+            "metadata": {
+             "id": "46"
+            }
+           }
+          },
+          {
+           "lyricLine": "Stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "56310",
+            "endTimeMilliseconds": "57280",
+            "metadata": {
+             "id": "47"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "57280",
+            "endTimeMilliseconds": "58770",
+            "metadata": {
+             "id": "48"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "58770",
+            "endTimeMilliseconds": "60410",
+            "metadata": {
+             "id": "49"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than",
+           "cueRange": {
+            "startTimeMilliseconds": "60410",
+            "endTimeMilliseconds": "61320",
+            "metadata": {
+             "id": "50"
+            }
+           }
+          },
+          {
+           "lyricLine": "Hour",
+           "cueRange": {
+            "startTimeMilliseconds": "61320",
+            "endTimeMilliseconds": "62290",
+            "metadata": {
+             "id": "51"
+            }
+           }
+          },
+          {
+           "lyricLine": "Our",
+           "cueRange": {
+            "startTimeMilliseconds": "62290",
+            "endTimeMilliseconds": "63220",
+            "metadata": {
+             "id": "52"
+            }
+           }
+          },
+          {
+           "lyricLine": "Never",
+           "cueRange": {
+            "startTimeMilliseconds": "63220",
+            "endTimeMilliseconds": "64510",
+            "metadata": {
+             "id": "53"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "64510",
+            "endTimeMilliseconds": "66400",
+            "metadata": {
+             "id": "54"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "66400",
+            "endTimeMilliseconds": "68700",
+            "metadata": {
+             "id": "55"
+            }
+           }
+          },
+          {
+           "lyricLine": "Ever",
+           "cueRange": {
+            "startTimeMilliseconds": "68700",
+            "endTimeMilliseconds": "69540",
+            "metadata": {
+             "id": "56"
+            }
+           }
+          },
+          {
+           "lyricLine": "After",
+           "cueRange": {
+            "startTimeMilliseconds": "69540",
+            "endTimeMilliseconds": "70380",
+            "metadata": {
+             "id": "57"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work is",
+           "cueRange": {
+            "startTimeMilliseconds": "70380",
+            "endTimeMilliseconds": "71340",
+            "metadata": {
+             "id": "58"
+            }
+           }
+          },
+          {
+           "lyricLine": "Over",
+           "cueRange": {
+            "startTimeMilliseconds": "71340",
+            "endTimeMilliseconds": "72240",
+            "metadata": {
+             "id": "59"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "72240",
+            "endTimeMilliseconds": "73820",
+            "metadata": {
+             "id": "60"
+            }
+           }
+          },
+          {
+           "lyricLine": "Around the world",
+           "cueRange": {
+            "startTimeMilliseconds": "73820",
+            "endTimeMilliseconds": "77120",
+            "metadata": {
+             "id": "61"
+            }
+           }
+          },
+          {
+           "lyricLine": "♪",
+           "cueRange": {
+            "startTimeMilliseconds": "77120",
+            "endTimeMilliseconds": "113720",
+            "metadata": {
+             "id": "62"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it harder",
+           "cueRange": {
+            "startTimeMilliseconds": "113720",
+            "endTimeMilliseconds": "114890",
+            "metadata": {
+             "id": "63"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it better",
+           "cueRange": {
+            "startTimeMilliseconds": "114890",
+            "endTimeMilliseconds": "115890",
+            "metadata": {
+             "id": "64"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "115890",
+            "endTimeMilliseconds": "116710",
+            "metadata": {
+             "id": "65"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "116710",
+            "endTimeMilliseconds": "117700",
+            "metadata": {
+             "id": "66"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "117700",
+            "endTimeMilliseconds": "118690",
+            "metadata": {
+             "id": "67"
+            }
+           }
+          },
+          {
+           "lyricLine": "Hour after",
+           "cueRange": {
+            "startTimeMilliseconds": "118690",
+            "endTimeMilliseconds": "121490",
+            "metadata": {
+             "id": "68"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it",
+           "cueRange": {
+            "startTimeMilliseconds": "121490",
+            "endTimeMilliseconds": "122310",
+            "metadata": {
+             "id": "69"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it better",
+           "cueRange": {
+            "startTimeMilliseconds": "122310",
+            "endTimeMilliseconds": "123420",
+            "metadata": {
+             "id": "70"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "123420",
+            "endTimeMilliseconds": "124430",
+            "metadata": {
+             "id": "71"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "124430",
+            "endTimeMilliseconds": "125270",
+            "metadata": {
+             "id": "72"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "125270",
+            "endTimeMilliseconds": "126170",
+            "metadata": {
+             "id": "73"
+            }
+           }
+          },
+          {
+           "lyricLine": "Hour after",
+           "cueRange": {
+            "startTimeMilliseconds": "126170",
+            "endTimeMilliseconds": "126970",
+            "metadata": {
+             "id": "74"
+            }
+           }
+          },
+          {
+           "lyricLine": "Our work is",
+           "cueRange": {
+            "startTimeMilliseconds": "126970",
+            "endTimeMilliseconds": "127980",
+            "metadata": {
+             "id": "75"
+            }
+           }
+          },
+          {
+           "lyricLine": "Never over",
+           "cueRange": {
+            "startTimeMilliseconds": "127980",
+            "endTimeMilliseconds": "129090",
+            "metadata": {
+             "id": "76"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it harder",
+           "cueRange": {
+            "startTimeMilliseconds": "129090",
+            "endTimeMilliseconds": "130120",
+            "metadata": {
+             "id": "77"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it better",
+           "cueRange": {
+            "startTimeMilliseconds": "130120",
+            "endTimeMilliseconds": "130930",
+            "metadata": {
+             "id": "78"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "130930",
+            "endTimeMilliseconds": "131810",
+            "metadata": {
+             "id": "79"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "131810",
+            "endTimeMilliseconds": "132880",
+            "metadata": {
+             "id": "80"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "132880",
+            "endTimeMilliseconds": "136560",
+            "metadata": {
+             "id": "81"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it harder",
+           "cueRange": {
+            "startTimeMilliseconds": "136560",
+            "endTimeMilliseconds": "137770",
+            "metadata": {
+             "id": "82"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it better",
+           "cueRange": {
+            "startTimeMilliseconds": "137770",
+            "endTimeMilliseconds": "138620",
+            "metadata": {
+             "id": "83"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "138620",
+            "endTimeMilliseconds": "139540",
+            "metadata": {
+             "id": "84"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "139540",
+            "endTimeMilliseconds": "140470",
+            "metadata": {
+             "id": "85"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "140470",
+            "endTimeMilliseconds": "141220",
+            "metadata": {
+             "id": "86"
+            }
+           }
+          },
+          {
+           "lyricLine": "Hour after",
+           "cueRange": {
+            "startTimeMilliseconds": "141220",
+            "endTimeMilliseconds": "142290",
+            "metadata": {
+             "id": "87"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it",
+           "cueRange": {
+            "startTimeMilliseconds": "142290",
+            "endTimeMilliseconds": "144310",
+            "metadata": {
+             "id": "88"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it harder",
+           "cueRange": {
+            "startTimeMilliseconds": "144310",
+            "endTimeMilliseconds": "146100",
+            "metadata": {
+             "id": "89"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "146100",
+            "endTimeMilliseconds": "147980",
+            "metadata": {
+             "id": "90"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "147980",
+            "endTimeMilliseconds": "151630",
+            "metadata": {
+             "id": "91"
+            }
+           }
+          },
+          {
+           "lyricLine": "Work it harder",
+           "cueRange": {
+            "startTimeMilliseconds": "151630",
+            "endTimeMilliseconds": "152660",
+            "metadata": {
+             "id": "92"
+            }
+           }
+          },
+          {
+           "lyricLine": "Make it better",
+           "cueRange": {
+            "startTimeMilliseconds": "152660",
+            "endTimeMilliseconds": "153650",
+            "metadata": {
+             "id": "93"
+            }
+           }
+          },
+          {
+           "lyricLine": "Do it faster",
+           "cueRange": {
+            "startTimeMilliseconds": "153650",
+            "endTimeMilliseconds": "154680",
+            "metadata": {
+             "id": "94"
+            }
+           }
+          },
+          {
+           "lyricLine": "Makes us stronger",
+           "cueRange": {
+            "startTimeMilliseconds": "154680",
+            "endTimeMilliseconds": "155650",
+            "metadata": {
+             "id": "95"
+            }
+           }
+          },
+          {
+           "lyricLine": "More than ever",
+           "cueRange": {
+            "startTimeMilliseconds": "155650",
+            "endTimeMilliseconds": "156610",
+            "metadata": {
+             "id": "96"
+            }
+           }
+          },
+          {
+           "lyricLine": "Hour after",
+           "cueRange": {
+            "startTimeMilliseconds": "156610",
+            "endTimeMilliseconds": "157550",
+            "metadata": {
+             "id": "97"
+            }
+           }
+          },
+          {
+           "lyricLine": "Our work is",
+           "cueRange": {
+            "startTimeMilliseconds": "157550",
+            "endTimeMilliseconds": "158680",
+            "metadata": {
+             "id": "98"
+            }
+           }
+          },
+          {
+           "lyricLine": "Never over",
+           "cueRange": {
+            "startTimeMilliseconds": "158680",
+            "endTimeMilliseconds": "160260",
+            "metadata": {
+             "id": "99"
+            }
+           }
+          },
+          {
+           "lyricLine": "♪",
+           "cueRange": {
+            "startTimeMilliseconds": "160260",
+            "endTimeMilliseconds": "195310",
+            "metadata": {
+             "id": "100"
+            }
+           }
+          },
+          {
+           "lyricLine": "Our work is",
+           "cueRange": {
+            "startTimeMilliseconds": "195310",
+            "endTimeMilliseconds": "196120",
+            "metadata": {
+             "id": "101"
+            }
+           }
+          },
+          {
+           "lyricLine": "Never over",
+           "cueRange": {
+            "startTimeMilliseconds": "196120",
+            "endTimeMilliseconds": "197880",
+            "metadata": {
+             "id": "102"
+            }
+           }
+          }
+         ],
+         "sourceMessage": "Source: LyricFind"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
