@@ -241,6 +241,9 @@ impl StoreHandle {
 
 fn read_cache(store: &Store, tx: &Inputs) {
     let log = |what: &str, e: store::StoreError| eprintln!("rustle: read cached {what}: {e}");
+    // The main playlist id first: with a library and no main id in one
+    // snapshot, the UI would flash the first-run picker.
+    read_main_playlist(store, tx);
     match store.library_playlists() {
         Ok(v) if !v.is_empty() => send_event(tx, Event::CachedLibrary(v)),
         Ok(_) => {}
@@ -251,7 +254,6 @@ fn read_cache(store: &Store, tx: &Inputs) {
         Ok(_) => {}
         Err(e) => log("liked songs", e),
     }
-    read_main_playlist(store, tx);
     // Sent even when empty: it tells the backend it may start saving the queue.
     let (tracks, current) = store.load_queue().unwrap_or_else(|e| {
         log("queue", e);

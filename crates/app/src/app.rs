@@ -148,7 +148,7 @@ impl RustleApp {
 
     fn login(&mut self, ui: &mut egui::Ui) {
         let mut out = Vec::new();
-        views::banners::show(ui, &self.state, &mut out);
+        views::banners::banner(ui, &self.state, &mut out);
         CentralPanel::default()
             .frame(
                 Frame::NONE
