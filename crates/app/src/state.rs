@@ -1477,7 +1477,7 @@ pub fn sync_position(state: &mut State, player: &PlayerState, now: Instant) {
         }
         (PlaybackStatus::Buffering, PlaybackStatus::Buffering)
         | (PlaybackStatus::Paused, PlaybackStatus::Paused) => pb.position = player.position,
-        _ => {}
+        _ => pb.buffering_since = None,
     }
 }
 

@@ -251,28 +251,33 @@ fn read_cache(store: &Store, tx: &Inputs) {
         Ok(_) => {}
         Err(e) => log("liked songs", e),
     }
-    match store.main_playlist() {
-        Ok(Some(id)) => {
-            send_event(tx, Event::CachedMainPlaylist(id.clone()));
-            match store.playlist(&id) {
-                Ok(Some(p)) => {
-                    let tracks = p.tracks.clone();
-                    send_event(tx, Event::CachedPlaylist(p));
-                    art_pass(store, tx, &tracks);
-                }
-                Ok(None) => {}
-                Err(e) => log("main playlist", e),
-            }
-        }
-        Ok(None) => {}
-        Err(e) => log("main playlist id", e),
-    }
+    read_main_playlist(store, tx);
     // Sent even when empty: it tells the backend it may start saving the queue.
     let (tracks, current) = store.load_queue().unwrap_or_else(|e| {
         log("queue", e);
         (Vec::new(), None)
     });
     send_event(tx, Event::CachedQueue { tracks, current });
+}
+
+/// Reads the saved main playlist, its cached tracks and their art colors.
+fn read_main_playlist(store: &Store, tx: &Inputs) {
+    let log = |what: &str, e: store::StoreError| eprintln!("rustle: read cached {what}: {e}");
+    let id = match store.main_playlist() {
+        Ok(Some(id)) => id,
+        Ok(None) => return,
+        Err(e) => return log("main playlist id", e),
+    };
+    send_event(tx, Event::CachedMainPlaylist(id.clone()));
+    match store.playlist(&id) {
+        Ok(Some(p)) => {
+            let tracks = p.tracks.clone();
+            send_event(tx, Event::CachedPlaylist(p));
+            art_pass(store, tx, &tracks);
+        }
+        Ok(None) => {}
+        Err(e) => log("main playlist", e),
+    }
 }
 
 /// Reads the stored art colors for `tracks` into the state and asks for the
@@ -763,11 +768,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
             }
             WriteBack::LoggedIn if state.main.is_none() => {
                 let tx = self.tx.clone();
-                self.store.run(move |s| match s.main_playlist() {
-                    Ok(Some(id)) => send_event(&tx, Event::CachedMainPlaylist(id)),
-                    Ok(None) => {}
-                    Err(e) => eprintln!("rustle: read main playlist id: {e}"),
-                });
+                self.store.run(move |s| read_main_playlist(s, &tx));
             }
             WriteBack::LoggedIn => {}
         }
@@ -1888,7 +1889,9 @@ mod tests {
 
         // Logging in again brings the main playlist back without a restart.
         h.client.send(2, Command::Login("SID=again".into()));
-        let s = h.wait_for("main again", |s| s.main_view().is_some());
+        let s = h.wait_for("main again", |s| {
+            s.main_view().is_some() && !s.art_colors.is_empty()
+        });
         assert_eq!(s.main.as_ref().unwrap().0, MAIN);
     }
 
