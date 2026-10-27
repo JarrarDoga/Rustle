@@ -45,7 +45,8 @@ const SORTS: [(Sort, &str); 6] = [
 /// before drawing, so the spine and player see this frame's values.
 ///
 /// A pending `scroll_to` (Locate, spine click) whose row the filters hide
-/// clears the filters so the row appears.
+/// moves to the nearest shown row: the first at or after that position,
+/// else the last before it. Locate clears the filters itself first.
 pub fn update(state: &State, view: &mut View) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -65,23 +66,24 @@ fn update_at(state: &State, view: &mut View, now: i64) {
     };
     // The 90-day cutoff moves once an hour, so idle frames stay memo hits.
     let hour = now.div_euclid(3600);
-    let mut out = lookup(&main.tracks, &state.last_played, c, hour);
+    let (visible, scope) = lookup(&main.tracks, &state.last_played, c, hour);
     if let Some(p) = c.scroll_to
-        && p < main.tracks.len()
-        && !out.0.contains(&p)
+        && !visible.contains(&p)
     {
-        c.filter_text.clear();
-        c.chips.clear();
-        c.not_heard = false;
-        c.range = None;
-        out = lookup(&main.tracks, &state.last_played, c, hour);
+        c.scroll_to = nearest(&visible, p);
     }
-    let (visible, scope) = out;
     if !Arc::ptr_eq(&c.visible, &visible) {
         c.visible = visible;
     }
     // Not compared first: `Scope::Filter` compares its ids by value.
     c.scope = Some(scope);
+}
+
+/// The shown position closest to `p`: the first at or after it, else the
+/// last before it. O(n); runs only while a scroll is pending.
+fn nearest(visible: &[usize], p: usize) -> Option<usize> {
+    let after = visible.iter().copied().filter(|&v| v >= p).min();
+    after.or_else(|| visible.iter().copied().filter(|&v| v < p).max())
 }
 
 type Tracks = Vec<Arc<Track>>;
@@ -275,15 +277,22 @@ fn filter(
     sort(&mut visible, tracks, played, c.sort);
 
     let filtered = !text.is_empty() || !c.chips.is_empty() || c.not_heard;
-    let scope = if let Some((from, to)) = range.or(c.range) {
-        Scope::Range { from, to }
-    } else if filtered {
-        Scope::Filter {
-            label: label(text, &c.chips),
-            ids: Arc::new(visible.iter().map(|&i| tracks[i].id.clone()).collect()),
+    // The scope is always what the table shows: a range with a filter on
+    // top is a filter scope over the shown rows.
+    let range = range.or(c.range);
+    let scope = match (range, filtered) {
+        (Some((from, to)), false) => Scope::Range { from, to },
+        (range, true) => {
+            let name = label(text, &c.chips);
+            Scope::Filter {
+                label: match range {
+                    Some((from, to)) => format!("#{} to #{}, {name}", from + 1, to + 1),
+                    None => name,
+                },
+                ids: Arc::new(visible.iter().map(|&i| tracks[i].id.clone()).collect()),
+            }
         }
-    } else {
-        Scope::All
+        (None, false) => Scope::All,
     };
     (visible, scope)
 }
@@ -323,17 +332,6 @@ fn label(text: &str, chips: &[Chip]) -> String {
         _ if !text.is_empty() => format!("\u{201c}{text}\u{201d}"),
         [] => NOT_HEARD_LABEL.to_owned(),
         many => many.iter().map(chip_name).collect::<Vec<_>>().join(", "),
-    }
-}
-
-/// How many songs Shuffle / Play in order would play.
-fn scope_count(scope: &Scope, visible: usize, n: usize) -> usize {
-    match *scope {
-        Scope::All => n,
-        Scope::Filter { .. } => visible,
-        Scope::Range { from, to } => {
-            clamp_range(Some((from, to)), n).map_or(0, |(from, to)| to - from + 1)
-        }
     }
 }
 
@@ -543,7 +541,8 @@ fn header(ui: &mut Ui, main: &PlaylistView, c: &CollectionView, out: &mut Out) {
 
     let n = main.tracks.len();
     let scope = c.scope.clone().unwrap_or(Scope::All);
-    let count = scope_count(&scope, c.visible.len(), n);
+    // Every scope is exactly the shown rows.
+    let count = c.visible.len();
     let (shuffle, in_order) = if scope == Scope::All {
         ("Shuffle all".to_owned(), "Play in order".to_owned())
     } else {
@@ -1206,13 +1205,22 @@ mod tests {
         assert_eq!(v.collection.scope, Some(Scope::Range { from: 1, to: 3 }));
         v.collection.filter_text = "juniper".to_owned();
         assert_eq!(run(&s, &mut v), [2]);
-        assert_eq!(v.collection.scope, Some(Scope::Range { from: 1, to: 3 }));
+        // A range with a filter on top: the scope is what the table shows.
+        assert_eq!(label_of(&v), "#2 to #4, \u{201c}juniper\u{201d}");
+        let Some(Scope::Filter { ids, .. }) = &v.collection.scope else {
+            unreachable!()
+        };
+        assert_eq!(ids.as_slice(), ["c"]);
+        v.collection.filter_text.clear();
+        v.collection.chips = vec![Chip::Album("Halogen".to_owned())];
+        assert_eq!(run(&s, &mut v), [2, 3]);
+        assert_eq!(label_of(&v), "#2 to #4, Halogen");
+        v.collection.chips.clear();
         // Clamped to the playlist.
         v.collection.filter_text.clear();
         v.collection.range = Some((3, 99));
         assert_eq!(run(&s, &mut v), [3, 4]);
         assert_eq!(v.collection.scope, Some(Scope::Range { from: 3, to: 4 }));
-        assert_eq!(scope_count(&Scope::Range { from: 3, to: 99 }, 0, 5), 2);
     }
 
     #[test]
@@ -1296,26 +1304,33 @@ mod tests {
     }
 
     #[test]
-    fn locate_clears_filters_that_hide_the_row() {
+    fn scroll_to_a_hidden_row_moves_to_the_nearest_shown_row() {
         let s = demo();
         let mut v = View::default();
         v.collection.chips = vec![Chip::Artist("Saint Juniper".to_owned())];
-        v.collection.sort = Sort::Title;
         v.collection.scroll_to = Some(2);
-        run(&s, &mut v);
-        assert_eq!(v.collection.chips.len(), 1, "row 2 is visible");
+        assert_eq!(run(&s, &mut v), [0, 2]);
+        assert_eq!(v.collection.scroll_to, Some(2), "shown: unchanged");
 
-        v.collection.scroll_to = Some(3);
-        v.collection.filter_text = "x".to_owned();
-        v.collection.not_heard = true;
-        v.collection.range = Some((0, 1));
-        assert_eq!(run(&s, &mut v), [3, 1, 4, 0, 2]);
-        let c = &v.collection;
-        assert!(c.chips.is_empty() && c.filter_text.is_empty() && !c.not_heard);
-        assert_eq!(c.range, None);
-        assert_eq!(c.sort, Sort::Title, "sort is kept");
-        assert_eq!(c.scroll_to, Some(3), "show() consumes it");
-        assert_eq!(c.scope, Some(Scope::All));
+        // Hidden: the first shown at or after it, filters kept.
+        v.collection.scroll_to = Some(1);
+        run(&s, &mut v);
+        assert_eq!(v.collection.scroll_to, Some(2));
+        assert_eq!(v.collection.chips.len(), 1);
+        // Nothing after it: the last shown before it.
+        v.collection.scroll_to = Some(4);
+        run(&s, &mut v);
+        assert_eq!(v.collection.scroll_to, Some(2));
+        // Sorted tables still pick by position.
+        v.collection.sort = Sort::Title;
+        v.collection.scroll_to = Some(1);
+        run(&s, &mut v);
+        assert_eq!(v.collection.scroll_to, Some(2));
+        // Nothing shown: no scroll.
+        v.collection.filter_text = "zzz".to_owned();
+        v.collection.scroll_to = Some(1);
+        assert_eq!(run(&s, &mut v), Vec::<usize>::new());
+        assert_eq!(v.collection.scroll_to, None);
     }
 
     #[test]
