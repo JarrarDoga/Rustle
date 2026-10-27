@@ -16,7 +16,7 @@ mod rustypipe_backend;
 mod stream_cache;
 mod ytdlp;
 
-pub use fixture::{DEMO_MAIN, FixtureBackend};
+pub use fixture::{DEMO_MAIN, FixtureBackend, LARGE_ART_SIZES};
 pub use rustypipe_backend::{RustyPipeBackend, StreamInfo, StreamOrigin};
 
 #[derive(Debug, thiserror::Error)]

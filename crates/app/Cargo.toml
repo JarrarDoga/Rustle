@@ -31,6 +31,11 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # The allocator under `mimalloc`; `extended` only adds `mi_collect`, which the thumbs workers call after each image.
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 
+[features]
+# Profiling builds only: the system allocator instead of mimalloc, so
+# heaptrack sees every allocation (it hooks malloc, which mimalloc bypasses).
+sysalloc = []
+
 # RPM for Nobara/Fedora, built by packaging/build-rpm.sh (cargo-generate-rpm).
 # The script copies rustypipe-botguard and its license into target/release/
 # before this runs; the release profile already strips the binaries.

@@ -22,6 +22,36 @@ pub const DEMO_MAIN: &str = "PLdemo_everything";
 /// Most tracks `radio` returns.
 const RADIO_LEN: usize = 25;
 
+/// Thumbnail sizes [`FixtureBackend::large`] lists per track, smallest
+/// first, as YouTube Music lists them for songs.
+pub const LARGE_ART_SIZES: [u32; 4] = [60, 120, 226, 544];
+/// Distinct artists in the generated library.
+const LARGE_ARTISTS: usize = 140;
+const FIRST: &[&str] = &[
+    "Saint", "Static", "Velvet", "Hollow", "Neon", "Paper", "Silver", "Quiet", "Golden", "Wild",
+    "Lunar", "Broken", "Electric", "Glass", "Northern", "Midnight",
+];
+const SECOND: &[&str] = &[
+    "Juniper", "Bloom", "Harbor", "Echo", "Cascade", "Meadow", "Signal", "Ember", "Tide", "Orbit",
+    "Canyon", "Parade", "Lantern", "Rivers", "Avenue",
+];
+const THIRD: &[&str] = &[
+    "Nights", "Dreams", "Heart", "Lights", "Motion", "Season", "Waves", "Road", "Fire", "Sky",
+    "Letters", "Garden", "Machine", "Summer", "Static", "Rain", "Coast",
+];
+
+/// xorshift64: deterministic names for the generated library.
+struct XorShift(u64);
+
+impl XorShift {
+    fn below(&mut self, n: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % n as u64) as usize
+    }
+}
+
 /// Offline backend for `--demo` and tests. No network, no account.
 ///
 /// Serves recorded responses from `fixtures/`, compiled into the binary.
@@ -47,18 +77,77 @@ impl Default for FixtureBackend {
 
 impl FixtureBackend {
     pub fn new() -> Self {
-        let search: SearchResults =
-            serde_json::from_str(SEARCH_JSON).expect("fixtures/search.json");
         let recorded: Playlist =
             serde_json::from_str(PLAYLIST_JSON).expect("fixtures/playlist.json");
-        let split = FOCUS_LEN.min(recorded.tracks.len());
+        Self::with_tracks(recorded.tracks, &recorded.summary.thumbnails)
+    }
+
+    /// A generated library of `n` tracks for perf runs (`RUSTLE_DEMO_LARGE`).
+    /// Track `i`'s art is `{art_base}/{i}-{size}.jpg` for each size in
+    /// [`LARGE_ART_SIZES`], so a local server can serve it with no network.
+    /// The playlists are built as in [`FixtureBackend::new`]; search still
+    /// serves the recorded results.
+    pub fn large(n: usize, art_base: &str) -> Self {
+        let base = art_base.trim_end_matches('/');
+        let mut rng = XorShift(0x9e37_79b9_7f4a_7c15);
+        let tracks: Vec<Track> = (0..n)
+            .map(|i| {
+                let artist = rng.below(LARGE_ARTISTS);
+                let album = rng.below(6);
+                let name = |list: &[&'static str], k: usize| list[k % list.len()];
+                let artist_name = format!(
+                    "{} {}",
+                    name(FIRST, artist),
+                    name(SECOND, artist / FIRST.len() + artist)
+                );
+                Track {
+                    id: format!("demo{i:05}"),
+                    title: format!(
+                        "{} {} {}",
+                        name(FIRST, rng.below(1000)),
+                        name(SECOND, rng.below(1000)),
+                        name(THIRD, rng.below(1000))
+                    ),
+                    artists: vec![model::ArtistRef {
+                        id: Some(format!("UCdemo{artist:03}")),
+                        name: artist_name,
+                    }],
+                    album: Some(model::AlbumRef {
+                        id: format!("MPREdemo{artist:03}{album}"),
+                        name: format!("{} {}", name(THIRD, artist + album), name(SECOND, album)),
+                    }),
+                    duration: Some(std::time::Duration::from_secs(120 + rng.below(300) as u64)),
+                    thumbnails: LARGE_ART_SIZES
+                        .iter()
+                        .map(|&px| model::Thumbnail {
+                            url: format!("{base}/{i}-{px}.jpg"),
+                            width: px,
+                            height: px,
+                        })
+                        .collect(),
+                }
+            })
+            .collect();
+        let thumbs = tracks
+            .first()
+            .map(|t| t.thumbnails.clone())
+            .unwrap_or_default();
+        Self::with_tracks(tracks, &thumbs)
+    }
+
+    /// Focus (the first `FOCUS_LEN` tracks), Evening (the rest) and the main
+    /// playlist (all of them); every second one is liked.
+    fn with_tracks(tracks: Vec<Track>, thumbnails: &[model::Thumbnail]) -> Self {
+        let search: SearchResults =
+            serde_json::from_str(SEARCH_JSON).expect("fixtures/search.json");
+        let split = FOCUS_LEN.min(tracks.len());
         let demo = |id: &str, name: &str, tracks: &[Track]| Playlist {
             summary: PlaylistSummary {
                 id: id.to_owned(),
                 name: name.to_owned(),
                 owner: Some("You".to_owned()),
                 track_count: Some(tracks.len() as u64),
-                thumbnails: recorded.summary.thumbnails.clone(),
+                thumbnails: thumbnails.to_vec(),
             },
             tracks: tracks.to_vec(),
             entry_ids: (0..tracks.len())
@@ -66,8 +155,8 @@ impl FixtureBackend {
                 .collect(),
         };
         let mut playlists = vec![
-            demo("PLdemo_focus", "Focus", &recorded.tracks[..split]),
-            demo("PLdemo_evening", "Evening", &recorded.tracks[split..]),
+            demo("PLdemo_focus", "Focus", &tracks[..split]),
+            demo("PLdemo_evening", "Evening", &tracks[split..]),
         ];
         let liked = playlists
             .iter()
@@ -75,8 +164,8 @@ impl FixtureBackend {
             .step_by(2)
             .map(|t| t.id.clone())
             .collect();
-        // The demo's main playlist: every recorded track, in recorded order.
-        playlists.push(demo(DEMO_MAIN, "Everything", &recorded.tracks));
+        // The demo's main playlist: every track, in order.
+        playlists.push(demo(DEMO_MAIN, "Everything", &tracks));
         Self {
             search,
             data: Mutex::new(Data {
@@ -403,6 +492,38 @@ mod tests {
             block_on(b.playlist("PLnope")),
             Err(BackendError::NotFound(id)) if id == "PLnope"
         ));
+    }
+
+    #[test]
+    fn large_library_is_generated_with_local_art() {
+        let b = FixtureBackend::large(1535, "http://127.0.0.1:8000/");
+        let main = block_on(b.playlist(DEMO_MAIN)).unwrap();
+        assert_eq!(main.tracks.len(), 1535);
+        let focus = block_on(b.playlist("PLdemo_focus")).unwrap();
+        assert_eq!(focus.tracks.len(), FOCUS_LEN);
+        let t = &main.tracks[7];
+        let urls: Vec<&str> = t.thumbnails.iter().map(|t| t.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            [
+                "http://127.0.0.1:8000/7-60.jpg",
+                "http://127.0.0.1:8000/7-120.jpg",
+                "http://127.0.0.1:8000/7-226.jpg",
+                "http://127.0.0.1:8000/7-544.jpg",
+            ]
+        );
+        let ids: std::collections::HashSet<_> = main.tracks.iter().map(|t| &t.id).collect();
+        assert_eq!(ids.len(), 1535);
+        let albums: std::collections::HashSet<_> = main
+            .tracks
+            .iter()
+            .filter_map(|t| t.album.as_ref())
+            .collect();
+        assert!(albums.len() > 200, "{} albums", albums.len());
+        // Deterministic.
+        let again =
+            block_on(FixtureBackend::large(1535, "http://127.0.0.1:8000").playlist(DEMO_MAIN));
+        assert_eq!(again.unwrap(), main);
     }
 
     #[test]
