@@ -49,7 +49,8 @@ Integrator step:
 **Merged 2026-10-26** (`main` at `e5fde1c`). `scripts/check.sh` passes;
 perf-check: binary 20.8 MiB, peak RSS 140.6 MiB (demo; the art color pass
 measured +0.6 to 1.0 MB on its own), idle CPU 0%, cold start 101 ms.
-Still open:
+Accepted as done by the user on 2026-10-26; the live checks below move to
+one debugging session after the UI batch and Batch 4. Still open:
 - Live checks (BATCH3.md section 7) wait for the Liked-songs migration job to
   print `done:`. The ytm-write worker also got HTTP 403 on all live reads on
   2026-10-26. The like, edit_playlist, owned-browse and radio fixtures are
