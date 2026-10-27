@@ -46,6 +46,23 @@ Integrator step:
 
 ## Batch 3: daily driver plumbing (Phase 2, cancel Spotify here)
 
+**Merged 2026-10-26** (`main` at `e5fde1c`). `scripts/check.sh` passes;
+perf-check: binary 20.8 MiB, peak RSS 140.6 MiB (demo; the art color pass
+measured +0.6 to 1.0 MB on its own), idle CPU 0%, cold start 101 ms.
+Still open:
+- Live checks (BATCH3.md section 7) wait for the Liked-songs migration job to
+  print `done:`. The ytm-write worker also got HTTP 403 on all live reads on
+  2026-10-26. The like, edit_playlist, owned-browse and radio fixtures are
+  hand-built from ytmusicapi; re-record them with `spike record-owned` and
+  `spike record-radio` once reads work.
+- The UI must show `state::NEEDS_LOGIN` when `State::needs_login()` is true
+  (guests still see "Loading…").
+- Not persisted across restarts: the autoplay setting, the queue's "Playing
+  from" label, and radio entry marks (`save_queue`/`load_queue`).
+- The color pass uses 1 fetch worker to fit the 3 MB RSS budget (about
+  1 minute for 1,535 tracks, not measured on the real CDN). Art with no hue
+  gets a gray accent at L 0.80.
+
 Revised 2026-10-26 for Direction D. Batch 3 builds the data and behavior the
 D screens need and adds no new screens: the UI batch after it draws them.
 Full brief for the team lead: `docs/handoff/BATCH3.md`.
