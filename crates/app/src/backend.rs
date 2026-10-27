@@ -1009,12 +1009,18 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                     log_store_error("play", r);
                 });
             }
+            // Tests never run the real color pass: it fetches thumbnails
+            // from YouTube's CDN on a cache miss (AGENTS.md: no live network
+            // in tests). Color handling is tested through `Event::ArtColors`.
+            #[cfg(not(test))]
             Effect::NeedArtColors(tracks) => {
                 let tx = self.tx.clone();
                 crate::thumbs::request_colors(tracks, move |colors| {
                     send_event(&tx, Event::ArtColors(colors));
                 });
             }
+            #[cfg(test)]
+            Effect::NeedArtColors(_) => {}
             Effect::RefreshIfStale(feed) => {
                 let tx = self.tx.clone();
                 self.store.run_any(move |s| refresh_if_stale(s, &tx, feed));

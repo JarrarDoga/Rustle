@@ -98,6 +98,7 @@ pub fn color_job(track: &Track) -> Option<ColorJob> {
 /// are tracks whose art cannot be decoded. After `MAX_FETCH_FAILURES`
 /// failed fetches in a row (no network) the pass drops its queue; a later
 /// call retries those tracks.
+#[cfg_attr(test, allow(dead_code))] // tests skip the real color pass
 pub fn request_colors<F>(jobs: Vec<ColorJob>, sink: F)
 where
     F: Fn(Vec<(model::TrackId, [u8; 3])>) + Send + Sync + 'static,
