@@ -11,9 +11,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-use model::{StreamSource, Track};
+use model::{StreamSource, Track, TrackId};
 use player::{PlaybackStatus, PlayerEvent};
 use store::Store;
 use tokio::runtime::Handle;
@@ -22,7 +22,9 @@ use ytm_core::{BackendError, MusicBackend};
 
 use crate::playback::Playback;
 use crate::queue::Queue;
-use crate::state::{Command, Effect, Event, Session, State, apply, on_event, sync_position};
+use crate::state::{
+    Command, Effect, Event, Feed, Session, State, apply, next_wake, on_event, sync_position, tick,
+};
 
 /// Called after each new snapshot; the app passes `ctx.request_repaint()`.
 pub type Notify = Box<dyn Fn() + Send + Sync>;
@@ -35,6 +37,8 @@ const STREAM_FRESH: Duration = Duration::from_secs(60 * 60);
 const STREAM_CACHE_CAP: usize = 8;
 /// How long dropping the [`Client`] waits for the store's last write.
 const SHUTDOWN_WAIT: Duration = Duration::from_millis(500);
+/// Cached data younger than this is not refetched at startup (seconds).
+const FRESH_FOR: i64 = 10 * 60;
 
 enum Input {
     Command(u64, Command),
@@ -43,6 +47,14 @@ enum Input {
     Prefetched(StreamSource),
     /// The app is closing: save what is pending and stop.
     Shutdown,
+    /// Work the store thread hands back, e.g. a fetch the cache cannot
+    /// cover.
+    Execute(Effect),
+    /// The player's status changed; publish so the state follows it.
+    PlayerStatus,
+    /// A timer is due: the queue save, a play to record, or the buffering
+    /// delay.
+    Tick,
 }
 
 type Inputs = mpsc::UnboundedSender<Input>;
@@ -50,6 +62,16 @@ type Inputs = mpsc::UnboundedSender<Input>;
 fn send_event(tx: &Inputs, event: Event) {
     // Fails only if the backend task is gone, i.e. during shutdown.
     let _ = tx.send(Input::Event(event));
+}
+
+fn send_effect(tx: &Inputs, effect: Effect) {
+    let _ = tx.send(Input::Execute(effect));
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// The saved-cookie functions. Plain function pointers so tests can swap in
@@ -164,7 +186,8 @@ where
     }
 }
 
-type Job = Box<dyn FnOnce(&Store) + Send>;
+/// Gets `None` when the store could not open.
+type Job = Box<dyn FnOnce(Option<&Store>) + Send>;
 
 /// The store lives on its own thread (it is `Send` but not `Sync`) and runs
 /// jobs in order.
@@ -181,15 +204,17 @@ impl StoreHandle {
             .spawn(move || {
                 let _done = done_tx;
                 let store = match open() {
-                    Ok(s) => s,
+                    Ok(s) => Some(s),
                     Err(e) => {
                         eprintln!("rustle: library cache unavailable: {e}");
-                        return;
+                        None
                     }
                 };
-                read_cache(&store, &tx);
+                if let Some(store) = &store {
+                    read_cache(store, &tx);
+                }
                 while let Ok(job) = rx.recv() {
-                    job(&store);
+                    job(store.as_ref());
                 }
             });
         if let Err(e) = spawned {
@@ -198,8 +223,18 @@ impl StoreHandle {
         (Self(jobs), done_rx)
     }
 
+    /// Runs `job` if the store is open; the cache is optional.
     fn run(&self, job: impl FnOnce(&Store) + Send + 'static) {
-        // Fails only when the store could not open; the cache is optional.
+        self.run_any(move |s| {
+            if let Some(s) = s {
+                job(s);
+            }
+        });
+    }
+
+    /// Runs `job` with the store, or with `None` if it could not open.
+    fn run_any(&self, job: impl FnOnce(Option<&Store>) + Send + 'static) {
+        // Fails only if the store thread could not start.
         let _ = self.0.send(Box::new(job));
     }
 }
@@ -216,12 +251,89 @@ fn read_cache(store: &Store, tx: &Inputs) {
         Ok(_) => {}
         Err(e) => log("liked songs", e),
     }
+    match store.main_playlist() {
+        Ok(Some(id)) => {
+            send_event(tx, Event::CachedMainPlaylist(id.clone()));
+            match store.playlist(&id) {
+                Ok(Some(p)) => {
+                    let tracks = p.tracks.clone();
+                    send_event(tx, Event::CachedPlaylist(p));
+                    art_pass(store, tx, &tracks);
+                }
+                Ok(None) => {}
+                Err(e) => log("main playlist", e),
+            }
+        }
+        Ok(None) => {}
+        Err(e) => log("main playlist id", e),
+    }
     // Sent even when empty: it tells the backend it may start saving the queue.
     let (tracks, current) = store.load_queue().unwrap_or_else(|e| {
         log("queue", e);
         (Vec::new(), None)
     });
     send_event(tx, Event::CachedQueue { tracks, current });
+}
+
+/// Reads the stored art colors for `tracks` into the state and asks for the
+/// missing ones.
+fn art_pass(store: &Store, tx: &Inputs, tracks: &[Track]) {
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<TrackId> = tracks
+        .iter()
+        .filter(|t| seen.insert(t.id.as_str()))
+        .map(|t| t.id.clone())
+        .collect();
+    let have = match store.art_colors(&ids) {
+        Ok(have) => have,
+        Err(e) => {
+            eprintln!("rustle: read art colors: {e}");
+            return;
+        }
+    };
+    let mut seen = std::collections::HashSet::new();
+    let missing: Vec<Arc<Track>> = tracks
+        .iter()
+        .filter(|t| !have.contains_key(&t.id) && seen.insert(t.id.as_str()))
+        .map(|t| Arc::new(t.clone()))
+        .collect();
+    if !have.is_empty() {
+        send_event(tx, Event::CachedArtColors(have.into_iter().collect()));
+    }
+    if !missing.is_empty() {
+        send_effect(tx, Effect::NeedArtColors(missing));
+    }
+}
+
+/// Store side of [`Effect::RefreshIfStale`]: shows the cached copy if it was
+/// fetched in the last [`FRESH_FOR`] seconds, else asks for a fetch (which
+/// shows the cache too while it runs).
+fn refresh_if_stale(store: Option<&Store>, tx: &Inputs, feed: Feed) {
+    if let Some(s) = store
+        && s.fetched_at(&feed.key())
+            .ok()
+            .flatten()
+            .is_some_and(|at| unix_now() - at < FRESH_FOR)
+    {
+        let cached = match &feed {
+            Feed::Library => s
+                .library_playlists()
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(Event::CachedLibrary),
+            Feed::Liked => s
+                .liked()
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(Event::CachedLiked),
+            Feed::Playlist(id) => s.playlist(id).ok().flatten().map(Event::CachedPlaylist),
+        };
+        if let Some(event) = cached {
+            send_event(tx, event);
+            return;
+        }
+    }
+    send_effect(tx, feed.fetch());
 }
 
 fn log_store_error(what: &str, r: store::Result<()>) {
@@ -266,6 +378,11 @@ struct Ctx<B, P> {
     /// overwrite the queue before it is restored.
     queue_seen: u64,
     save_at: Option<tokio::time::Instant>,
+    /// When [`tick`] or the buffering delay next needs a look.
+    wake_at: Option<tokio::time::Instant>,
+    /// The track the player was last told to load, and when (Unix
+    /// seconds): the start time of a recorded play.
+    play_start: Option<(TrackId, i64)>,
 }
 
 /// [`Setup`] with the store already started.
@@ -309,6 +426,8 @@ async fn run<B, P, F>(
     };
     forward_player_events(playback.events(), tx.clone());
     playback.set_volume(state.playback.volume);
+    // Like YouTube Music: radio follows when the queue runs out.
+    state.queue.set_autoplay(true);
 
     let mut ctx = Ctx {
         backend: Arc::new(backend),
@@ -321,6 +440,8 @@ async fn run<B, P, F>(
         prefetch_key: None,
         queue_seen: queue_fingerprint(&state.queue),
         save_at: None,
+        wake_at: None,
+        play_start: None,
     };
 
     let mut effects = Vec::new();
@@ -335,13 +456,10 @@ async fn run<B, P, F>(
     ctx.publish(&mut state, &snapshots, &notify);
 
     loop {
-        let first = match ctx.save_at {
+        let first = match ctx.save_at.into_iter().chain(ctx.wake_at).min() {
             Some(at) => tokio::select! {
                 input = rx.recv() => input,
-                () = tokio::time::sleep_until(at) => {
-                    ctx.save_queue(&state);
-                    continue;
-                }
+                () = tokio::time::sleep_until(at) => Some(Input::Tick),
             },
             None => rx.recv().await,
         };
@@ -371,12 +489,14 @@ async fn run<B, P, F>(
                     ctx.persist(&state, &event);
                     let restoring = matches!(event, Event::CachedQueue { .. });
                     let touched = !state.queue.is_empty();
+                    let write_back = WriteBack::of(&event);
                     let effects = on_event(&mut state, event, now);
                     // A restored queue is already saved. One the user filled
                     // before the store answered is not, and stays changed.
                     if restoring && !touched {
                         ctx.queue_seen = queue_fingerprint(&state.queue);
                     }
+                    ctx.write_back(&state, write_back);
                     effects
                 }
                 Input::Prefetched(source) => {
@@ -386,6 +506,17 @@ async fn run<B, P, F>(
                 Input::Shutdown => {
                     shutdown = true;
                     Vec::new()
+                }
+                Input::Execute(effect) => vec![effect],
+                Input::PlayerStatus => Vec::new(),
+                Input::Tick => {
+                    if ctx
+                        .save_at
+                        .is_some_and(|at| at <= tokio::time::Instant::now())
+                    {
+                        ctx.save_queue(&state);
+                    }
+                    tick(&mut state, now)
                 }
             };
             for effect in effects {
@@ -412,7 +543,12 @@ fn forward_player_events(events: std_mpsc::Receiver<PlayerEvent>, tx: Inputs) {
                 let event = match event {
                     PlayerEvent::TrackEnded { track_id } => Event::TrackEnded { track_id },
                     PlayerEvent::Error(message) => Event::PlayerError(message),
-                    PlayerEvent::StatusChanged(_) => continue,
+                    PlayerEvent::StatusChanged(_) => {
+                        if tx.send(Input::PlayerStatus).is_err() {
+                            return;
+                        }
+                        continue;
+                    }
                 };
                 if tx.send(Input::Event(event)).is_err() {
                     return;
@@ -421,6 +557,31 @@ fn forward_player_events(events: std_mpsc::Receiver<PlayerEvent>, tx: Inputs) {
         });
     if let Err(e) = spawned {
         eprintln!("rustle: cannot start the player-events thread: {e}");
+    }
+}
+
+/// Store writes that need the state after the reducer has folded an event
+/// in: edits are optimistic, so the state holds the result.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WriteBack {
+    None,
+    Liked,
+    Main,
+    /// Pasted cookies were accepted: bring back the saved main playlist.
+    LoggedIn,
+}
+
+impl WriteBack {
+    fn of(event: &Event) -> Self {
+        match event {
+            Event::LikeResult { .. } => WriteBack::Liked,
+            Event::Added { .. } | Event::Removed { .. } => WriteBack::Main,
+            Event::Login {
+                saved: false,
+                result: Ok(()),
+            } => WriteBack::LoggedIn,
+            _ => WriteBack::None,
+        }
     }
 }
 
@@ -449,7 +610,9 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
         snapshots: &watch::Sender<Arc<State>>,
         notify: &Notify,
     ) {
-        sync_position(state, &self.playback.state(), Instant::now());
+        let now = Instant::now();
+        sync_position(state, &self.playback.state(), now);
+        self.wake_at = next_wake(state, now).map(tokio::time::Instant::from_std);
         self.after_batch(state);
         snapshots.send_replace(Arc::new(state.clone()));
         notify();
@@ -535,20 +698,78 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
         match event {
             Event::Library(Ok(v)) if logged_in => {
                 let v = v.clone();
-                self.store
-                    .run(move |s| log_store_error("library", s.set_library_playlists(&v)));
+                self.store.run(move |s| {
+                    let r = s
+                        .set_library_playlists(&v)
+                        .and_then(|()| s.set_fetched_at(&Feed::Library.key(), unix_now()));
+                    log_store_error("library", r);
+                });
             }
             Event::Liked(Ok(v)) if logged_in => {
                 let v = v.clone();
-                self.store
-                    .run(move |s| log_store_error("liked songs", s.set_liked(&v)));
+                self.store.run(move |s| {
+                    let r = s
+                        .set_liked(&v)
+                        .and_then(|()| s.set_fetched_at(&Feed::Liked.key(), unix_now()));
+                    log_store_error("liked songs", r);
+                });
             }
-            Event::Playlist { result: Ok(p), .. } => {
+            Event::Playlist { id, result: Ok(p) } => {
                 let p = p.clone();
+                let key = Feed::Playlist(id.clone()).key();
+                let is_main = state.main.as_ref().is_some_and(|(main, _)| main == id);
+                let tx = self.tx.clone();
+                self.store.run(move |s| {
+                    let r = s
+                        .save_playlist(&p)
+                        .and_then(|()| s.set_fetched_at(&key, unix_now()));
+                    log_store_error("playlist", r);
+                    if is_main {
+                        art_pass(s, &tx, &p.tracks);
+                    }
+                });
+            }
+            Event::ArtColors(colors) => {
+                let colors = colors.clone();
                 self.store
-                    .run(move |s| log_store_error("playlist", s.save_playlist(&p)));
+                    .run(move |s| log_store_error("art colors", s.set_art_colors(&colors)));
             }
             _ => {}
+        }
+    }
+
+    /// Writes optimistic edits to the store once YouTube has answered (a
+    /// failed edit has been rolled back by then).
+    fn write_back(&self, state: &State, what: WriteBack) {
+        if state.session != Session::LoggedIn {
+            return;
+        }
+        match what {
+            WriteBack::None => {}
+            WriteBack::Liked => {
+                let Some(liked) = state.liked.ready() else {
+                    return;
+                };
+                let tracks: Vec<Track> = liked.iter().map(|t| Track::clone(t)).collect();
+                self.store
+                    .run(move |s| log_store_error("liked songs", s.set_liked(&tracks)));
+            }
+            WriteBack::Main => {
+                let Some(p) = state.main_playlist() else {
+                    return;
+                };
+                self.store
+                    .run(move |s| log_store_error("main playlist", s.save_playlist(&p)));
+            }
+            WriteBack::LoggedIn if state.main.is_none() => {
+                let tx = self.tx.clone();
+                self.store.run(move |s| match s.main_playlist() {
+                    Ok(Some(id)) => send_event(&tx, Event::CachedMainPlaylist(id)),
+                    Ok(None) => {}
+                    Err(e) => eprintln!("rustle: read main playlist id: {e}"),
+                });
+            }
+            WriteBack::LoggedIn => {}
         }
     }
 
@@ -620,6 +841,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                 })
             }
             Effect::Load { uid, track_id } => {
+                self.play_start = Some((track_id.clone(), unix_now()));
                 // Silence the old track now; the new one starts once resolved.
                 self.playback.stop();
                 if let Some(source) = self.fresh_stream(&track_id) {
@@ -673,10 +895,14 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                 });
             }
             Effect::Logout => {
+                let backend = Arc::clone(&self.backend);
                 let unverified = Arc::clone(&self.unverified);
                 let keyring = self.keyring;
                 tokio::spawn(async move {
                     *unverified.lock().await = None;
+                    if let Err(e) = backend.clear_cookies().await {
+                        eprintln!("rustle: log out of YouTube Music: {e}");
+                    }
                     if let Some(k) = keyring {
                         let _ = tokio::task::spawn_blocking(k.clear).await;
                     }
@@ -687,15 +913,73 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                     log_store_error("cleared library", r);
                 });
             }
-            // b3-wiring
-            Effect::Like(_)
-            | Effect::Unlike(_)
-            | Effect::AddToPlaylist { .. }
-            | Effect::RemoveFromPlaylist { .. }
-            | Effect::SaveMainPlaylist(_)
-            | Effect::FetchRadio(_)
-            | Effect::RecordPlay { .. }
-            | Effect::NeedArtColors(_) => {}
+            Effect::Like(track_id) => self.fetch(|b| async move {
+                let result = b.like(&track_id).await;
+                Event::LikeResult {
+                    track_id,
+                    liked: true,
+                    result,
+                }
+            }),
+            Effect::Unlike(track_id) => self.fetch(|b| async move {
+                let result = b.unlike(&track_id).await;
+                Event::LikeResult {
+                    track_id,
+                    liked: false,
+                    result,
+                }
+            }),
+            Effect::AddToPlaylist {
+                playlist_id,
+                track_ids,
+            } => self.fetch(|b| async move {
+                let result = b.add_to_playlist(&playlist_id, &track_ids).await;
+                Event::Added {
+                    playlist_id,
+                    track_ids,
+                    result,
+                }
+            }),
+            Effect::RemoveFromPlaylist {
+                playlist_id,
+                entries,
+            } => self.fetch(|b| async move {
+                let result = b.remove_from_playlist(&playlist_id, &entries).await;
+                Event::Removed {
+                    playlist_id,
+                    entries,
+                    result,
+                }
+            }),
+            Effect::SaveMainPlaylist(id) => self
+                .store
+                .run(move |s| log_store_error("main playlist id", s.set_main_playlist(&id))),
+            Effect::FetchRadio(seed) => self.fetch(|b| async move {
+                let result = b.radio(&seed).await;
+                Event::Radio { seed, result }
+            }),
+            Effect::RecordPlay {
+                track_id,
+                played_ms,
+            } => {
+                let at = match &self.play_start {
+                    Some((id, at)) if *id == track_id => *at,
+                    _ => unix_now() - (played_ms / 1000) as i64,
+                };
+                self.store.run(move |s| {
+                    log_store_error("play", s.record_play(&track_id, at, played_ms));
+                });
+            }
+            Effect::NeedArtColors(tracks) => {
+                let tx = self.tx.clone();
+                crate::thumbs::request_colors(tracks, move |colors| {
+                    send_event(&tx, Event::ArtColors(colors));
+                });
+            }
+            Effect::RefreshIfStale(feed) => {
+                let tx = self.tx.clone();
+                self.store.run_any(move |s| refresh_if_stale(s, &tx, feed));
+            }
         }
     }
 
@@ -735,6 +1019,13 @@ mod tests {
     struct Flags {
         reject_cookies: AtomicBool,
         library_auth: AtomicBool,
+        /// Like, unlike, add and remove fail with a network error.
+        fail_writes: AtomicBool,
+        /// Every call fails with a network error.
+        offline: AtomicBool,
+        cookies_cleared: AtomicBool,
+        /// Network fetches: "library", "liked", "playlist:<id>".
+        fetches: StdMutex<Vec<String>>,
         streams: StdMutex<Vec<String>>,
     }
 
@@ -749,8 +1040,38 @@ mod tests {
         }
     }
 
+    impl Flags {
+        fn fetched(&self, key: &str) -> usize {
+            let fetches = self.fetches.lock().unwrap();
+            fetches.iter().filter(|k| *k == key).count()
+        }
+    }
+
+    impl TestBackend {
+        fn offline(&self) -> ytm_core::Result<()> {
+            if self.flags.offline.load(Ordering::SeqCst) {
+                return Err(BackendError::Network("offline".into()));
+            }
+            Ok(())
+        }
+
+        fn fetch(&self, key: &str) -> ytm_core::Result<()> {
+            self.flags.fetches.lock().unwrap().push(key.to_owned());
+            self.offline()
+        }
+
+        fn write(&self) -> ytm_core::Result<()> {
+            self.offline()?;
+            if self.flags.fail_writes.load(Ordering::SeqCst) {
+                return Err(BackendError::Network("write failed".into()));
+            }
+            Ok(())
+        }
+    }
+
     impl MusicBackend for TestBackend {
         async fn set_cookies(&self, cookies: &str) -> ytm_core::Result<()> {
+            self.offline()?;
             if self.flags.reject_cookies.load(Ordering::SeqCst) {
                 return Err(BackendError::Auth);
             }
@@ -760,15 +1081,18 @@ mod tests {
             self.inner.search(query).await
         }
         async fn library_playlists(&self) -> ytm_core::Result<Vec<PlaylistSummary>> {
+            self.fetch("library")?;
             if self.flags.library_auth.load(Ordering::SeqCst) {
                 return Err(BackendError::Auth);
             }
             self.inner.library_playlists().await
         }
         async fn playlist(&self, id: &str) -> ytm_core::Result<model::Playlist> {
+            self.fetch(&format!("playlist:{id}"))?;
             self.inner.playlist(id).await
         }
         async fn liked_tracks(&self) -> ytm_core::Result<Vec<Track>> {
+            self.fetch("liked")?;
             self.inner.liked_tracks().await
         }
         async fn stream(&self, track_id: &str) -> ytm_core::Result<StreamSource> {
@@ -776,9 +1100,11 @@ mod tests {
             self.inner.stream(track_id).await
         }
         async fn like(&self, track_id: &str) -> ytm_core::Result<()> {
+            self.write()?;
             self.inner.like(track_id).await
         }
         async fn unlike(&self, track_id: &str) -> ytm_core::Result<()> {
+            self.write()?;
             self.inner.unlike(track_id).await
         }
         async fn add_to_playlist(
@@ -786,6 +1112,7 @@ mod tests {
             playlist_id: &str,
             track_ids: &[model::TrackId],
         ) -> ytm_core::Result<Vec<Option<String>>> {
+            self.write()?;
             self.inner.add_to_playlist(playlist_id, track_ids).await
         }
         async fn remove_from_playlist(
@@ -793,12 +1120,15 @@ mod tests {
             playlist_id: &str,
             entries: &[(model::TrackId, String)],
         ) -> ytm_core::Result<()> {
+            self.write()?;
             self.inner.remove_from_playlist(playlist_id, entries).await
         }
         async fn radio(&self, track_id: &str) -> ytm_core::Result<Vec<Track>> {
+            self.offline()?;
             self.inner.radio(track_id).await
         }
         async fn clear_cookies(&self) -> ytm_core::Result<()> {
+            self.flags.cookies_cleared.store(true, Ordering::SeqCst);
             self.inner.clear_cookies().await
         }
     }
@@ -1282,5 +1612,321 @@ mod tests {
             assert!(Instant::now() < deadline, "stream never loaded");
             std::thread::sleep(Duration::from_millis(500));
         }
+    }
+
+    // Batch 3 wiring.
+
+    const MAIN: &str = "PLdemo_focus";
+
+    fn fixture_playlist(id: &str) -> model::Playlist {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        rt.block_on(FixtureBackend::new().playlist(id)).unwrap()
+    }
+
+    fn main_ids(s: &State) -> Vec<String> {
+        s.main_view()
+            .map(|v| v.tracks.iter().map(|t| t.id.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Logged in with the main playlist loaded.
+    fn with_main(backend: TestBackend, store: OpenStore) -> (Harness, Arc<State>) {
+        let mut h = Harness::with(backend, logged_in(), store, None);
+        h.wait_for("liked", |s| s.liked.ready().is_some());
+        h.client.send(1, Command::SetMainPlaylist(MAIN.into()));
+        let s = h.wait_for("main", |s| s.main_view().is_some());
+        (h, s)
+    }
+
+    #[test]
+    fn failed_like_rolls_back_with_one_banner() {
+        let (backend, flags) = test_backend();
+        flags.fail_writes.store(true, Ordering::SeqCst);
+        let (mut h, s) = with_main(backend, memory_store());
+        let before = s.liked.ready().unwrap().len();
+        let unliked = s
+            .main_view()
+            .unwrap()
+            .tracks
+            .iter()
+            .find(|t| !s.is_liked(&t.id))
+            .unwrap()
+            .id
+            .clone();
+        h.client.send(2, Command::Like(unliked.clone()));
+        let s = h.wait_for("rollback", |s| s.acked == 2 && s.banner.is_some());
+        assert!(!s.is_liked(&unliked));
+        assert_eq!(s.liked.ready().unwrap().len(), before);
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_ne!(s.banner.as_deref(), Some(SESSION_EXPIRED));
+    }
+
+    #[test]
+    fn like_and_unlike_reach_the_backend_and_the_store() {
+        let db = TempDb::new("like");
+        let (backend, _flags) = test_backend();
+        let (mut h, s) = with_main(backend, db.opener());
+        let id = s
+            .main_view()
+            .unwrap()
+            .tracks
+            .iter()
+            .find(|t| !s.is_liked(&t.id))
+            .unwrap()
+            .id
+            .clone();
+        h.client.send(2, Command::Like(id.clone()));
+        let s = h.wait_for("liked", |s| s.acked == 2 && s.pending.is_empty());
+        assert!(s.is_liked(&id));
+        assert!(s.banner.is_none());
+        h.client.send(3, Command::Unlike(id.clone()));
+        let s = h.wait_for("unliked", |s| s.acked == 3 && s.pending.is_empty());
+        assert!(!s.is_liked(&id));
+        let want: Vec<String> = ids(s.liked.ready().unwrap());
+        drop(h);
+        let stored: Vec<String> = db
+            .open()
+            .liked()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(stored, want);
+    }
+
+    #[test]
+    fn add_and_remove_round_trip_through_the_backend_and_store() {
+        let db = TempDb::new("add-remove");
+        let (backend, _flags) = test_backend();
+        let (mut h, s) = with_main(backend, db.opener());
+        let before = main_ids(&s);
+        let extra = Arc::new(fixture_playlist("PLdemo_evening").tracks[0].clone());
+
+        h.client
+            .send(2, Command::AddToMain(vec![Arc::clone(&extra)]));
+        let s = h.wait_for("added", |s| {
+            s.acked == 2
+                && s.main_view()
+                    .is_some_and(|v| v.entry_ids.last().is_some_and(|e| e.is_some()))
+        });
+        assert_eq!(main_ids(&s).len(), before.len() + 1);
+        assert_eq!(main_ids(&s).last(), Some(&extra.id));
+
+        h.client
+            .send(3, Command::RemoveFromMain(vec![extra.id.clone()]));
+        let s = h.wait_for("removed", |s| s.acked == 3 && s.pending.is_empty());
+        assert_eq!(main_ids(&s), before);
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+
+        // Remove one that was there from the start, then check the store.
+        h.client
+            .send(4, Command::RemoveFromMain(vec![before[0].clone()]));
+        let s = h.wait_for("removed first", |s| s.acked == 4 && s.pending.is_empty());
+        assert_eq!(main_ids(&s), before[1..]);
+        drop(h);
+        let store = db.open();
+        let saved = store.playlist(MAIN).unwrap().unwrap();
+        let saved_ids: Vec<String> = saved.tracks.iter().map(|t| t.id.clone()).collect();
+        assert_eq!(saved_ids, before[1..]);
+        assert_eq!(saved.entry_ids.len(), saved.tracks.len());
+        assert!(saved.entry_ids.iter().all(Option::is_some));
+        assert_eq!(store.main_playlist().unwrap().as_deref(), Some(MAIN));
+    }
+
+    #[test]
+    fn failed_add_rolls_back() {
+        let (backend, flags) = test_backend();
+        let (mut h, s) = with_main(backend, memory_store());
+        let before = main_ids(&s);
+        flags.fail_writes.store(true, Ordering::SeqCst);
+        let extra = Arc::new(fixture_playlist("PLdemo_evening").tracks[0].clone());
+        h.client.send(2, Command::AddToMain(vec![extra]));
+        let s = h.wait_for("rollback", |s| s.acked == 2 && s.pending.is_empty());
+        assert_eq!(main_ids(&s), before);
+        assert!(s.banner.is_some());
+    }
+
+    /// A store as a previous logged-in run left it.
+    fn prefilled(db: &TempDb, fetched_at: Option<i64>) -> model::Playlist {
+        let fixture = FixtureBackend::new();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let store = db.open();
+        let library = rt.block_on(fixture.library_playlists()).unwrap();
+        store.set_library_playlists(&library).unwrap();
+        store
+            .set_liked(&rt.block_on(fixture.liked_tracks()).unwrap())
+            .unwrap();
+        let main = fixture_playlist(MAIN);
+        store.save_playlist(&main).unwrap();
+        store.set_main_playlist(MAIN).unwrap();
+        store
+            .set_art_colors(&[(main.tracks[0].id.clone(), [10, 20, 30])])
+            .unwrap();
+        if let Some(at) = fetched_at {
+            for key in ["library", "liked", &format!("playlist:{MAIN}")] {
+                store.set_fetched_at(key, at).unwrap();
+            }
+        }
+        main
+    }
+
+    fn saved_keyring() -> Keyring {
+        Keyring {
+            load: || Some("SID=saved".to_owned()),
+            save: |_| Ok(()),
+            clear: || {},
+        }
+    }
+
+    #[test]
+    fn offline_start_renders_everything_from_the_store() {
+        let db = TempDb::new("offline");
+        let main = prefilled(&db, None);
+        let (backend, flags) = test_backend();
+        flags.offline.store(true, Ordering::SeqCst);
+        let mut h = Harness::with(
+            backend,
+            State::default(),
+            db.opener(),
+            Some(saved_keyring()),
+        );
+        let s = h.wait_for("cache and offline banner", |s| {
+            s.library.ready().is_some()
+                && s.liked.ready().is_some()
+                && s.main_view().is_some()
+                && !s.art_colors.is_empty()
+                && s.banner.is_some()
+        });
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_eq!(s.banner.as_deref(), Some(crate::state::OFFLINE));
+        let want: Vec<String> = main.tracks.iter().map(|t| t.id.clone()).collect();
+        assert_eq!(main_ids(&s), want);
+        assert_eq!(
+            s.main_view().unwrap().entry_ids.to_vec(),
+            main.entry_ids,
+            "entry ids survive the store, so removal works offline-started"
+        );
+        assert_eq!(s.art_colors.get(&main.tracks[0].id), Some(&[10, 20, 30]));
+        // The refresh fails at the cookie check; nothing logs out.
+        std::thread::sleep(Duration::from_millis(300));
+        h.client.send(1, Command::SetVolume(0.5));
+        let s = h.wait_for("settled", |s| s.acked == 1);
+        assert_eq!(s.session, Session::LoggedIn);
+        assert_eq!(s.banner.as_deref(), Some(crate::state::OFFLINE));
+        assert!(s.library.ready().is_some() && s.main_view().is_some());
+    }
+
+    #[test]
+    fn fresh_cache_is_not_refetched_at_startup_but_stale_is() {
+        let now = unix_now();
+        for (name, at, want) in [("fresh", now - 60, 0), ("stale", now - 11 * 60, 1)] {
+            let db = TempDb::new(&format!("staleness-{name}"));
+            prefilled(&db, Some(at));
+            let (backend, flags) = test_backend();
+            let mut h = Harness::with(
+                backend,
+                State::default(),
+                db.opener(),
+                Some(saved_keyring()),
+            );
+            h.wait_for("main", |s| {
+                s.main_view().is_some() && s.liked.ready().is_some()
+            });
+            if want == 1 {
+                eventually("refetch", || {
+                    flags.fetched("library") == 1
+                        && flags.fetched("liked") == 1
+                        && flags.fetched(&format!("playlist:{MAIN}")) == 1
+                });
+            } else {
+                std::thread::sleep(Duration::from_millis(300));
+                assert_eq!(flags.fetched("library"), 0, "{name}");
+                assert_eq!(flags.fetched("liked"), 0, "{name}");
+                assert_eq!(flags.fetched(&format!("playlist:{MAIN}")), 0, "{name}");
+            }
+            drop(h);
+            // Successful fetches stamp fetched_at.
+            if want == 1 {
+                let fetched = db.open().fetched_at("library").unwrap().unwrap();
+                assert!(fetched >= now, "{name}");
+            }
+        }
+    }
+
+    static CLEARED_B3: AtomicBool = AtomicBool::new(false);
+
+    #[test]
+    fn logout_clears_cookies_state_and_cached_library() {
+        let db = TempDb::new("logout");
+        prefilled(&db, None);
+        let keyring = Keyring {
+            load: || Some("SID=saved".to_owned()),
+            save: |_| Ok(()),
+            clear: || CLEARED_B3.store(true, Ordering::SeqCst),
+        };
+        let (backend, flags) = test_backend();
+        let mut h = Harness::with(backend, State::default(), db.opener(), Some(keyring));
+        h.wait_for("main", |s| {
+            s.main_view().is_some() && s.session == Session::LoggedIn
+        });
+        h.client.send(1, Command::Logout);
+        let s = h.wait_for("logout", |s| s.acked == 1);
+        assert!(s.needs_login());
+        assert!(s.main.is_none() && s.playlist.is_none());
+        assert!(s.library.ready().is_none() && s.liked.ready().is_none());
+        eventually("cookies cleared", || {
+            flags.cookies_cleared.load(Ordering::SeqCst) && CLEARED_B3.load(Ordering::SeqCst)
+        });
+        eventually("store cleared", || {
+            let store = db.open();
+            store.library_playlists().unwrap().is_empty() && store.liked().unwrap().is_empty()
+        });
+
+        // Logging in again brings the main playlist back without a restart.
+        h.client.send(2, Command::Login("SID=again".into()));
+        let s = h.wait_for("main again", |s| s.main_view().is_some());
+        assert_eq!(s.main.as_ref().unwrap().0, MAIN);
+    }
+
+    #[test]
+    fn a_play_is_recorded_in_the_store() {
+        let db = TempDb::new("plays");
+        let (backend, _flags) = test_backend();
+        let (mut h, s) = with_main(backend, db.opener());
+        let tracks = Arc::clone(&s.main_view().unwrap().tracks);
+        h.client.send(
+            2,
+            Command::PlayTracks {
+                tracks: Arc::clone(&tracks),
+                start: 0,
+                seed: 1,
+            },
+        );
+        h.wait_for("playing", |s| s.acked == 2);
+        // Let the stream load, then jump past the threshold.
+        std::thread::sleep(Duration::from_millis(300));
+        h.client.send(3, Command::Seek(Duration::from_secs(31)));
+        h.wait_for("recorded", |s| s.recorded_serial == s.play_serial);
+        let started = unix_now();
+        drop(h);
+        let last = db.open().last_played(&[tracks[0].id.clone()]).unwrap();
+        let at = last[&tracks[0].id];
+        assert!((started - 5..=started).contains(&at), "{at} vs {started}");
+    }
+
+    #[test]
+    fn autoplay_appends_radio_when_the_last_track_plays() {
+        let (backend, _flags) = test_backend();
+        let (mut h, s) = with_main(backend, memory_store());
+        assert!(s.queue.autoplay(), "on at startup");
+        let last = Arc::clone(s.main_view().unwrap().tracks.last().unwrap());
+        h.client.send(2, Command::PlayNow(last));
+        let s = h.wait_for("radio", |s| s.queue.len() > 1);
+        assert!(s.queue.entries()[1..].iter().all(|e| e.radio));
+        assert_eq!(s.queue.current_index(), Some(0));
     }
 }
