@@ -104,6 +104,20 @@ built by a `themes` worker in the presence slot.
 
 ## UI batch: Direction D ("One playlist")
 
+**Merged 2026-10-27** (`main` at `4f1ea94` plus fixes). `scripts/check.sh`
+passes; perf-check: binary 22.0 MiB, peak RSS 136.9 MiB, idle CPU 0%, cold
+start 102 ms. Screenshots of Collection (filter, playing) and the queue
+drawer match D-Collection, D-Filter and D-Queue. Still open:
+- `--demo` has 33 unique tracks, so the spine is about 13 px tall; the
+  Batch 4 memory worker adds the 1,535-track fixture.
+- The loaded-audio band in the buffering seek bar (D-States) needs a
+  buffered position in `Playback`; not built.
+- Album and artist pages are verified live only for anonymous reads
+  (Daft Punk); artist images are wide headers, center-cropped.
+- theme.rs has no 13/400 or 11/400 text style; login, first run and banners
+  use private helpers.
+- Not checked live with the real account: everything in this batch.
+
 Runs before Batch 4 (decided 2026-10-27). The design is done:
 `docs/design/README.md` (brief and rules) and the 12 D boards in
 `docs/design/png/`. Every worker reads the README and D-Tokens first, and

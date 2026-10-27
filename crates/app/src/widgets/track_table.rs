@@ -497,7 +497,12 @@ fn row(
 ) -> Response {
     let p = theme::pal();
     let resp = ui.interact(rect, id, Sense::click());
-    let hover = resp.contains_pointer();
+    // Half-open: on the line between two rows only the lower one hovers.
+    let hover = resp.contains_pointer()
+        && ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|p| p.y < rect.bottom());
     let is_current = ctx.current == Some(track.id.as_str());
     let liked = ctx.liked.contains(&track.id);
     let painter = ui.painter().clone();
