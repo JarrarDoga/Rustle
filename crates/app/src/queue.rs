@@ -32,6 +32,9 @@ impl Repeat {
 pub struct Entry {
     pub uid: u64,
     pub track: Arc<Track>,
+    /// Appended by autoplay radio, not part of the scope the user played.
+    #[allow(dead_code)] // b3-queue; read by the UI batch
+    pub radio: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -45,6 +48,12 @@ pub struct Queue {
     /// shuffle off restores it.
     unshuffled: Vec<u64>,
     next_uid: u64,
+    /// The "Playing from" label of the scope the queue was built from.
+    playing_from: Option<String>,
+    autoplay: bool,
+    /// The uid that was the last entry when radio was last appended. While
+    /// it is still the last entry, that run-out has had its radio.
+    radio_after: Option<u64>,
 }
 
 impl Queue {
@@ -91,16 +100,20 @@ impl Queue {
         Entry {
             uid: self.next_uid,
             track,
+            radio: false,
         }
     }
 
     /// Replaces the queue with `tracks` and makes `tracks[start]` current.
     /// With shuffle on, the chosen track plays first and the rest are shuffled.
+    /// Clears the "Playing from" label.
     pub fn play_list(&mut self, tracks: &[Arc<Track>], start: usize, seed: u64) -> Option<&Entry> {
         if tracks.is_empty() {
             return None;
         }
         let start = start.min(tracks.len() - 1);
+        self.playing_from = None;
+        self.radio_after = None;
         self.entries = tracks.iter().map(|t| self.mint_owned(t)).collect();
         self.current = Some(self.entries[start].uid);
         if self.shuffle {
@@ -169,6 +182,9 @@ impl Queue {
         }
         let removed = self.entries.remove(index);
         self.unshuffled.retain(|&u| u != removed.uid);
+        if self.entries.is_empty() {
+            self.playing_from = None;
+        }
         if self.current != Some(removed.uid) {
             return false;
         }
@@ -221,50 +237,89 @@ impl Queue {
         self.jump(0)
     }
 
-    // b3-queue: the methods below are stubs until the queue worker
-    // implements them.
-
-    /// Replaces the queue with `tracks` (a scope of the main playlist),
-    /// shuffled with `seed` or in order, starting at the first entry.
-    /// `label` is the "Playing from" text, e.g. "Saint Juniper · 41".
+    /// Replaces the queue with `tracks` (a scope of the main playlist) and
+    /// makes the first entry current. With `shuffle`, every track appears
+    /// once in an order fixed by `seed`; without it, in playlist order. The
+    /// queue's shuffle state follows `shuffle`, so turning shuffle off later
+    /// restores playlist order. `label` is the "Playing from" text, e.g.
+    /// "Saint Juniper · 41" (see [`scope_label`]). Empty `tracks` leave the
+    /// queue as it is.
     #[allow(dead_code)] // b3-queue; called by b3-wiring
     pub fn play_scope(
         &mut self,
-        _tracks: &[Arc<Track>],
-        _label: String,
-        _shuffle: bool,
-        _seed: u64,
+        tracks: &[Arc<Track>],
+        label: String,
+        shuffle: bool,
+        seed: u64,
     ) -> Option<&Entry> {
-        None
+        if tracks.is_empty() {
+            return None;
+        }
+        self.entries = tracks.iter().map(|t| self.mint_owned(t)).collect();
+        self.shuffle = shuffle;
+        if shuffle {
+            self.unshuffled = self.entries.iter().map(|e| e.uid).collect();
+            shuffle_slice(&mut self.entries, seed);
+        } else {
+            self.unshuffled.clear();
+        }
+        self.current = Some(self.entries[0].uid);
+        self.playing_from = Some(label);
+        self.radio_after = None;
+        self.current()
     }
 
     /// The "Playing from" label of the scope the queue was built from.
+    /// `play_list` and emptying the queue clear it; adding, inserting,
+    /// moving, removing and autoplay radio keep it.
     #[allow(dead_code)] // b3-queue; read by the UI batch
     pub fn playing_from(&self) -> Option<&str> {
-        None
+        self.playing_from.as_deref()
     }
 
     #[allow(dead_code)] // b3-queue; called by b3-wiring
-    pub fn set_autoplay(&mut self, _on: bool) {}
-
-    #[allow(dead_code)] // b3-queue; read by the UI batch
-    pub fn autoplay(&self) -> bool {
-        false
+    pub fn set_autoplay(&mut self, on: bool) {
+        self.autoplay = on;
     }
 
-    /// True when autoplay is on and the queue has run out (or is about to),
-    /// so the backend should fetch radio for the last track. Pure query: it
+    /// The autoplay setting. Repeat all or one still keeps radio off.
+    #[allow(dead_code)] // b3-queue; read by the UI batch
+    pub fn autoplay(&self) -> bool {
+        self.autoplay
+    }
+
+    /// True when autoplay is on, repeat is off, the current entry is the last
+    /// one, and radio has not been appended since that entry became last.
+    /// The backend then fetches radio for the last track. Pure query: it
     /// stays true until `extend_radio` is called, because the reducer runs
     /// on both the UI and the backend and must stay deterministic.
     #[allow(dead_code)] // b3-queue; called by b3-wiring
     pub fn needs_radio(&self) -> bool {
-        false
+        if !self.autoplay || self.repeat != Repeat::Off {
+            return false;
+        }
+        let Some(i) = self.current_index() else {
+            return false;
+        };
+        i + 1 == self.entries.len() && self.radio_after != Some(self.entries[i].uid)
     }
 
     /// Appends radio tracks after the last entry, marked as autoplay radio
-    /// (not in the main playlist). Clears `needs_radio` for this run-out.
+    /// (not in the main playlist). Clears `needs_radio` for this run-out,
+    /// even when `tracks` is empty; it fires again when the new last entry
+    /// becomes current.
     #[allow(dead_code)] // b3-queue; called by b3-wiring
-    pub fn extend_radio(&mut self, _tracks: Vec<Arc<Track>>) {}
+    pub fn extend_radio(&mut self, tracks: Vec<Arc<Track>>) {
+        self.radio_after = self.entries.last().map(|e| e.uid);
+        for track in tracks {
+            let mut entry = self.mint(track);
+            entry.radio = true;
+            if self.shuffle {
+                self.unshuffled.push(entry.uid);
+            }
+            self.entries.push(entry);
+        }
+    }
 
     /// Moves to the previous entry. At the start it wraps with repeat-all and
     /// otherwise stays on the first entry.
@@ -279,6 +334,21 @@ impl Queue {
         }
         self.current()
     }
+}
+
+/// The "Playing from" label for a scope: `name`, a middle dot, and the
+/// track count with thousands separators, e.g. "Everything · 1,535".
+#[allow(dead_code)] // b3-queue; called by b3-wiring
+pub fn scope_label(name: &str, count: usize) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    format!("{name} \u{b7} {grouped}")
 }
 
 /// Fisher-Yates with xorshift64*. Deterministic for a given seed.
@@ -468,6 +538,152 @@ pub(crate) mod tests {
         q.add(track("a"));
         assert!(q.current().is_none());
         assert_eq!(q.advance(false).map(|e| e.track.id.as_str()), Some("a"));
+    }
+
+    #[test]
+    fn scope_shuffle_covers_every_track_once_per_seed() {
+        let names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let mut one = Queue::default();
+        one.play_scope(&tracks(&names), "Mix · 8".into(), true, 42);
+        let mut two = Queue::default();
+        two.play_scope(&tracks(&names), "Mix · 8".into(), true, 42);
+        assert_eq!(ids(&one), ids(&two));
+        assert_ne!(ids(&one), names, "seed should reorder");
+        let mut sorted = ids(&one);
+        sorted.sort();
+        assert_eq!(sorted, names);
+        assert_eq!(one.current_index(), Some(0));
+        assert!(one.shuffle());
+
+        // Unshuffling restores playlist order and keeps the current entry.
+        let first = current_id(&one);
+        one.set_shuffle(false, 0);
+        assert_eq!(ids(&one), names);
+        assert_eq!(current_id(&one), first);
+    }
+
+    #[test]
+    fn scope_in_order_keeps_playlist_order() {
+        let mut q = Queue::default();
+        q.set_shuffle(true, 1);
+        q.play_scope(&tracks(&["a", "b", "c"]), "Mix · 3".into(), false, 42);
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+        assert_eq!(current_id(&q).as_deref(), Some("a"));
+        assert!(!q.shuffle());
+        assert!(q.play_scope(&[], "Empty · 0".into(), true, 1).is_none());
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn playing_from_label_until_replaced() {
+        let mut q = Queue::default();
+        assert_eq!(q.playing_from(), None);
+        let label = scope_label("Saint Juniper", 41);
+        q.play_scope(&tracks(&["a", "b"]), label, true, 3);
+        assert_eq!(q.playing_from(), Some("Saint Juniper \u{b7} 41"));
+        q.play_next(track("x"));
+        q.add(track("y"));
+        q.remove(0);
+        assert_eq!(q.playing_from(), Some("Saint Juniper \u{b7} 41"));
+        q.play_list(&tracks(&["c"]), 0, 0);
+        assert_eq!(q.playing_from(), None);
+
+        q.play_scope(&tracks(&["a"]), "One · 1".into(), false, 0);
+        q.remove(0);
+        assert_eq!(q.playing_from(), None);
+        q.play_now(track("z"));
+        assert_eq!(q.playing_from(), None);
+    }
+
+    #[test]
+    fn scope_label_groups_thousands() {
+        assert_eq!(scope_label("Everything", 1535), "Everything \u{b7} 1,535");
+        assert_eq!(scope_label("#380 to #520", 141), "#380 to #520 \u{b7} 141");
+        assert_eq!(scope_label("Big", 1_234_567), "Big \u{b7} 1,234,567");
+        assert_eq!(scope_label("None", 0), "None \u{b7} 0");
+        assert_eq!(scope_label("K", 1000), "K \u{b7} 1,000");
+    }
+
+    #[test]
+    fn needs_radio_fires_once_per_run_out() {
+        let mut q = Queue::default();
+        q.set_autoplay(true);
+        assert!(q.autoplay());
+        assert!(!q.needs_radio(), "empty queue has no track to seed radio");
+        q.play_scope(&tracks(&["a", "b"]), "Mix · 2".into(), false, 0);
+        assert!(!q.needs_radio());
+        q.advance(true);
+        assert!(q.needs_radio(), "on the last track");
+        assert!(q.needs_radio(), "pure query");
+        assert!(q.advance(true).is_none());
+        assert!(q.needs_radio(), "still true once the queue has run out");
+
+        q.extend_radio(vec![track("r1"), track("r2")]);
+        assert!(!q.needs_radio());
+        assert_eq!(ids(&q), ["a", "b", "r1", "r2"]);
+        assert_eq!(current_id(&q).as_deref(), Some("b"));
+        q.advance(true);
+        assert!(!q.needs_radio());
+        q.advance(true);
+        assert_eq!(current_id(&q).as_deref(), Some("r2"));
+        assert!(q.needs_radio(), "the radio tracks ran out");
+    }
+
+    #[test]
+    fn empty_radio_result_clears_needs_radio() {
+        let mut q = Queue::default();
+        q.set_autoplay(true);
+        q.play_list(&tracks(&["a"]), 0, 0);
+        assert!(q.needs_radio());
+        q.extend_radio(Vec::new());
+        assert!(!q.needs_radio());
+        assert!(q.advance(true).is_none());
+        assert!(!q.needs_radio());
+        assert_eq!(ids(&q), ["a"]);
+
+        // A new last entry is a new run-out.
+        q.add(track("b"));
+        q.advance(true);
+        assert!(q.needs_radio());
+    }
+
+    #[test]
+    fn repeat_and_autoplay_off_disable_radio() {
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a"]), 0, 0);
+        assert!(!q.needs_radio(), "autoplay is off by default");
+        q.set_autoplay(true);
+        q.set_repeat(Repeat::All);
+        assert!(!q.needs_radio());
+        q.set_repeat(Repeat::One);
+        assert!(!q.needs_radio());
+        q.set_repeat(Repeat::Off);
+        assert!(q.needs_radio());
+        q.set_autoplay(false);
+        assert!(!q.needs_radio());
+        assert!(!q.autoplay());
+    }
+
+    #[test]
+    fn radio_entries_are_marked_and_stay_marked_after_unshuffle() {
+        let names = ["a", "b", "c", "d", "e"];
+        let mut q = Queue::default();
+        q.set_autoplay(true);
+        q.play_scope(&tracks(&names), "Mix · 5".into(), true, 9);
+        q.jump(names.len() - 1);
+        q.extend_radio(vec![track("r1"), track("r2")]);
+        q.play_next(track("x"));
+        let radio: Vec<_> = q.entries().iter().filter(|e| e.radio).collect();
+        assert_eq!(radio.len(), 2);
+        assert_eq!(q.entries().iter().filter(|e| !e.radio).count(), 6);
+
+        q.set_shuffle(false, 0);
+        let tail: Vec<_> = q.entries()[q.len() - 2..]
+            .iter()
+            .map(|e| (e.track.id.as_str(), e.radio))
+            .collect();
+        assert_eq!(tail, [("r1", true), ("r2", true)]);
+        assert!(q.entries()[..q.len() - 2].iter().all(|e| !e.radio));
     }
 
     #[test]
