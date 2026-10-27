@@ -301,6 +301,9 @@ impl RustleApp {
     }
 }
 
+/// Largest texture side the app asks egui for; see `raw_input_hook`.
+const MAX_TEXTURE_SIDE: usize = 2048;
+
 /// `RUSTLE_DEMO_LARGE=<tracks>` with `RUSTLE_DEMO_ART=<url>`: `--demo` runs
 /// on a generated library whose art comes from a local server. Set by
 /// `scripts/perf-check.sh --large`.
@@ -356,6 +359,18 @@ impl eframe::App for RustleApp {
             self.colors_reported = self.state.art_colors.len();
             eprintln!("rustle: art colors {}", self.colors_reported);
         }
+    }
+
+    /// egui makes the font atlas as wide as the largest texture the GPU
+    /// takes (16,384 px here), so even its first 32 rows cost 2 MiB, held
+    /// twice: the CPU image and the texture. Every texture the app draws is
+    /// far smaller than `MAX_TEXTURE_SIDE`.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        raw_input.max_texture_side = Some(
+            raw_input
+                .max_texture_side
+                .map_or(MAX_TEXTURE_SIDE, |s| s.min(MAX_TEXTURE_SIDE)),
+        );
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
