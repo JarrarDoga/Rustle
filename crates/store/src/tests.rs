@@ -661,7 +661,7 @@ fn version_1_database_upgrades() {
         .conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, super::MIGRATIONS.len() as i64);
     let pl = s.playlist("PL1").unwrap().unwrap();
     assert_eq!(ids(&pl.tracks), vec!["t1"]);
     assert!(pl.entry_ids.is_empty());
@@ -682,6 +682,132 @@ fn version_1_database_upgrades() {
     assert_eq!(s.main_playlist().unwrap().as_deref(), Some("PL1"));
     assert_eq!(s.last_played(&["t1".into()]).unwrap()["t1"], 10);
     assert_eq!(s.fetched_at("library").unwrap(), Some(5));
+}
+
+#[test]
+fn queue_extras_round_trip() {
+    let s = store();
+    assert_eq!(s.queue_extras().unwrap(), (None, vec![]));
+
+    let ts = tracks(0..4);
+    s.upsert_tracks(&ts).unwrap();
+    s.save_queue(&ids(&ts), Some(1)).unwrap();
+    s.save_queue_extras(Some("Everything \u{b7} 2"), &[false, false, true, true])
+        .unwrap();
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (
+            Some("Everything \u{b7} 2".into()),
+            vec![false, false, true, true]
+        )
+    );
+    // The queue itself is unchanged.
+    assert_eq!(s.load_queue().unwrap(), (ts.clone(), Some(1)));
+
+    // A new queue starts unmarked; extras replace the old ones.
+    s.save_queue(&ids(&ts[..3]), Some(0)).unwrap();
+    assert_eq!(s.queue_extras().unwrap().1, vec![false; 3]);
+    s.save_queue_extras(None, &[true, false]).unwrap();
+    assert_eq!(s.queue_extras().unwrap(), (None, vec![true, false, false]));
+
+    // Flags past the end are dropped.
+    s.save_queue_extras(Some("x"), &[false, false, true, true, true])
+        .unwrap();
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (Some("x".into()), vec![false, false, true])
+    );
+
+    // Extras before any save_queue keep the label.
+    let s = store();
+    s.save_queue_extras(Some("y"), &[true]).unwrap();
+    assert_eq!(s.queue_extras().unwrap(), (Some("y".into()), vec![]));
+    assert_eq!(s.load_queue().unwrap(), (vec![], None));
+}
+
+#[test]
+fn queue_extras_skip_entries_load_queue_skips() {
+    let s = store();
+    let ts = tracks(0..3);
+    s.upsert_tracks(&ts).unwrap();
+    let q = vec![
+        ts[0].id.clone(),
+        "unknown".into(),
+        ts[1].id.clone(),
+        ts[2].id.clone(),
+    ];
+    s.save_queue(&q, Some(0)).unwrap();
+    s.save_queue_extras(Some("l"), &[false, true, false, true])
+        .unwrap();
+    let (loaded, _) = s.load_queue().unwrap();
+    let (_, radio) = s.queue_extras().unwrap();
+    assert_eq!(radio.len(), loaded.len());
+    assert_eq!(radio, vec![false, false, true]);
+}
+
+#[test]
+fn queue_extras_survive_reopen() {
+    let dir = TempDir::new();
+    let path = dir.0.join("cache.sqlite");
+    let ts = tracks(0..3);
+    {
+        let s = Store::open(&path).unwrap();
+        s.upsert_tracks(&ts).unwrap();
+        s.save_queue(&ids(&ts), Some(2)).unwrap();
+        s.save_queue_extras(Some("Saint Juniper \u{b7} 2"), &[false, false, true])
+            .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    assert_eq!(s.load_queue().unwrap(), (ts, Some(2)));
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (
+            Some("Saint Juniper \u{b7} 2".into()),
+            vec![false, false, true]
+        )
+    );
+}
+
+#[test]
+fn version_2_database_upgrades() {
+    let dir = TempDir::new();
+    let path = dir.0.join("cache.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(super::MIGRATIONS[0]).unwrap();
+        conn.execute_batch(super::MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, title, artists, thumbnails)
+                 VALUES ('t1', 'One', '[]', '[]'), ('t2', 'Two', '[]', '[]');
+             INSERT INTO queue (position, track_id) VALUES (0, 't1'), (1, 't2');
+             INSERT INTO queue_state (id, current) VALUES (0, 1);
+             INSERT INTO settings (key, value) VALUES ('autoplay', 'false');",
+        )
+        .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    let version: i64 = s
+        .conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 3);
+    // Old rows survive: the queue, its current index, and settings.
+    let (q, current) = s.load_queue().unwrap();
+    assert_eq!(ids(&q), vec!["t1", "t2"]);
+    assert_eq!(current, Some(1));
+    assert_eq!(s.setting("autoplay").unwrap().as_deref(), Some("false"));
+    // Old rows read as unmarked with no label.
+    assert_eq!(s.queue_extras().unwrap(), (None, vec![false, false]));
+
+    s.save_queue_extras(Some("Two"), &[false, true]).unwrap();
+    drop(s);
+    let s = Store::open(&path).unwrap();
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (Some("Two".into()), vec![false, true])
+    );
+    assert_eq!(s.load_queue().unwrap().1, Some(1));
 }
 
 #[test]
