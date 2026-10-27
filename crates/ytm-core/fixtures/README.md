@@ -34,3 +34,26 @@ docs and from what the migration job saw live:
 
 Re-record the browse pages with `spike record-owned` and the radio page with
 `spike record-radio` when YouTube allows it, and replace the constructed files.
+
+Lyrics, recorded 2026-10-27 without cookies:
+
+- `lyrics_timed_*.json`: the `ANDROID_MUSIC` `browse` response for a lyrics
+  id (`POST https://music.youtube.com/youtubei/v1/browse`, body
+  `{"context":{"client":{"clientName":"ANDROID_MUSIC","clientVersion":"7.21.50","hl":"en","gl":"US"}},"browseId":"<MPLYt…>"}`,
+  the request `innertube::timed_lyrics` sends), trimmed to the
+  `contents…componentType.model` fields the parser reads (the full
+  responses are 430 to 650 KB of layout data). The lyrics ids come from
+  `music_details` (`next`).
+  - `lyrics_timed_synced.json`: `LxgnIhjQFuE`, Harder, Better, Faster,
+    Stronger (Alive Radio Edit 2007), `MPLYt_wNhKTKb809x-1`: 103 lines, all
+    with `cueRange`, "Source: LyricFind".
+  - `lyrics_timed_unsynced.json`: `sFZjqVnWBhc`, Robot Rock,
+    `MPLYt_NcFzLIYCtwP`: 40 lines in `timedLyricsModel` without `cueRange`
+    (plain lyrics only).
+  - `lyrics_timed_unavailable.json`: `PwILkY9gRrc`, Da Funk,
+    `MPLYt_YT86wj2Ahaj`: the song has a lyrics id, but the answer is a
+    `musicMessageModel` "Lyrics not available at this time." (no lyrics).
+- `rp_lyrics_plain.json`: rustypipe's `music_lyrics` for Robot Rock (the web
+  client's plain text, CRLF line ends), from
+  `spike record-lyrics fixtures sFZjqVnWBhc`. Tests use it for the plain
+  fallback.

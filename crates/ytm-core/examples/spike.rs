@@ -16,6 +16,8 @@
 //! cargo run -p ytm-core --example spike -- album <album_id> [--json]
 //! cargo run -p ytm-core --example spike -- artist <channel_id> [--json]
 //! cargo run -p ytm-core --example spike -- record-pages <fixtures_dir> <channel_id> [album_id]
+//! cargo run -p ytm-core --example spike -- lyrics <video_id>
+//! cargo run -p ytm-core --example spike -- record-lyrics <fixtures_dir> <video_id>
 //! ```
 //!
 //! `record` saves raw rustypipe responses (search "daft punk", one page per
@@ -26,7 +28,10 @@
 //! account owns (trimmed to three rows each, without header or tracking data)
 //! for the entry id tests. `record-radio` saves one radio page, no cookies.
 //! `record-pages` saves one artist page and one album page, no cookies; the
-//! album defaults to the artist's first full album.
+//! album defaults to the artist's first full album. `record-lyrics` saves
+//! the web client's plain lyrics of one song (`rp_lyrics_plain.json`), no
+//! cookies; the timed `ANDROID_MUSIC` fixtures are recorded as described in
+//! `fixtures/README.md`.
 //!
 //! `add` and `remove` refuse any playlist not named "Rustle test" unless
 //! `--force` is given. `remove` looks up each video's entry id itself and
@@ -173,6 +178,34 @@ async fn main() -> AnyResult<()> {
         }
         ["record-owned", dir, playlist_id] => record_owned(Path::new(dir), playlist_id).await?,
         ["record-radio", dir, video_id] => record_radio(Path::new(dir), video_id).await?,
+        ["record-lyrics", dir, video_id] => record_lyrics(Path::new(dir), video_id).await?,
+        ["lyrics", id] => {
+            let start = Instant::now();
+            let lyrics = RustyPipeBackend::new()?.lyrics(id).await?;
+            println!("{:.2} s", start.elapsed().as_secs_f64());
+            match lyrics {
+                None => println!("no lyrics for {id}"),
+                Some(l) => {
+                    println!(
+                        "{} lines, synced: {}, source: {}",
+                        l.lines.len(),
+                        l.synced,
+                        l.source.as_deref().unwrap_or("-")
+                    );
+                    for line in &l.lines {
+                        match line.start {
+                            Some(t) => println!(
+                                "  [{}:{:05.2}] {}",
+                                t.as_secs() / 60,
+                                t.as_secs_f64() % 60.0,
+                                line.text
+                            ),
+                            None => println!("  {}", line.text),
+                        }
+                    }
+                }
+            }
+        }
         ["library"] => {
             let path = std::env::var("RUSTLE_COOKIES_FILE")
                 .map_err(|_| "set RUSTLE_COOKIES_FILE to a cookies.txt or Cookie header file")?;
@@ -198,7 +231,8 @@ async fn main() -> AnyResult<()> {
                  | add <playlist_id> <id>... [--force] | remove <playlist_id> <id>... [--force] \
                  | record-owned <dir> <playlist_id> | record-radio <dir> <id> \
                  | album <id> [--json] | artist <id> [--json] \
-                 | record-pages <dir> <artist_id> [album_id]"
+                 | record-pages <dir> <artist_id> [album_id] | lyrics <id> \
+                 | record-lyrics <dir> <id>"
             );
             std::process::exit(2);
         }
@@ -529,6 +563,31 @@ async fn record_radio(dir: &Path, video_id: &str) -> AnyResult<()> {
         serde_json::to_string_pretty(&radio)? + "\n",
     )?;
     println!("recorded {} radio tracks for {video_id}", radio.items.len());
+    Ok(())
+}
+
+/// Saves the web client's plain lyrics of one song, fetched without cookies.
+async fn record_lyrics(dir: &Path, video_id: &str) -> AnyResult<()> {
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let q = rp.query().unauthenticated();
+    let lyrics_id = q
+        .music_details(video_id)
+        .await?
+        .lyrics_id
+        .ok_or("the song has no lyrics id")?;
+    let lyrics = q.music_lyrics(&lyrics_id).await?;
+    std::fs::write(
+        dir.join("rp_lyrics_plain.json"),
+        serde_json::to_string_pretty(&lyrics)? + "\n",
+    )?;
+    println!(
+        "recorded plain lyrics {lyrics_id} for {video_id} ({} lines)",
+        lyrics.body.lines().count()
+    );
     Ok(())
 }
 

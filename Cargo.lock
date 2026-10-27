@@ -5186,6 +5186,7 @@ name = "ytm-core"
 version = "0.1.0"
 dependencies = [
  "model",
+ "reqwest",
  "rustypipe",
  "serde",
  "serde_json",

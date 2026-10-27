@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use model::{
-    Album, AlbumRef, AlbumSummary, Artist, ArtistRef, ArtistSummary, AudioCodec, Playlist,
-    PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track, TrackId,
+    Album, AlbumRef, AlbumSummary, Artist, ArtistRef, ArtistSummary, AudioCodec, LyricLine, Lyrics,
+    Playlist, PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track, TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
 use rustypipe::client::{ClientType, RustyPipe, RustyPipeQuery};
@@ -447,9 +447,19 @@ impl MusicBackend for RustyPipeBackend {
         Ok(map_music_artist(artist))
     }
 
-    async fn lyrics(&self, _track_id: &str) -> Result<Option<model::Lyrics>> {
-        // b4-lyrics
-        Err(BackendError::Extraction("not implemented".to_owned()))
+    async fn lyrics(&self, track_id: &str) -> Result<Option<Lyrics>> {
+        // Lyrics are public; like album pages, these reads never send the
+        // cookies.
+        let q = self.rp.query().unauthenticated();
+        let details = q.music_details(track_id).await.map_err(map_error)?;
+        let ua = q.user_agent(ClientType::DesktopMusic);
+        fetch_lyrics(
+            track_id,
+            details.lyrics_id,
+            async |id| innertube::timed_lyrics(&ua, id).await,
+            async |id| q.music_lyrics(id).await,
+        )
+        .await
     }
 }
 
@@ -546,6 +556,53 @@ pub(crate) fn map_error(e: RpError) -> BackendError {
         }
         RpError::Extraction(_) | RpError::Other(_) => BackendError::Extraction(e.to_string()),
     }
+}
+
+/// Timed lyrics from the `ANDROID_MUSIC` client first, then the web client's
+/// plain text when the Android answer fails or has an unknown shape.
+async fn fetch_lyrics(
+    track_id: &str,
+    lyrics_id: Option<String>,
+    timed: impl AsyncFnOnce(&str) -> Result<innertube::TimedLyrics>,
+    plain: impl AsyncFnOnce(&str) -> std::result::Result<rp::Lyrics, RpError>,
+) -> Result<Option<Lyrics>> {
+    let Some(lyrics_id) = lyrics_id else {
+        return Ok(None);
+    };
+    match timed(&lyrics_id).await {
+        Ok(innertube::TimedLyrics::Found(l)) => return Ok(Some(l)),
+        Ok(innertube::TimedLyrics::Unavailable) => return Ok(None),
+        Ok(innertube::TimedLyrics::Unknown) => {}
+        Err(e) => tracing::warn!("timed lyrics for {track_id} failed, trying plain: {e}"),
+    }
+    match plain(&lyrics_id).await {
+        Ok(l) => Ok(map_plain_lyrics(l)),
+        Err(RpError::Extraction(ExtractionError::NotFound { .. })) => Ok(None),
+        Err(e) => Err(map_error(e)),
+    }
+}
+
+/// The web client's lyrics: one line per body line, blank lines kept as
+/// stanza breaks. `None` when the body is empty.
+fn map_plain_lyrics(l: rp::Lyrics) -> Option<Lyrics> {
+    let lines: Vec<LyricLine> = l
+        .body
+        .trim()
+        .lines()
+        .map(|t| LyricLine {
+            start: None,
+            text: t.trim_end().to_owned(),
+        })
+        .collect();
+    if lines.iter().all(|l| l.text.is_empty()) {
+        return None;
+    }
+    let source = l.footer.trim();
+    Some(Lyrics {
+        lines,
+        synced: false,
+        source: (!source.is_empty()).then(|| source.to_owned()),
+    })
 }
 
 fn map_thumbnails(thumbs: Vec<rp::Thumbnail>) -> Vec<Thumbnail> {
@@ -1480,5 +1537,97 @@ mod tests {
             assert!(!t.artists.is_empty(), "{t:?}");
             assert!(t.thumbnails.windows(2).all(|w| w[0].width <= w[1].width));
         }
+    }
+
+    fn plain_fixture() -> rp::Lyrics {
+        serde_json::from_str(include_str!("../fixtures/rp_lyrics_plain.json")).unwrap()
+    }
+
+    fn synced_fixture() -> Lyrics {
+        match innertube::parse_timed_lyrics(include_str!("../fixtures/lyrics_timed_synced.json")) {
+            Ok(innertube::TimedLyrics::Found(l)) => l,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn lyrics_prefer_timed() {
+        let got = fetch_lyrics(
+            "v",
+            Some("MPLYt_x".to_owned()),
+            async |id| {
+                assert_eq!(id, "MPLYt_x");
+                Ok(innertube::TimedLyrics::Found(synced_fixture()))
+            },
+            async |_| panic!("plain lyrics fetched although timed ones exist"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, Some(synced_fixture()));
+    }
+
+    #[tokio::test]
+    async fn lyrics_fall_back_to_plain() {
+        for timed in [
+            Ok(innertube::TimedLyrics::Unknown),
+            Err(BackendError::Network("HTTP 429".to_owned())),
+        ] {
+            let got = fetch_lyrics(
+                "v",
+                Some("MPLYt_x".to_owned()),
+                async |_| timed,
+                async |_| Ok(plain_fixture()),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(!got.synced);
+            assert_eq!(got.source.as_deref(), Some("Source: LyricFind"));
+            assert_eq!(got.lines[0].text, "Rock, robot rock");
+            assert!(got.lines.iter().all(|l| l.start.is_none()));
+            // CRLF line ends are gone; blank lines stay as stanza breaks.
+            assert!(got.lines.iter().all(|l| !l.text.contains('\r')));
+            assert_eq!(got.lines[4].text, "");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_lyrics() {
+        // No lyrics id: nothing is fetched.
+        let got = fetch_lyrics(
+            "v",
+            None,
+            async |_| panic!("timed lyrics fetched without an id"),
+            async |_| panic!("plain lyrics fetched without an id"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, None);
+        // YouTube says "not available": no plain request either.
+        let got = fetch_lyrics(
+            "v",
+            Some("MPLYt_x".to_owned()),
+            async |_| Ok(innertube::TimedLyrics::Unavailable),
+            async |_| panic!("plain lyrics fetched after \"not available\""),
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, None);
+        // An empty plain body.
+        let mut empty = plain_fixture();
+        empty.body = " \r\n".to_owned();
+        assert_eq!(map_plain_lyrics(empty), None);
+    }
+
+    #[tokio::test]
+    async fn plain_lyrics_errors_map() {
+        let got = fetch_lyrics(
+            "v",
+            Some("MPLYt_x".to_owned()),
+            async |_| Ok(innertube::TimedLyrics::Unknown),
+            async |_| Err(RpError::HttpStatus(503, "".into())),
+        )
+        .await;
+        assert!(matches!(got, Err(BackendError::Network(_))));
     }
 }

@@ -1,14 +1,21 @@
-//! Innertube calls rustypipe 0.11.4 lacks: like, unlike, playlist edits, and
-//! each playlist entry's `setVideoId`.
+//! Innertube calls rustypipe 0.11.4 lacks: like, unlike, playlist edits,
+//! each playlist entry's `setVideoId`, and timed lyrics.
 //!
 //! Requests go through `RustyPipeQuery::raw`. On an `.authenticated()` query
 //! with `ClientType::DesktopMusic`, rustypipe's request builder adds the
 //! login cookie, the SAPISIDHASH `Authorization` header and the
 //! `X-Goog-AuthUser` / `X-Goog-PageId` headers. Bodies follow ytmusicapi.
+//! Timed lyrics need the `ANDROID_MUSIC` client, which `raw` cannot send, so
+//! [`timed_lyrics`] is a plain POST of its own.
 //! The parsers below are pure so they run offline against recorded fixtures.
 
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use model::{LyricLine, Lyrics};
 use rustypipe::client::{ClientType, RustyPipeQuery};
 use rustypipe::error::Error as RpError;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{BackendError, Result};
@@ -405,6 +412,197 @@ pub(crate) fn align_entry_ids(track_ids: &[&str], entries: &[RawEntry]) -> Vec<O
     out
 }
 
+// ---------------------------------------------------------------- lyrics
+
+const BROWSE_URL: &str = "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false";
+/// The Android app is the only client YouTube Music sends timed lyrics to;
+/// ytmusicapi's `get_lyrics(timestamps=True)` uses this version.
+const ANDROID_MUSIC_VERSION: &str = "7.21.50";
+
+/// What the `ANDROID_MUSIC` lyrics `browse` says about a song.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum TimedLyrics {
+    /// The lines, timed or not.
+    Found(Lyrics),
+    /// YouTube answered "Lyrics not available at this time."
+    Unavailable,
+    /// Neither shape: the caller falls back to the web client's plain lyrics.
+    Unknown,
+}
+
+/// Lyrics for a lyrics browse id (`MPLYt…`, from `music_details`) as the
+/// `ANDROID_MUSIC` client sees them, with line start times when YouTube has
+/// them. Sent without cookies: lyrics are public.
+pub(crate) async fn timed_lyrics(user_agent: &str, lyrics_id: &str) -> Result<TimedLyrics> {
+    let body = json!({
+        "context": { "client": {
+            "clientName": "ANDROID_MUSIC",
+            "clientVersion": ANDROID_MUSIC_VERSION,
+            "hl": "en",
+            "gl": "US",
+        } },
+        "browseId": lyrics_id,
+    });
+    let resp = http()?
+        .post(BROWSE_URL)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::ORIGIN, "https://music.youtube.com")
+        .header(reqwest::header::USER_AGENT, user_agent)
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| BackendError::Network(e.without_url().to_string()))?;
+    let status = resp.status().as_u16();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| BackendError::Network(e.without_url().to_string()))?;
+    match status {
+        200..=299 => parse_timed_lyrics(&text),
+        404 => Err(BackendError::NotFound(lyrics_id.to_owned())),
+        400 => Err(BackendError::Extraction(format!(
+            "bad request: HTTP {status}"
+        ))),
+        // No cookies were sent, so 401 and 403 are not a session problem.
+        _ => Err(BackendError::Network(format!("HTTP {status}"))),
+    }
+}
+
+/// One client for the lyrics POST, built on first use. rustypipe keeps its
+/// own client private.
+fn http() -> Result<&'static reqwest::Client> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c);
+    }
+    let c = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| BackendError::Extraction(format!("HTTP client: {e}")))?;
+    Ok(CLIENT.get_or_init(|| c))
+}
+
+/// Parses the `ANDROID_MUSIC` lyrics `browse` response. The response is
+/// several hundred KB of layout data; typed structs skip it without building
+/// a JSON tree.
+pub(crate) fn parse_timed_lyrics(body: &str) -> Result<TimedLyrics> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Response {
+        contents: Option<Contents>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Contents {
+        element_renderer: Option<ElementRenderer>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ElementRenderer {
+        new_element: Option<NewElement>,
+    }
+    #[derive(Deserialize)]
+    struct NewElement {
+        #[serde(rename = "type")]
+        kind: Option<ElementType>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ElementType {
+        component_type: Option<ComponentType>,
+    }
+    #[derive(Deserialize)]
+    struct ComponentType {
+        model: Option<Model>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Model {
+        timed_lyrics_model: Option<TimedLyricsModel>,
+        music_message_model: Option<serde::de::IgnoredAny>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TimedLyricsModel {
+        lyrics_data: Option<LyricsData>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct LyricsData {
+        #[serde(default)]
+        timed_lyrics_data: Vec<RawLine>,
+        source_message: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawLine {
+        #[serde(default)]
+        lyric_line: String,
+        cue_range: Option<CueRange>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CueRange {
+        /// A decimal string, as Innertube writes 64-bit numbers.
+        start_time_milliseconds: Option<Value>,
+    }
+
+    if body.trim().is_empty() {
+        return Err(BackendError::Network(
+            "empty response from YouTube (rate limited)".to_owned(),
+        ));
+    }
+    let resp: Response = serde_json::from_str(body)
+        .map_err(|e| BackendError::Extraction(format!("bad JSON: {e}")))?;
+    let Some(model) = resp
+        .contents
+        .and_then(|c| c.element_renderer)
+        .and_then(|e| e.new_element)
+        .and_then(|e| e.kind)
+        .and_then(|t| t.component_type)
+        .and_then(|c| c.model)
+    else {
+        return Ok(TimedLyrics::Unknown);
+    };
+    let data = model.timed_lyrics_model.and_then(|m| m.lyrics_data);
+    let Some(data) = data.filter(|d| !d.timed_lyrics_data.is_empty()) else {
+        return Ok(if model.music_message_model.is_some() {
+            TimedLyrics::Unavailable
+        } else {
+            TimedLyrics::Unknown
+        });
+    };
+    let mut lines: Vec<LyricLine> = data
+        .timed_lyrics_data
+        .into_iter()
+        .map(|l| LyricLine {
+            start: l
+                .cue_range
+                .and_then(|c| c.start_time_milliseconds)
+                .and_then(|v| match v {
+                    Value::String(s) => s.parse().ok(),
+                    v => v.as_u64(),
+                })
+                .map(Duration::from_millis),
+            text: l.lyric_line,
+        })
+        .collect();
+    let synced = lines.iter().all(|l| l.start.is_some());
+    if synced {
+        // The view finds the current line by binary search.
+        lines.sort_by_key(|l| l.start);
+    }
+    let source = data
+        .source_message
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    Ok(TimedLyrics::Found(Lyrics {
+        lines,
+        synced,
+        source,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -616,5 +814,75 @@ mod tests {
         // Different order.
         assert_eq!(align_entry_ids(&["B", "A"], &[a, b]), none);
         assert_eq!(align_entry_ids(&[], &[]), none);
+    }
+
+    fn found(body: &str) -> Lyrics {
+        match parse_timed_lyrics(body).unwrap() {
+            TimedLyrics::Found(l) => l,
+            other => panic!("expected lyrics, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn timed_lyrics_synced() {
+        let l = found(include_str!("../fixtures/lyrics_timed_synced.json"));
+        assert!(l.synced);
+        assert_eq!(l.lines.len(), 103);
+        assert_eq!(l.source.as_deref(), Some("Source: LyricFind"));
+        assert_eq!(
+            l.lines[0],
+            LyricLine {
+                start: Some(Duration::from_millis(840)),
+                text: "Television".to_owned(),
+            }
+        );
+        assert_eq!(l.lines[102].start, Some(Duration::from_millis(196_120)));
+        assert!(l.lines.windows(2).all(|w| w[0].start <= w[1].start));
+    }
+
+    #[test]
+    fn timed_lyrics_without_cues_are_plain() {
+        let l = found(include_str!("../fixtures/lyrics_timed_unsynced.json"));
+        assert!(!l.synced);
+        assert_eq!(l.lines.len(), 40);
+        assert!(l.lines.iter().all(|l| l.start.is_none()));
+        assert_eq!(l.lines[0].text, "Rock, robot rock");
+        assert_eq!(l.source.as_deref(), Some("Source: LyricFind"));
+    }
+
+    #[test]
+    fn timed_lyrics_one_missing_cue_is_not_synced() {
+        let body = json!({ "contents": { "elementRenderer": { "newElement": { "type": {
+            "componentType": { "model": { "timedLyricsModel": { "lyricsData": {
+                "timedLyricsData": [
+                    { "lyricLine": "b", "cueRange": { "startTimeMilliseconds": "2000" } },
+                    { "lyricLine": "a" },
+                ],
+            } } } } } } } } });
+        let l = found(&body.to_string());
+        assert!(!l.synced);
+        // Unsynced lines keep YouTube's order.
+        assert_eq!(l.lines[0].text, "b");
+        assert_eq!(l.source, None);
+    }
+
+    #[test]
+    fn timed_lyrics_unavailable_and_unknown() {
+        assert_eq!(
+            parse_timed_lyrics(include_str!("../fixtures/lyrics_timed_unavailable.json")).unwrap(),
+            TimedLyrics::Unavailable
+        );
+        assert_eq!(
+            parse_timed_lyrics(r#"{"contents":{"sectionListRenderer":{}}}"#).unwrap(),
+            TimedLyrics::Unknown
+        );
+        assert!(matches!(
+            parse_timed_lyrics(""),
+            Err(BackendError::Network(_))
+        ));
+        assert!(matches!(
+            parse_timed_lyrics("<html>"),
+            Err(BackendError::Extraction(_))
+        ));
     }
 }

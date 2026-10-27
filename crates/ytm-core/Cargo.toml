@@ -16,6 +16,8 @@ serde_json = "1.0.138"
 serde = { version = "1.0.229", features = ["derive"] }
 # Already in the tree via rustypipe; logs why a stream fell back to another path.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+# Already in the tree via rustypipe; sends the ANDROID_MUSIC timed-lyrics request its ClientType lacks.
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
 # Shows rustypipe's warnings (e.g. client fallbacks) when running the spike example.
