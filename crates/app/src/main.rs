@@ -46,7 +46,12 @@ fn main() -> ExitCode {
             .with_title("Rustle")
             .with_app_id("rustle")
             .with_inner_size([1200.0, 760.0])
-            .with_min_inner_size([780.0, 480.0]),
+            .with_min_inner_size([780.0, 480.0])
+            // Without an icon, eframe decodes its own 512 px logo and keeps
+            // the 1 MiB of pixels for the whole run, only to set the title
+            // bar icon on Windows and macOS. On Linux the icon comes from
+            // the desktop file (`with_app_id`); an empty one sets nothing.
+            .with_icon(std::sync::Arc::new(egui::IconData::default())),
         ..Default::default()
     };
     let handle = rt.handle().clone();
