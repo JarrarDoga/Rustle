@@ -220,7 +220,7 @@ impl RustleApp {
                         widgets::spine::show(ui, state, view, &mut out);
                     });
                 } else {
-                    let inner = rect.shrink2(egui::vec2(theme::SPACE_24, theme::SPACE_16));
+                    let inner = rect.shrink2(egui::vec2(theme::PAGE_INSET_X, theme::SPACE_16));
                     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
                         views::page(ui, state, view, &mut out);
                     });
