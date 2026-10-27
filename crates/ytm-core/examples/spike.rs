@@ -13,6 +13,9 @@
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- remove <playlist_id> <video_id>...
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- record-owned <fixtures_dir> <playlist_id>
 //! cargo run -p ytm-core --example spike -- record-radio <fixtures_dir> <video_id>
+//! cargo run -p ytm-core --example spike -- album <album_id> [--json]
+//! cargo run -p ytm-core --example spike -- artist <channel_id> [--json]
+//! cargo run -p ytm-core --example spike -- record-pages <fixtures_dir> <channel_id> [album_id]
 //! ```
 //!
 //! `record` saves raw rustypipe responses (search "daft punk", one page per
@@ -22,6 +25,8 @@
 //! `record-owned` saves the first two raw `browse` pages of a playlist the
 //! account owns (trimmed to three rows each, without header or tracking data)
 //! for the entry id tests. `record-radio` saves one radio page, no cookies.
+//! `record-pages` saves one artist page and one album page, no cookies; the
+//! album defaults to the artist's first full album.
 //!
 //! `add` and `remove` refuse any playlist not named "Rustle test" unless
 //! `--force` is given. `remove` looks up each video's entry id itself and
@@ -31,7 +36,9 @@
 use std::path::Path;
 use std::time::Instant;
 
-use ytm_core::model::{Playlist, PlaylistSummary, SearchResults, Track};
+use ytm_core::model::{
+    Album, AlbumSummary, Artist, Playlist, PlaylistSummary, SearchResults, Track,
+};
 use ytm_core::{MusicBackend, RustyPipeBackend, StreamOrigin};
 
 type AnyResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -145,6 +152,25 @@ async fn main() -> AnyResult<()> {
                 println!("removed {id} (entry {entry})");
             }
         }
+        ["album", id] => {
+            let album = RustyPipeBackend::new()?.album(id).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&album)?);
+            } else {
+                print_album(&album);
+            }
+        }
+        ["artist", id] => {
+            let artist = RustyPipeBackend::new()?.artist(id).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&artist)?);
+            } else {
+                print_artist(&artist);
+            }
+        }
+        ["record-pages", dir, artist_id, rest @ ..] => {
+            record_pages(Path::new(dir), artist_id, rest.first().copied()).await?
+        }
         ["record-owned", dir, playlist_id] => record_owned(Path::new(dir), playlist_id).await?,
         ["record-radio", dir, video_id] => record_radio(Path::new(dir), video_id).await?,
         ["library"] => {
@@ -170,7 +196,9 @@ async fn main() -> AnyResult<()> {
                 "usage: spike search <query> [--json] | stream <id> | playlist <id> [--json] \
                  | library | record <dir> [playlist_id] | radio <id> | like <id> | unlike <id> \
                  | add <playlist_id> <id>... [--force] | remove <playlist_id> <id>... [--force] \
-                 | record-owned <dir> <playlist_id> | record-radio <dir> <id>"
+                 | record-owned <dir> <playlist_id> | record-radio <dir> <id> \
+                 | album <id> [--json] | artist <id> [--json] \
+                 | record-pages <dir> <artist_id> [album_id]"
             );
             std::process::exit(2);
         }
@@ -288,6 +316,84 @@ fn print_playlist(pl: &Playlist) {
             None => println!("  {}", track_line(t)),
         }
     }
+}
+
+fn album_line(a: &AlbumSummary) -> String {
+    let artists: Vec<&str> = a.artists.iter().map(|a| a.name.as_str()).collect();
+    let year = a.year.map_or("?".to_owned(), |y| y.to_string());
+    format!("{}  {} - {} ({year})", a.id, artists.join(", "), a.name)
+}
+
+fn thumb_sizes(thumbs: &[ytm_core::model::Thumbnail]) -> String {
+    let sizes: Vec<String> = thumbs
+        .iter()
+        .map(|t| format!("{}x{}", t.width, t.height))
+        .collect();
+    sizes.join(" ")
+}
+
+fn print_album(album: &Album) {
+    println!("{}", album_line(&album.summary));
+    println!("art: {}", thumb_sizes(&album.summary.thumbnails));
+    println!("{} tracks:", album.tracks.len());
+    for t in &album.tracks {
+        println!("  {}", track_line(t));
+    }
+}
+
+fn print_artist(artist: &Artist) {
+    println!("{}  {}", artist.summary.id, artist.summary.name);
+    println!("art: {}", thumb_sizes(&artist.summary.thumbnails));
+    println!("top songs ({}):", artist.top_songs.len());
+    for t in &artist.top_songs {
+        println!("  {}", track_line(t));
+    }
+    println!("albums ({}):", artist.albums.len());
+    for a in &artist.albums {
+        println!("  {}", album_line(a));
+    }
+    println!("singles and EPs ({}):", artist.singles.len());
+    for a in &artist.singles {
+        println!("  {}", album_line(a));
+    }
+}
+
+/// Saves one artist page and one album page, fetched without cookies.
+async fn record_pages(dir: &Path, artist_id: &str, album_id: Option<&str>) -> AnyResult<()> {
+    use rustypipe::model::AlbumType;
+
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let q = rp.query().unauthenticated();
+    let artist = q.music_artist(artist_id, false).await?;
+    let album_id = match album_id {
+        Some(id) => id.to_owned(),
+        None => artist
+            .albums
+            .iter()
+            .find(|a| a.album_type == AlbumType::Album)
+            .map(|a| a.id.clone())
+            .ok_or("artist page has no album; pass an album id")?,
+    };
+    let album = q.music_album(&album_id).await?;
+    std::fs::write(
+        dir.join("rp_artist.json"),
+        serde_json::to_string_pretty(&artist)? + "\n",
+    )?;
+    std::fs::write(
+        dir.join("rp_album.json"),
+        serde_json::to_string_pretty(&album)? + "\n",
+    )?;
+    println!(
+        "recorded artist {artist_id} ({} tracks, {} albums) and album {album_id} ({} tracks)",
+        artist.tracks.len(),
+        artist.albums.len(),
+        album.tracks.len()
+    );
+    Ok(())
 }
 
 /// Saves raw, cookie-free rustypipe responses for the offline tests.

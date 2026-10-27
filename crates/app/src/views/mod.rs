@@ -72,7 +72,8 @@ pub struct View {
     pub seek_drag: Option<f32>,
     /// Volume to restore when unmuting.
     pub unmuted_volume: f32,
-    /// Selected row: list id and row index.
+    /// Selected row: list id and the index into that table's `tracks`
+    /// (not the display row), so a filter change keeps the same song.
     pub selected: Option<(egui::Id, usize)>,
     pub collection: CollectionView,
     pub browse_tab: BrowseTab,
