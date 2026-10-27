@@ -88,13 +88,19 @@ the scripts in `~/Coding/spotify-ytm-migration/`).
 
 ## Batch 4: polish (Phase 3)
 
+Runs after the UI batch. Revised 2026-10-26. Full brief for the team lead:
+`docs/handoff/BATCH4.md`. Before the integrator step, the lead confirms
+with the user whether to drop theme choice (Direction D has one palette)
+and whether to add Discord presence (needs a Discord application ID).
+
 | Worker | Owns | Scope |
 | --- | --- | --- |
-| lyrics | `crates/app/src/views/lyrics.rs`, lyrics in `ytm-core` | Synced lyrics panel |
-| control | new `crates/app/src/control.rs` | Keyboard shortcuts and a CLI control socket (`rustle play`, `rustle next`) |
-| themes | `crates/app/src/theme.rs` | Theme choice, Discord rich presence |
-| packaging | `packaging/` | RPM for Nobara |
-| memory | crates the profile points at | Profile RSS on the real GPU and cut it, if Batch 2 measurements show a need |
+| lyrics | lyrics in `ytm-core`, `views/lyrics.rs` | Synced lyrics (timed via the Android Music client, plain fallback) in a drawer |
+| control | `crates/app/src/control.rs` | Keyboard shortcuts, control socket, `rustle play/next/status` CLI, single instance |
+| settings | `crates/store/`, `settings.rs`, `views/settings.rs`, `queue.rs` | Saved settings (autoplay, accent from art, presence); queue label and radio marks survive restart |
+| presence | `crates/app/src/presence.rs` | Discord rich presence, off by default |
+| packaging | `packaging/`, RPM metadata in `crates/app/Cargo.toml` | RPM for Nobara with desktop file, icon and the botguard helper |
+| memory (serial, last) | any crate | Large-library perf mode; cut peak RSS under 135 MiB |
 
 ## UI batch: Direction D ("One playlist")
 
