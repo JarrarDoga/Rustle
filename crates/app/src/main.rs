@@ -22,6 +22,7 @@ mod widgets;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    disable_thp();
     let args: Vec<String> = std::env::args().skip(1).collect();
     // `rustle next` and friends: no tokio, no window.
     if let Some(code) = control::run_cli(&args) {
@@ -64,5 +65,31 @@ fn main() -> ExitCode {
             eprintln!("rustle: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Turns off transparent huge pages for this process. With THP set to
+/// "always" (Nobara's default), the kernel backs mimalloc's 2 MiB-aligned
+/// arenas with huge pages, so a few KB in use cost 2 MiB of RSS. Measured
+/// with `perf-check.sh --large`: peak RSS 165.9 MiB with THP, 140.8 without.
+fn disable_thp() {
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::{c_int, c_ulong};
+        unsafe extern "C" {
+            fn prctl(option: c_int, ...) -> c_int;
+        }
+        const PR_SET_THP_DISABLE: c_int = 41;
+        // SAFETY: PR_SET_THP_DISABLE takes four unsigned long arguments and
+        // only sets a flag on this process; on failure THP stays on.
+        unsafe {
+            prctl(
+                PR_SET_THP_DISABLE,
+                1 as c_ulong,
+                0 as c_ulong,
+                0 as c_ulong,
+                0 as c_ulong,
+            )
+        };
     }
 }
