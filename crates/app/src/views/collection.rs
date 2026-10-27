@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use egui::text::Galley;
 use egui::{
     Align2, Color32, CornerRadius, FontId, Frame, Key, Margin, Popup, Pos2, Rect, Response,
-    RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, vec2,
+    RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, vec2,
 };
 use model::{Track, TrackId};
 
@@ -387,19 +387,32 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
     filter_row(ui, &main, &mut view.collection);
     let visible = Arc::clone(&view.collection.visible);
     let scroll_to = view.collection.scroll_to.take();
-    let shown = track_table::show(
-        ui,
-        state,
-        view,
-        track_table::Table {
-            salt: "collection",
-            tracks: &main.tracks,
-            rows: Some(&visible),
-            columns: track_table::COLLECTION,
-            scroll_to,
-        },
-        out,
+    // The spine draws in the column to the right of the table.
+    let rest = ui.available_rect_before_wrap();
+    let table = Rect::from_min_max(
+        rest.min,
+        Pos2::new(
+            (rest.right() - theme::SPINE_COLUMN_W).max(rest.left()),
+            rest.bottom(),
+        ),
     );
+    let shown = ui
+        .scope_builder(UiBuilder::new().max_rect(table), |ui| {
+            track_table::show(
+                ui,
+                state,
+                view,
+                track_table::Table {
+                    salt: "collection",
+                    tracks: &main.tracks,
+                    rows: Some(&visible),
+                    columns: track_table::COLLECTION,
+                    scroll_to,
+                },
+                out,
+            )
+        })
+        .inner;
     // The spine's viewport box only means something in playlist order.
     let on = shown
         .on_screen
@@ -831,8 +844,12 @@ fn filter_field(ui: &mut Ui, field: Rect, n: usize, c: &mut CollectionView) {
         edit.request_focus();
         c.focus_filter = false;
     }
-    if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Escape)) {
+    // Escape clears the text and keeps focus, so the same press does not
+    // also reach the spine (it clears the range on Escape when nothing has
+    // focus). Escape in an empty field lets go of focus.
+    if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Escape)) && !c.filter_text.is_empty() {
         c.filter_text.clear();
+        edit.request_focus();
     }
     // Backspace in an empty field takes off the last chip.
     if edit.has_focus() && was_empty && ui.input(|i| i.key_pressed(Key::Backspace)) {
