@@ -1,0 +1,371 @@
+{
+  "id": "MPREb_OgeEnoHTsCm",
+  "playlist_id": "OLAK5uy_k47QV7r7DblltHRB-1yRp-ZyrKYN4gkt0",
+  "name": "Random Access Memories (Drumless Edition)",
+  "cover": [
+    {
+      "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w120-h120-l90-rj",
+      "width": 120,
+      "height": 120
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+    },
+    {
+      "url": "https://yt3.googleusercontent.com/wm1nkwlINP48XhoI_M_m5Z7IWIw742yukaiKKxqQGcskmB6TdcKZqTsBNChGW_I1BphPt7OkBwu9kRE=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+    }
+  ],
+  "artists": [
+    {
+      "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "name": "Daft Punk"
+    }
+  ],
+  "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+  "description": [
+    {
+      "Text": {
+        "text": "Random Access Memories is the fourth and final studio album by the French electronic music duo Daft Punk. It was released on 17 May 2013 through Columbia Records. The album pays tribute to late 1970s and early 1980s American music, particularly from Los Angeles. This theme is reflected in the packaging and promotional campaign, which included billboards, television advertisements and a web series. Recording sessions took place from 2008 to 2012 at Henson, Conway and Capitol Studios in California, Electric Lady Studios in New York City, and Gang Recording Studio in Paris, France.\nFollowing the minimal production of their previous album, Human After All, Daft Punk recruited session musicians with the help of Chris Caswell to perform live instrumentation and limited the use of electronic instruments to drum machines, a custom-built modular synthesizer and vintage vocoders. It combines disco, progressive rock and pop, with contributions by Paul Jackson Jr., Giorgio Moroder, Chilly Gonzales, Julian Casablancas, Paul Williams, Caswell, Pharrell Williams, Nile Rodgers, Todd Edwards, Panda Bear and DJ Falcon.\n\nFrom Wikipedia ("
+      }
+    },
+    {
+      "Web": {
+        "text": "https://en.wikipedia.org/wiki/Random_...",
+        "url": "https://en.wikipedia.org/wiki/Random_Access_Memories"
+      }
+    },
+    {
+      "Text": {
+        "text": ") under Creative Commons Attribution CC-BY-SA 3.0 ("
+      }
+    },
+    {
+      "Web": {
+        "text": "https://creativecommons.org/licenses/...",
+        "url": "https://creativecommons.org/licenses/by-sa/3.0/legalcode"
+      }
+    },
+    {
+      "Text": {
+        "text": ")"
+      }
+    }
+  ],
+  "album_type": "album",
+  "year": 2023,
+  "by_va": false,
+  "track_count": 13,
+  "tracks": [
+    {
+      "id": "asPohQE-tB4",
+      "name": "Give Life Back to Music (Drumless Edition)",
+      "duration": 276,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 55000000,
+      "track_type": "track",
+      "track_nr": 1,
+      "by_va": false
+    },
+    {
+      "id": "YWYJxrN6RD8",
+      "name": "The Game of Love (Drumless Edition)",
+      "duration": 323,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 28000000,
+      "track_type": "track",
+      "track_nr": 2,
+      "by_va": false
+    },
+    {
+      "id": "CAoX8vchMqU",
+      "name": "Giorgio by Moroder (Drumless Edition)",
+      "duration": 546,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 96000000,
+      "track_type": "track",
+      "track_nr": 3,
+      "by_va": false
+    },
+    {
+      "id": "prmvo0uprc0",
+      "name": "Within (Drumless Edition)",
+      "duration": 229,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 41000000,
+      "track_type": "track",
+      "track_nr": 4,
+      "by_va": false
+    },
+    {
+      "id": "EpZYI2xYwM8",
+      "name": "Instant Crush (Drumless Edition) (feat. Julian Casablancas)",
+      "duration": 338,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCWhpbdGLnR8XtXLr0yl2nYA",
+          "name": "Julian Casablancas"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 1200000000,
+      "track_type": "track",
+      "track_nr": 5,
+      "by_va": false
+    },
+    {
+      "id": "JHh0VzD8ft0",
+      "name": "Lose Yourself to Dance (Drumless Edition) (feat. Pharrell Williams)",
+      "duration": 355,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCJw8VyO6e3v6S0327AsgwcQ",
+          "name": "Pharrell Williams"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 751000,
+      "track_type": "track",
+      "track_nr": 6,
+      "by_va": false
+    },
+    {
+      "id": "F7RozpwmUIs",
+      "name": "Touch (Drumless Edition) (feat. Paul Williams)",
+      "duration": 500,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCPtp29kketDMCRawl_lT2oQ",
+          "name": "Paul Williams"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 35000000,
+      "track_type": "track",
+      "track_nr": 7,
+      "by_va": false
+    },
+    {
+      "id": "nwWVxPaOdN4",
+      "name": "Get Lucky (Drumless Edition) (feat. Pharrell Williams and Nile Rodgers)",
+      "duration": 370,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCJw8VyO6e3v6S0327AsgwcQ",
+          "name": "Pharrell Williams"
+        },
+        {
+          "id": "UCThde8ccpEr6sP8dIHZ-ceQ",
+          "name": "Nile Rodgers"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 1900000000,
+      "track_type": "track",
+      "track_nr": 8,
+      "by_va": false
+    },
+    {
+      "id": "AiYkCa8nbj0",
+      "name": "Beyond (Drumless Edition)",
+      "duration": 291,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 16000000,
+      "track_type": "track",
+      "track_nr": 9,
+      "by_va": false
+    },
+    {
+      "id": "MnP9xZpVZbs",
+      "name": "Motherboard (Drumless Edition)",
+      "duration": 342,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 489000,
+      "track_type": "track",
+      "track_nr": 10,
+      "by_va": false
+    },
+    {
+      "id": "7R8hVh7wtMQ",
+      "name": "Fragments of Time (Drumless Edition) (feat. Todd Edwards)",
+      "duration": 280,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCk_ezssvR9Os0VrMbmA3SWg",
+          "name": "Todd Edwards"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 20000000,
+      "track_type": "track",
+      "track_nr": 11,
+      "by_va": false
+    },
+    {
+      "id": "1-V7b70sCzQ",
+      "name": "Doin' it Right (Drumless Edition) (feat. Panda Bear)",
+      "duration": 252,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        },
+        {
+          "id": "UCB2qO9T8dkxOhIvZVqVkVcg",
+          "name": "Panda Bear"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 303000,
+      "track_type": "track",
+      "track_nr": 12,
+      "by_va": false
+    },
+    {
+      "id": "gPdua5JqBgw",
+      "name": "Contact (Drumless Edition)",
+      "duration": 384,
+      "cover": [],
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "artist_id": "UCRr1xG_2WIDs18a6cIiCxeA",
+      "album": {
+        "id": "MPREb_OgeEnoHTsCm",
+        "name": "Random Access Memories (Drumless Edition)"
+      },
+      "view_count": 245000,
+      "track_type": "track",
+      "track_nr": 13,
+      "by_va": false
+    }
+  ],
+  "variants": []
+}

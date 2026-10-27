@@ -228,6 +228,8 @@ pub const RADIUS_ROW: u8 = 2;
 /// Buttons, fields, chips.
 pub const RADIUS_CONTROL: u8 = 4;
 
+/// Horizontal inset of page content (D-Search, D-Album: text at x = 72).
+pub const PAGE_INSET_X: f32 = SPACE_20;
 pub const RAIL_W: f32 = 52.0;
 pub const FACET_PANEL_W: f32 = 232.0;
 pub const PAGE_HEADER_H: f32 = 64.0;
@@ -242,6 +244,10 @@ pub const ICON_BUTTON: f32 = 28.0;
 pub const PLAYER_H: f32 = 56.0;
 pub const PLAYER_ART: f32 = 40.0;
 pub const SPINE_W: f32 = 20.0;
+/// The column the spine sits in: 1 px edge, 8 px gap, the 20 px strip,
+/// 9 px gap (D-Collection). Its top part, beside the page header and filter
+/// row, belongs to the collection.
+pub const SPINE_COLUMN_W: f32 = 37.0;
 /// One spine segment stands for about 10 songs.
 pub const SPINE_SEGMENT: f32 = 4.0;
 pub const SPINE_SONGS_PER_SEGMENT: usize = 10;

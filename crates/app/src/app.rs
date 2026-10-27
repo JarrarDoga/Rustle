@@ -195,7 +195,7 @@ impl RustleApp {
                 .exact_size(theme::FACET_PANEL_W)
                 .resizable(false)
                 .show_separator_line(true)
-                .frame(region(p.bg).inner_margin(Margin::symmetric(16, 12)))
+                .frame(region(p.bg))
                 .show(ui, |ui| views::browse::show(ui, state, view, &mut out));
         }
         let content = CentralPanel::default()
@@ -208,15 +208,19 @@ impl RustleApp {
                         views::first_run::show(ui, state, &mut out);
                     });
                 } else if collection {
-                    let (main, spine) = rect.split_left_right_at_x(rect.right() - theme::SPINE_W);
-                    ui.scope_builder(UiBuilder::new().max_rect(main), |ui| {
+                    // The collection gets the full width: its header and filter
+                    // row span the spine column; its table leaves the right
+                    // `SPINE_COLUMN_W` free for the spine.
+                    let (_, spine) =
+                        rect.split_left_right_at_x(rect.right() - theme::SPINE_COLUMN_W);
+                    ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
                         views::collection::show(ui, state, view, &mut out);
                     });
                     ui.scope_builder(UiBuilder::new().max_rect(spine), |ui| {
                         widgets::spine::show(ui, state, view, &mut out);
                     });
                 } else {
-                    let inner = rect.shrink2(egui::vec2(theme::SPACE_24, theme::SPACE_16));
+                    let inner = rect.shrink2(egui::vec2(theme::PAGE_INSET_X, theme::SPACE_16));
                     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
                         views::page(ui, state, view, &mut out);
                     });
@@ -238,10 +242,9 @@ impl RustleApp {
                         .fill(p.bg)
                         .stroke(theme::hairline())
                         .shadow(ui.visuals().window_shadow)
-                        .inner_margin(Margin::symmetric(12, 12))
                         .show(ui, |ui| {
-                            ui.set_min_size(drawer.size() - egui::vec2(24.0, 24.0));
-                            ui.set_max_size(drawer.size() - egui::vec2(24.0, 24.0));
+                            ui.set_min_size(drawer.size());
+                            ui.set_max_size(drawer.size());
                             views::queue::show(ui, state, view, &mut out);
                         });
                 });
