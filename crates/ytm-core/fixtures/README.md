@@ -5,6 +5,14 @@ Recorded with `spike record` (real responses, no cookies):
 their model mapping (`UPDATE_FIXTURES=1 cargo test -p ytm-core`).
 `ytdlp_251.json` is real yt-dlp output.
 
+Recorded with `spike record-pages fixtures UCRr1xG_2WIDs18a6cIiCxeA`
+(2026-10-27, no cookies): `rp_artist.json` is rustypipe's `MusicArtist` for
+Daft Punk (one page, without the albums behind "More"), and `rp_album.json`
+its `MusicAlbum` for the artist's first full album, `MPREb_OgeEnoHTsCm`
+(Random Access Memories (Drumless Edition), 13 tracks). `album.json` and
+`artist.json` are their model mapping (`UPDATE_FIXTURES=1 cargo test -p
+ytm-core`).
+
 Constructed by hand, not recorded (2026-10-26). Live writes were not allowed
 while the like migration ran, and YouTube answered every read attempt that
 day with HTTP 403, so the shapes come from ytmusicapi 1.12.3's parsers and
