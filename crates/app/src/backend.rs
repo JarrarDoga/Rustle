@@ -326,10 +326,10 @@ fn art_pass(store: &Store, tx: &Inputs, tracks: &[Track]) {
         }
     };
     let mut seen = std::collections::HashSet::new();
-    let missing: Vec<Arc<Track>> = tracks
+    let missing: Vec<_> = tracks
         .iter()
         .filter(|t| !have.contains_key(&t.id) && seen.insert(t.id.as_str()))
-        .map(|t| Arc::new(t.clone()))
+        .filter_map(crate::thumbs::color_job)
         .collect();
     if !have.is_empty() {
         send_event(tx, Event::CachedArtColors(have.into_iter().collect()));

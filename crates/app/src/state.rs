@@ -499,7 +499,7 @@ pub enum Effect {
     },
     /// Compute art colors for these tracks (no stored color yet) with
     /// `thumbs::request_colors`; results come back as `Event::ArtColors`.
-    NeedArtColors(Vec<Arc<Track>>),
+    NeedArtColors(Vec<crate::thumbs::ColorJob>),
     /// Show the cached copy and fetch only if the store's `fetched_at` for
     /// the feed is missing or older than 10 minutes.
     RefreshIfStale(Feed),
@@ -1160,10 +1160,11 @@ fn on_added(
                 }
             }
             let colors = Arc::clone(&state.art_colors);
-            let uncolored: Vec<Arc<Track>> = track_ids
+            let uncolored: Vec<_> = track_ids
                 .iter()
                 .filter(|id| !colors.contains_key(*id))
                 .filter_map(|id| state.find_track(id))
+                .filter_map(|t| crate::thumbs::color_job(&t))
                 .collect();
             if !uncolored.is_empty() {
                 effects.push(Effect::NeedArtColors(uncolored));
@@ -2807,7 +2808,13 @@ mod tests {
         assert_eq!(before.len(), 1, "snapshots keep their own copy");
 
         // A confirmed add asks for the new song's color.
-        apply(&mut s, &Command::AddToMain(vec![track("c")]), now);
+        let mut c = (*track("c")).clone();
+        c.thumbnails.push(model::Thumbnail {
+            url: "https://art/c-60".into(),
+            width: 60,
+            height: 60,
+        });
+        apply(&mut s, &Command::AddToMain(vec![Arc::new(c)]), now);
         let fx = on_event(
             &mut s,
             Event::Added {
@@ -2817,7 +2824,9 @@ mod tests {
             },
             now,
         );
-        assert!(matches!(&fx[..], [Effect::NeedArtColors(t)] if t[0].id == "c"));
+        assert!(
+            matches!(&fx[..], [Effect::NeedArtColors(t)] if t[..] == [("c".into(), "https://art/c-60".into())])
+        );
     }
 
     fn player(status: PlaybackStatus, secs: u64) -> PlayerState {

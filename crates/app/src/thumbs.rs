@@ -74,26 +74,37 @@ pub fn get(ctx: &Context, thumbs: &[Thumbnail], size: f32) -> Option<TextureId> 
     None
 }
 
-/// Computes the art accent color for each track in a low-priority
+/// One track for the color pass: its id and the URL of the thumbnail to
+/// sample. Built by [`color_job`].
+pub type ColorJob = (TrackId, String);
+
+/// The color pass job for `track`: its smallest thumbnail. `None` when the
+/// track has no art.
+pub fn color_job(track: &Track) -> Option<ColorJob> {
+    pick(&track.thumbnails, COLOR_PX).map(|t| (track.id.clone(), t.url.clone()))
+}
+
+/// Computes the art accent color for each job in a low-priority
 /// background pass and hands results to `sink` in batches of up to
 /// `COLOR_BATCH`, plus one at the end. The color sent is the accent
 /// (`art_color::accent` of `art_color::dominant`), not the raw dominant
 /// color: the spine and the player bar draw the accent.
 ///
 /// Returns at once. At most `COLOR_WORKERS` thumbnails are fetched at a
-/// time, from the smallest thumbnail of each track, and no image is kept.
-/// A call while a pass runs adds its new tracks to that pass; the latest
-/// sink receives every later batch. Tracks already done or queued this
-/// session are skipped, as are tracks whose art cannot be decoded. After
-/// `MAX_FETCH_FAILURES` failed fetches in a row (no network) the pass
-/// drops its queue; a later call retries those tracks.
-pub fn request_colors<F>(tracks: Vec<Arc<model::Track>>, sink: F)
+/// time and no image is kept. Jobs carry only an id and a URL, not the
+/// track, so a pass over a large library holds little. A call while a pass
+/// runs adds its new tracks to that pass; the latest sink receives every
+/// later batch. Tracks already done or queued this session are skipped, as
+/// are tracks whose art cannot be decoded. After `MAX_FETCH_FAILURES`
+/// failed fetches in a row (no network) the pass drops its queue; a later
+/// call retries those tracks.
+pub fn request_colors<F>(jobs: Vec<ColorJob>, sink: F)
 where
     F: Fn(Vec<(model::TrackId, [u8; 3])>) + Send + Sync + 'static,
 {
     static PASS: OnceLock<Arc<ColorPass>> = OnceLock::new();
     PASS.get_or_init(|| ColorPass::new(cache_dir()))
-        .request(tracks, Arc::new(sink));
+        .request(jobs, Arc::new(sink));
 }
 
 /// The smallest thumbnail whose short side covers `px`, else the largest.
@@ -286,8 +297,7 @@ fn agent() -> ureq::Agent {
                     .input_buffer_size(16 << 10)
                     .output_buffer_size(4 << 10)
                     // Keep one idle connection per worker of either kind:
-                    // they all hit the same CDN host, and each new
-                    // connection spawns a DNS thread.
+                    // they all hit the same CDN host.
                     .max_idle_connections_per_host(WORKERS + COLOR_WORKERS)
                     .build(),
             )
@@ -499,7 +509,7 @@ struct ColorPass {
 }
 
 struct ColorState {
-    queue: VecDeque<Arc<Track>>,
+    queue: VecDeque<ColorJob>,
     /// Queued, in flight, done or undecodable this session.
     seen: HashSet<TrackId>,
     done: Vec<(TrackId, [u8; 3])>,
@@ -511,7 +521,7 @@ struct ColorState {
 /// What became of one track.
 enum Colored {
     Color([u8; 3]),
-    /// No thumbnail, or it does not decode: not retried this session.
+    /// The thumbnail does not decode: not retried this session.
     Unusable,
     /// The fetch failed: retried by a later call.
     FetchFailed,
@@ -532,13 +542,13 @@ impl ColorPass {
         })
     }
 
-    fn request(self: &Arc<Self>, tracks: Vec<Arc<Track>>, sink: ColorSink) {
+    fn request(self: &Arc<Self>, jobs: Vec<ColorJob>, sink: ColorSink) {
         let spawn = {
             let mut st = lock(&self.state);
             st.sink = Some(sink);
-            for t in tracks {
-                if st.seen.insert(t.id.clone()) {
-                    st.queue.push_back(t);
+            for job in jobs {
+                if st.seen.insert(job.0.clone()) {
+                    st.queue.push_back(job);
                 }
             }
             let spawn = COLOR_WORKERS.saturating_sub(st.active).min(st.queue.len());
@@ -560,8 +570,8 @@ impl ColorPass {
                 if st.active == 0 {
                     // Nobody left to run the queue: let a later call retry.
                     let ColorState { queue, seen, .. } = &mut *st;
-                    for t in queue.drain(..) {
-                        seen.remove(&t.id);
+                    for (id, _) in queue.drain(..) {
+                        seen.remove(&id);
                     }
                 }
             }
@@ -571,7 +581,7 @@ impl ColorPass {
     fn work(&self, agent: &ureq::Agent) {
         lower_priority();
         loop {
-            let track = {
+            let (id, url) = {
                 let mut st = lock(&self.state);
                 match st.queue.pop_front() {
                     Some(t) => t,
@@ -596,7 +606,7 @@ impl ColorPass {
                     }
                 }
             };
-            let result = color_of(agent, self.dir.as_deref(), &track);
+            let result = color_of(agent, self.dir.as_deref(), &url);
             // Return the decode and download buffers to the OS (see `worker`).
             // SAFETY: mi_collect has no preconditions.
             unsafe { libmimalloc_sys::mi_collect(true) };
@@ -605,16 +615,16 @@ impl ColorPass {
                 match result {
                     Colored::Color(c) => {
                         st.fetch_failures = 0;
-                        st.done.push((track.id.clone(), c));
+                        st.done.push((id, c));
                     }
                     Colored::Unusable => {}
                     Colored::FetchFailed => {
-                        st.seen.remove(&track.id);
+                        st.seen.remove(&id);
                         st.fetch_failures += 1;
                         if st.fetch_failures >= MAX_FETCH_FAILURES {
                             let ColorState { queue, seen, .. } = &mut *st;
-                            for t in queue.drain(..) {
-                                seen.remove(&t.id);
+                            for (id, _) in queue.drain(..) {
+                                seen.remove(&id);
                             }
                         }
                     }
@@ -632,12 +642,9 @@ impl ColorPass {
     }
 }
 
-/// The accent color of one track's art.
-fn color_of(agent: &ureq::Agent, dir: Option<&Path>, track: &Track) -> Colored {
-    let Some(thumb) = pick(&track.thumbnails, COLOR_PX) else {
-        return Colored::Unusable;
-    };
-    let Some(bytes) = cached_or_fetch(agent, dir, &thumb.url) else {
+/// The accent color of the art at `url`.
+fn color_of(agent: &ureq::Agent, dir: Option<&Path>, url: &str) -> Colored {
+    let Some(bytes) = cached_or_fetch(agent, dir, url) else {
         return Colored::FetchFailed;
     };
     match decode_with(&bytes, COLOR_DECODE_PX, COLOR_MAX_ALLOC) {
@@ -1023,8 +1030,8 @@ mod tests {
         out
     }
 
-    fn track(id: &str, urls: &[String]) -> Arc<Track> {
-        Arc::new(Track {
+    fn track(id: &str, urls: &[String]) -> Track {
+        Track {
             id: id.to_string(),
             title: id.to_string(),
             artists: Vec::new(),
@@ -1039,7 +1046,12 @@ mod tests {
                     height: 60 << i,
                 })
                 .collect(),
-        })
+        }
+    }
+
+    /// The color job for a track with these thumbnails, smallest first.
+    fn job_for(id: &str, urls: &[String]) -> ColorJob {
+        color_job(&track(id, urls)).expect("has art")
     }
 
     type Batches = std::sync::mpsc::Receiver<Vec<(TrackId, [u8; 3])>>;
@@ -1098,13 +1110,13 @@ mod tests {
         for i in 0..120 {
             let url = dead_url(i);
             std::fs::write(cache_path(&dir, &url), png(hues[i % 3])).unwrap();
-            // The larger thumbnail is not cached: the pass must pick the small one.
-            tracks.push(track(&format!("t{i}"), &[url, dead_url(1000 + i)]));
+            // The larger thumbnail is not cached: the job must pick the small one.
+            tracks.push(job_for(&format!("t{i}"), &[url, dead_url(1000 + i)]));
         }
         let broken = dead_url(500);
         std::fs::write(cache_path(&dir, &broken), b"not an image").unwrap();
-        tracks.push(track("broken", &[broken]));
-        tracks.push(track("no-art", &[]));
+        tracks.push(job_for("broken", &[broken]));
+        assert!(color_job(&track("no-art", &[])).is_none());
 
         let pass = ColorPass::new(Some(dir.clone()));
         let (s, rx) = sink();
@@ -1122,7 +1134,7 @@ mod tests {
                 "{got:?} vs {want:?}"
             );
         }
-        assert!(!all.contains_key("broken") && !all.contains_key("no-art"));
+        assert!(!all.contains_key("broken"));
 
         // Asking again sends nothing new: done and unusable tracks are skipped.
         let (s, rx) = sink();
@@ -1204,7 +1216,7 @@ mod tests {
         let dir = temp_dir("colors-fetch");
         let (port, open) = serve((0..24).map(jpeg).collect(), true);
         let tracks: Vec<_> = (0..24)
-            .map(|i| track(&format!("f{i}"), &[format!("http://127.0.0.1:{port}/{i}")]))
+            .map(|i| job_for(&format!("f{i}"), &[format!("http://127.0.0.1:{port}/{i}")]))
             .collect();
         let pass = ColorPass::new(Some(dir.clone()));
         let (s, rx) = sink();
@@ -1223,7 +1235,7 @@ mod tests {
         let dir = temp_dir("colors-offline");
         let pass = ColorPass::new(Some(dir.clone()));
         let offline: Vec<_> = (0..30)
-            .map(|i| track(&format!("o{i}"), &[dead_url(i)]))
+            .map(|i| job_for(&format!("o{i}"), &[dead_url(i)]))
             .collect();
         let (s, rx) = sink();
         pass.request(offline.clone(), s);
@@ -1319,7 +1331,7 @@ mod tests {
             .unwrap();
         let port: u16 = line.trim().parse().unwrap();
         let tracks: Vec<_> = (0..N)
-            .map(|i| track(&format!("r{i}"), &[format!("http://127.0.0.1:{port}/{i}")]))
+            .map(|i| job_for(&format!("r{i}"), &[format!("http://127.0.0.1:{port}/{i}")]))
             .collect();
         // The app's thumbnail workers have already used the shared agent.
         let warm = format!("http://127.0.0.1:{port}/0");
