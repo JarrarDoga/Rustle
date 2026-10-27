@@ -480,12 +480,13 @@ fn decode_with(bytes: &[u8], px: u32, max_alloc: u64) -> Option<ColorImage> {
     Some(ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()))
 }
 
-/// Most thumbnails the color pass fetches at once. Each fetching thread
-/// costs about 1.5 MB of fresh mimalloc heap, and the pass may add at most
-/// 3 MB of peak RSS. Measured by `color_pass_rss` over 200 thumbnails:
-/// 1 worker +0.8 to 1.0 MB, 2 workers +3.0 to 3.8 MB, 4 workers +5.7 to
-/// 6.9 MB. One worker colors ~1,500 tracks in about a minute.
-const COLOR_WORKERS: usize = 1;
+/// Most thumbnails the color pass fetches at once. The pass may add at most
+/// 3 MB of peak RSS. Measured with `perf-check.sh --large` (1,535 tracks
+/// from a local server) once the app turned off transparent huge pages:
+/// peak RSS 137.2 to 138.0 MiB with 1 worker, 137.6 to 137.8 with 2; all
+/// colors in 21.4 s with 1, 16.0 to 17.3 s with 2. (Before that, each new
+/// thread's heap was faulted in 2 MiB huge pages and 2 workers cost +3 MB.)
+const COLOR_WORKERS: usize = 2;
 /// Slot size handed to `pick`: the smallest thumbnail (60 px for songs).
 const COLOR_PX: u32 = 32;
 /// `art_color::dominant` samples a 16x16 grid, so decode to that.
