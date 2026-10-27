@@ -28,6 +28,8 @@ pub struct RustleApp {
     /// Print `rustle: first frame` once the first frame is on screen.
     perf: bool,
     first_frame_done: bool,
+    /// Art colors known at the last `rustle: art colors` line (perf only).
+    colors_reported: usize,
     media_keys: MediaKeys,
     control: Control,
 }
@@ -48,9 +50,16 @@ impl RustleApp {
         let mut initial = State::default();
         let client = if demo {
             initial.session = Session::LoggedIn;
+            let large = demo_large();
             let setup = Setup {
                 initial: initial.clone(),
-                make: || Ok((ytm_core::FixtureBackend::new(), SimulatedPlayback::new())),
+                make: move || {
+                    let music = match large {
+                        Some((n, art)) => ytm_core::FixtureBackend::large(n, &art),
+                        None => ytm_core::FixtureBackend::new(),
+                    };
+                    Ok((music, SimulatedPlayback::new()))
+                },
                 store: Box::new(move || {
                     let s = store::Store::open_in_memory().map_err(|e| e.to_string())?;
                     // `--first-run` shows the main-playlist picker instead.
@@ -88,6 +97,7 @@ impl RustleApp {
             guest: false,
             perf,
             first_frame_done: false,
+            colors_reported: 0,
             media_keys: MediaKeys::new(cc.egui_ctx.clone()),
             control: Control::start(rt, cc.egui_ctx.clone(), demo),
         }
@@ -291,6 +301,15 @@ impl RustleApp {
     }
 }
 
+/// `RUSTLE_DEMO_LARGE=<tracks>` with `RUSTLE_DEMO_ART=<url>`: `--demo` runs
+/// on a generated library whose art comes from a local server. Set by
+/// `scripts/perf-check.sh --large`.
+fn demo_large() -> Option<(usize, String)> {
+    let n = std::env::var("RUSTLE_DEMO_LARGE").ok()?.parse().ok()?;
+    let art = std::env::var("RUSTLE_DEMO_ART").ok()?;
+    Some((n, art))
+}
+
 impl eframe::App for RustleApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.pull();
@@ -331,6 +350,11 @@ impl eframe::App for RustleApp {
             } else {
                 ui.ctx().request_repaint();
             }
+        }
+        // perf-check.sh --large waits for the color pass with this line.
+        if self.perf && self.state.art_colors.len() != self.colors_reported {
+            self.colors_reported = self.state.art_colors.len();
+            eprintln!("rustle: art colors {}", self.colors_reported);
         }
     }
 
