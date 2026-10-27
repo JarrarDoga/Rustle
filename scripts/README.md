@@ -81,3 +81,18 @@ Each run writes `perf-results/<timestamp>-<mode>.json` (gitignored). The script 
 1 if a target fails or the app exits before the window ends (the table shows
 the exit code, the signal and the last stderr lines), and 2 on a usage or setup
 error.
+
+## subset-icons.sh
+
+```sh
+scripts/subset-icons.sh
+```
+
+The app embeds only the Phosphor icons it draws. `crates/app/src/icons.rs`
+lists them; this script cuts `assets/fonts/phosphor-full/Phosphor*.ttf` down
+to those codepoints and writes `assets/fonts/Phosphor.ttf` and
+`Phosphor-Fill.ttf` (about 9 KB each instead of 470 KB). To add an icon,
+copy its line from `assets/fonts/phosphor-full/codepoints.rs` into
+`icons.rs` and run the script. The test
+`icons::tests::every_icon_is_in_both_subset_fonts` fails until you do. It
+needs `uv` (it runs a pinned `fonttools` with `uvx`).
