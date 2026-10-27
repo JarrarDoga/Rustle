@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use egui::style::ScrollAnimation;
 use egui::{
-    Align, Align2, CornerRadius, Label, Pos2, Rect, RichText, ScrollArea, Sense, Ui, UiBuilder,
-    vec2,
+    Align, Align2, CornerRadius, Frame, Label, Margin, Pos2, Rect, RichText, ScrollArea, Sense, Ui,
+    UiBuilder, vec2,
 };
 use model::{LyricLine, Lyrics};
 
@@ -27,7 +27,7 @@ const PAD_X: f32 = 16.0;
 /// The source line: 11 px text with 10 px above and below.
 const FOOTER_H: f32 = 34.0;
 /// Space between lines.
-const LINE_GAP: f32 = 6.0;
+const LINE_GAP: f32 = 10.0;
 
 pub fn show(ui: &mut Ui, state: &State, now: Instant, out: &mut Out) {
     // A child that does not allocate in the frame: allocating past the
@@ -146,9 +146,12 @@ pub fn show(ui: &mut Ui, state: &State, now: Instant, out: &mut Out) {
             .animated(false)
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.add_space(theme::SPACE_16);
-                lines(ui, lyrics, current, scroll, out);
-                ui.add_space(theme::SPACE_16);
+                Frame::NONE
+                    .inner_margin(Margin::symmetric(PAD_X as i8, theme::SPACE_16 as i8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        lines(ui, lyrics, current, scroll, out);
+                    });
             });
     });
 }
@@ -156,7 +159,6 @@ pub fn show(ui: &mut Ui, state: &State, now: Instant, out: &mut Out) {
 /// The lyric lines, wrapped to the drawer's width.
 fn lines(ui: &mut Ui, lyrics: &Lyrics, current: Option<usize>, scroll: bool, out: &mut Out) {
     let p = theme::pal();
-    let width = ui.available_width() - 2.0 * PAD_X;
     ui.spacing_mut().item_spacing.y = LINE_GAP;
     for (i, line) in lyrics.lines.iter().enumerate() {
         let is_current = current == Some(i);
@@ -178,13 +180,7 @@ fn lines(ui: &mut Ui, lyrics: &Lyrics, current: Option<usize>, scroll: bool, out
             } else {
                 Sense::hover()
             });
-        let resp = ui
-            .horizontal(|ui| {
-                ui.add_space(PAD_X);
-                ui.set_max_width(width + PAD_X);
-                ui.add(label)
-            })
-            .inner;
+        let resp = ui.add(label);
         if is_current && scroll {
             resp.scroll_to_me_animation(Some(Align::Center), ScrollAnimation::none());
         }
