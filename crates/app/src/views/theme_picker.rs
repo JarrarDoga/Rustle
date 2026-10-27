@@ -13,8 +13,6 @@ use crate::views::{Out, cmd};
 
 /// Taller lists scroll, so the popover stays on screen.
 const MAX_H: f32 = 360.0;
-/// Row width: swatches, the longest name and the check, inside the popover.
-const ROW_W: f32 = 256.0;
 const SWATCH: f32 = 12.0;
 const SWATCH_GAP: f32 = 3.0;
 const CHECK: f32 = 14.0;
@@ -25,7 +23,6 @@ pub fn show(ui: &mut Ui, state: &State, out: &mut Out) {
         .id_salt("theme_picker")
         .max_height(MAX_H)
         .show(ui, |ui| {
-            ui.set_width(ROW_W);
             ui.spacing_mut().item_spacing.y = 0.0;
             for (tone, label) in [(Tone::Dark, "Dark"), (Tone::Medium, "Medium")] {
                 caption(ui, label);

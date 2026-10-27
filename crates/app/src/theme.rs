@@ -155,7 +155,9 @@ pub const ROSE_PINE: Palette = Palette {
 };
 
 /// Kanagawa Wave: <https://github.com/rebelot/kanagawa.nvim>
-/// (`lua/kanagawa/colors.lua`).
+/// (`lua/kanagawa/colors.lua`). text_2 blends fujiWhite and fujiGray: the
+/// theme's `fg_dim` (oldWhite #C8C093) reads as yellow and almost as strong
+/// as text_1 in the track table.
 pub const KANAGAWA_WAVE: Palette = Palette {
     name: "Kanagawa Wave",
     tone: Tone::Dark,
@@ -165,7 +167,7 @@ pub const KANAGAWA_WAVE: Palette = Palette {
     stroke: hex(0x2A2A37),          // sumiInk4
     stroke_2: hex(0x54546D),        // sumiInk6
     text_1: hex(0xDCD7BA),          // fujiWhite
-    text_2: hex(0xC8C093),          // oldWhite (ui.fg_dim)
+    text_2: hex(0xA7A492),          // fujiWhite at 50% over fujiGray
     text_3: hex(0x727169),          // fujiGray
     on_accent: hex(0x16161D),       // sumiInk0
     danger: hex(0xE46876),          // waveRed
@@ -205,7 +207,7 @@ pub const GITHUB_DARK: Palette = Palette {
     text_3: hex(0x6E7681),          // fg.subtle
     on_accent: hex(0x0D1117),       // canvas.default
     danger: hex(0xF85149),          // danger.fg
-    fallback_accent: hex(0x2F81F7), // accent.fg
+    fallback_accent: hex(0x58A6FF), // blue.3 (accent.fg #2F81F7 looks heavy as a fill)
 };
 
 /// Catppuccin Macchiato: <https://github.com/catppuccin/palette>.
