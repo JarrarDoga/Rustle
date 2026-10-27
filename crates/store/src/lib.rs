@@ -1,7 +1,7 @@
 //! Local SQLite cache: library, metadata, queue. The UI renders from here so
 //! the library opens instantly, even offline.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -24,7 +24,8 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 /// in child tables: they are always read together with their track or
 /// playlist and never queried on their own, so one column keeps a 5,000-track
 /// save to one row per track instead of five or six.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE tracks (
         id          TEXT PRIMARY KEY NOT NULL,
         title       TEXT NOT NULL,
@@ -71,7 +72,42 @@ const MIGRATIONS: &[&str] = &["
         id      INTEGER PRIMARY KEY CHECK (id = 0),
         current INTEGER
     ) STRICT;
-"];
+",
+    "
+    -- YouTube's setVideoId for this entry; NULL when the source gave none.
+    ALTER TABLE playlist_tracks ADD COLUMN entry_id TEXT;
+
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+    ) STRICT, WITHOUT ROWID;
+
+    -- No foreign key: record_play takes bare ids (radio, search), which may
+    -- not be cached.
+    CREATE TABLE plays (
+        track_id  TEXT NOT NULL,
+        played_at INTEGER NOT NULL, -- Unix seconds
+        played_ms INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX plays_track ON plays (track_id, played_at);
+
+    -- No foreign key, for the same reason as plays.
+    CREATE TABLE art_colors (
+        track_id TEXT PRIMARY KEY NOT NULL,
+        r INTEGER NOT NULL CHECK (r BETWEEN 0 AND 255),
+        g INTEGER NOT NULL CHECK (g BETWEEN 0 AND 255),
+        b INTEGER NOT NULL CHECK (b BETWEEN 0 AND 255)
+    ) STRICT, WITHOUT ROWID;
+
+    CREATE TABLE fetched_at (
+        key TEXT PRIMARY KEY NOT NULL,
+        at  INTEGER NOT NULL -- Unix seconds
+    ) STRICT, WITHOUT ROWID;
+",
+];
+
+/// `settings` key holding the main playlist id.
+const MAIN_PLAYLIST_KEY: &str = "main_playlist";
 
 const TRACK_COLUMNS: &str =
     "t.id, t.title, t.artists, t.album_id, t.album_name, t.duration_ms, t.thumbnails";
@@ -197,10 +233,12 @@ impl Store {
             .execute([id])?;
         {
             let mut insert = tx.prepare_cached(
-                "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                "INSERT INTO playlist_tracks (playlist_id, position, track_id, entry_id)
+                 VALUES (?1, ?2, ?3, ?4)",
             )?;
             for (pos, t) in playlist.tracks.iter().enumerate() {
-                insert.execute(params![id, pos as i64, t.id])?;
+                let entry_id = playlist.entry_ids.get(pos).and_then(|e| e.as_deref());
+                insert.execute(params![id, pos as i64, t.id, entry_id])?;
             }
         }
         tx.commit()?;
@@ -208,6 +246,9 @@ impl Store {
     }
 
     /// Returns `None` unless `save_playlist` has cached this playlist's tracks.
+    ///
+    /// `entry_ids` is empty when no entry has a stored id, otherwise it holds
+    /// one entry per track.
     pub fn playlist(&self, id: &str) -> Result<Option<Playlist>> {
         let summary = self
             .conn
@@ -221,18 +262,25 @@ impl Store {
             return Ok(None);
         };
         let sql = format!(
-            "SELECT {TRACK_COLUMNS} FROM playlist_tracks p JOIN tracks t ON t.id = p.track_id
+            "SELECT p.entry_id, {TRACK_COLUMNS} FROM playlist_tracks p
+             JOIN tracks t ON t.id = p.track_id
              WHERE p.playlist_id = ?1 ORDER BY p.position"
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
-        let tracks = stmt
-            .query_map([id], track_from_row)?
-            .collect::<rusqlite::Result<_>>()?;
-        // b3-store: persist entry ids in playlist_tracks.
+        let mut rows = stmt.query([id])?;
+        let mut tracks = Vec::new();
+        let mut entry_ids = Vec::new();
+        while let Some(row) = rows.next()? {
+            entry_ids.push(row.get::<_, Option<String>>(0)?);
+            tracks.push(track_from_row_at(row, 1)?);
+        }
+        if entry_ids.iter().all(Option::is_none) {
+            entry_ids.clear();
+        }
         Ok(Some(Playlist {
             summary,
             tracks,
-            entry_ids: Vec::new(),
+            entry_ids,
         }))
     }
 
@@ -320,62 +368,191 @@ impl Store {
         Ok((tracks, index))
     }
 
-    // b3-store: the methods below are stubs returning empty values until the
-    // store worker implements them. Times are Unix seconds.
-
     /// Remember which playlist is the user's main playlist ("Everything").
-    pub fn set_main_playlist(&self, _id: &str) -> Result<()> {
+    pub fn set_main_playlist(&self, id: &str) -> Result<()> {
+        self.conn
+            .prepare_cached(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            )?
+            .execute([MAIN_PLAYLIST_KEY, id])?;
         Ok(())
     }
 
     pub fn main_playlist(&self) -> Result<Option<String>> {
-        Ok(None)
+        Ok(self
+            .conn
+            .prepare_cached("SELECT value FROM settings WHERE key = ?1")?
+            .query_row([MAIN_PLAYLIST_KEY], |r| r.get(0))
+            .optional()?)
     }
 
-    /// Record one play of `track_id` that started at `at` and lasted
-    /// `played_ms`. The app decides what counts as a play.
-    pub fn record_play(&self, _track_id: &str, _at: i64, _played_ms: u64) -> Result<()> {
+    /// Record one play of `track_id` that started at `at` (Unix seconds) and
+    /// lasted `played_ms`. The app decides what counts as a play.
+    pub fn record_play(&self, track_id: &str, at: i64, played_ms: u64) -> Result<()> {
+        let played_ms = i64::try_from(played_ms).unwrap_or(i64::MAX);
+        self.conn
+            .prepare_cached(
+                "INSERT INTO plays (track_id, played_at, played_ms) VALUES (?1, ?2, ?3)",
+            )?
+            .execute(params![track_id, at, played_ms])?;
         Ok(())
     }
 
-    /// Latest play time per id. Ids never played are absent.
-    pub fn last_played(&self, _ids: &[TrackId]) -> Result<HashMap<TrackId, i64>> {
-        Ok(HashMap::new())
+    /// Latest play time (Unix seconds) per id. Ids never played are absent.
+    pub fn last_played(&self, ids: &[TrackId]) -> Result<HashMap<TrackId, i64>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut out = HashMap::new();
+        {
+            let mut stmt =
+                tx.prepare_cached("SELECT max(played_at) FROM plays WHERE track_id = ?1")?;
+            for id in ids {
+                let at: Option<i64> = stmt.query_row([id], |r| r.get(0))?;
+                if let Some(at) = at {
+                    out.insert(id.clone(), at);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(out)
     }
 
-    /// Main-playlist tracks never played, or last played before `cutoff`, in
-    /// playlist order.
-    pub fn not_heard_since(&self, _cutoff: i64) -> Result<Vec<TrackId>> {
-        Ok(Vec::new())
+    /// Main-playlist tracks never played, or last played before `cutoff`
+    /// (Unix seconds), in playlist order. A play at exactly `cutoff` counts
+    /// as heard. A track listed twice appears once, at its first position.
+    /// Empty if no main playlist is set or its tracks are not cached.
+    pub fn not_heard_since(&self, cutoff: i64) -> Result<Vec<TrackId>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT p.track_id FROM playlist_tracks p
+             WHERE p.playlist_id = (SELECT value FROM settings WHERE key = ?1)
+               AND NOT EXISTS (
+                   SELECT 1 FROM plays WHERE track_id = p.track_id AND played_at >= ?2
+               )
+             ORDER BY p.position",
+        )?;
+        let mut rows = stmt.query(params![MAIN_PLAYLIST_KEY, cutoff])?;
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: TrackId = row.get(0)?;
+            if seen.insert(id.clone()) {
+                out.push(id);
+            }
+        }
+        Ok(out)
     }
 
-    /// Store art accent colors (sRGB), one transaction per call.
-    pub fn set_art_colors(&self, _colors: &[(TrackId, [u8; 3])]) -> Result<()> {
+    /// Store art accent colors (sRGB) in one transaction. A new color for an
+    /// id replaces the old one.
+    pub fn set_art_colors(&self, colors: &[(TrackId, [u8; 3])]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO art_colors (track_id, r, g, b) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (track_id) DO UPDATE SET r = excluded.r, g = excluded.g, b = excluded.b",
+            )?;
+            for (id, [r, g, b]) in colors {
+                stmt.execute(params![id, r, g, b])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
     /// Stored art colors. Ids with no color are absent.
-    pub fn art_colors(&self, _ids: &[TrackId]) -> Result<HashMap<TrackId, [u8; 3]>> {
-        Ok(HashMap::new())
+    pub fn art_colors(&self, ids: &[TrackId]) -> Result<HashMap<TrackId, [u8; 3]>> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut out = HashMap::new();
+        {
+            let mut stmt =
+                tx.prepare_cached("SELECT r, g, b FROM art_colors WHERE track_id = ?1")?;
+            for id in ids {
+                let rgb = stmt
+                    .query_row([id], |r| Ok([r.get(0)?, r.get(1)?, r.get(2)?]))
+                    .optional()?;
+                if let Some(rgb) = rgb {
+                    out.insert(id.clone(), rgb);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(out)
     }
 
-    /// Songs per artist in a playlist, most first, then by name. A song
-    /// with several artists counts once under each.
-    pub fn artist_counts(&self, _playlist_id: &str) -> Result<Vec<NameCount>> {
-        Ok(Vec::new())
+    /// Songs per artist in a playlist, most first, then by name
+    /// (case-insensitive, ASCII only), then by id. A song with several
+    /// artists counts once under each; a song listed twice in the playlist
+    /// counts once. Artists group by channel id, or by name for unlinked
+    /// credits; a group with differing names shows the smallest one.
+    pub fn artist_counts(&self, playlist_id: &str) -> Result<Vec<NameCount>> {
+        self.name_counts(
+            "SELECT id, min(name) AS name, count(DISTINCT track_id) AS n FROM (
+                 SELECT p.track_id,
+                        json_extract(a.value, '$.id') AS id,
+                        json_extract(a.value, '$.name') AS name
+                 FROM playlist_tracks p
+                 JOIN tracks t ON t.id = p.track_id, json_each(t.artists) a
+                 WHERE p.playlist_id = ?1
+             )
+             WHERE name IS NOT NULL
+             -- Within a group, id is constant: 'n' groups only hold NULL ids.
+             GROUP BY coalesce('i' || id, 'n' || name)",
+            playlist_id,
+        )
     }
 
-    /// Songs per album in a playlist, most first, then by name.
-    pub fn album_counts(&self, _playlist_id: &str) -> Result<Vec<NameCount>> {
-        Ok(Vec::new())
+    /// Songs per album in a playlist, most first, then by name
+    /// (case-insensitive, ASCII only), then by id. A song listed twice in the
+    /// playlist counts once; songs with no album are left out.
+    pub fn album_counts(&self, playlist_id: &str) -> Result<Vec<NameCount>> {
+        self.name_counts(
+            "SELECT t.album_id AS id, min(t.album_name) AS name,
+                    count(DISTINCT t.id) AS n
+             FROM playlist_tracks p JOIN tracks t ON t.id = p.track_id
+             WHERE p.playlist_id = ?1 AND t.album_id IS NOT NULL
+             GROUP BY t.album_id",
+            playlist_id,
+        )
     }
 
-    /// When `key` ("library", "liked", "playlist:<id>") was last fetched.
-    pub fn fetched_at(&self, _key: &str) -> Result<Option<i64>> {
-        Ok(None)
+    /// Runs a grouped `(id, name, n)` query and sorts it for display.
+    fn name_counts(&self, grouped: &str, playlist_id: &str) -> Result<Vec<NameCount>> {
+        let sql = format!(
+            "SELECT id, name, n FROM ({grouped})
+             ORDER BY n DESC, name COLLATE NOCASE, name, id"
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([playlist_id], |r| {
+            Ok(NameCount {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                count: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn set_fetched_at(&self, _key: &str, _at: i64) -> Result<()> {
+    /// When `key` ("library", "liked", "playlist:<id>") was last fetched, in
+    /// Unix seconds.
+    ///
+    /// Refresh rule for callers: show the cached data at once, then refresh
+    /// in the background if the key was never fetched or `fetched_at` is
+    /// more than 10 minutes old.
+    pub fn fetched_at(&self, key: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT at FROM fetched_at WHERE key = ?1")?
+            .query_row([key], |r| r.get(0))
+            .optional()?)
+    }
+
+    pub fn set_fetched_at(&self, key: &str, at: i64) -> Result<()> {
+        self.conn
+            .prepare_cached(
+                "INSERT INTO fetched_at (key, at) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET at = excluded.at",
+            )?
+            .execute(params![key, at])?;
         Ok(())
     }
 }
