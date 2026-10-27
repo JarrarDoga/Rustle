@@ -195,7 +195,7 @@ impl RustleApp {
                 .exact_size(theme::FACET_PANEL_W)
                 .resizable(false)
                 .show_separator_line(true)
-                .frame(region(p.bg).inner_margin(Margin::symmetric(16, 12)))
+                .frame(region(p.bg))
                 .show(ui, |ui| views::browse::show(ui, state, view, &mut out));
         }
         let content = CentralPanel::default()
