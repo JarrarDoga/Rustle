@@ -2,8 +2,8 @@
 //! spacing and radii, plus the egui style built from them.
 //!
 //! Colors come from a [`Palette`], read with [`pal`]. Views never hard-code a
-//! neutral: Batch 4 adds more dark and medium palettes, and switching one
-//! swaps every neutral at once. A palette swaps neutrals only. Album art stays
+//! neutral: [`PALETTES`] holds Graphite (the default) and well-known dark and
+//! medium themes, and switching one swaps every neutral at once. A palette swaps neutrals only. Album art stays
 //! the only source of hue: [`accent`] is the now-playing art's accent, and a
 //! palette's `fallback_accent` is used only when nothing is playing or the
 //! "accent from album art" setting is off. Accent means playing, active or
@@ -29,11 +29,22 @@ use crate::art_color;
 
 // ------------------------------------------------------------------ palette
 
+/// How light a palette's `bg` is; the theme picker groups by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// `bg` below OKLab L 0.25.
+    Dark,
+    /// `bg` at OKLab L 0.25 to 0.35. There are no light palettes.
+    Medium,
+}
+
 /// The neutral colors of one theme. Names follow D-Tokens.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
     /// Shown in the theme picker.
     pub name: &'static str,
+    /// The picker group.
+    pub tone: Tone,
     /// Every region, one fill.
     pub bg: Color32,
     /// Hover.
@@ -54,7 +65,8 @@ pub struct Palette {
     pub on_accent: Color32,
     /// Errors, expired session.
     pub danger: Color32,
-    /// The accent when no art accent applies. D uses `text_1`.
+    /// The accent when no art accent applies: the theme's signature color.
+    /// D uses `text_1`.
     pub fallback_accent: Color32,
 }
 
@@ -65,6 +77,7 @@ const fn hex(rgb: u32) -> Color32 {
 /// Direction D: B neutrals, C adaptive accent. The default.
 pub const GRAPHITE: Palette = Palette {
     name: "Graphite",
+    tone: Tone::Dark,
     bg: hex(0x111214),
     surface_2: hex(0x1A1B1E),
     surface_3: hex(0x232428),
@@ -78,9 +91,249 @@ pub const GRAPHITE: Palette = Palette {
     fallback_accent: hex(0xECECEE),
 };
 
-/// Every palette the user can pick, default first. Batch 4 adds the dark and
-/// medium presets here.
-pub const PALETTES: &[Palette] = &[GRAPHITE];
+// The presets below map each theme's published colors onto the D roles:
+// bg = the editor background, surface_2 = its cursor line or hover,
+// surface_3 = its selection, stroke = its panel edge, stroke_2 = its input
+// border, text_1/2/3 = foreground, dimmed foreground, comment. A role the
+// theme does not define is a blend of two of its colors, noted inline.
+// The `tests` module checks every palette's contrast.
+//
+// Dropped after the checks: Catppuccin Frappé and Everforest Dark (text_1
+// reaches only 6.0:1 on the player tint), One Dark (#ABB2BF on #282C34 is
+// 6.6:1, comments 2.3:1), Solarized Dark (base1 on base03 is 5.6:1).
+
+/// Catppuccin Mocha: <https://github.com/catppuccin/palette> (palette.json).
+pub const CATPPUCCIN_MOCHA: Palette = Palette {
+    name: "Catppuccin Mocha",
+    tone: Tone::Dark,
+    bg: hex(0x1E1E2E),              // base
+    surface_2: hex(0x28293A),       // text at 6% over base (style guide: cursor line)
+    surface_3: hex(0x313244),       // surface0
+    stroke: hex(0x313244),          // surface0
+    stroke_2: hex(0x45475A),        // surface1
+    text_1: hex(0xCDD6F4),          // text
+    text_2: hex(0xA6ADC8),          // subtext0
+    text_3: hex(0x7F849C),          // overlay1
+    on_accent: hex(0x11111B),       // crust
+    danger: hex(0xF38BA8),          // red
+    fallback_accent: hex(0xCBA6F7), // mauve
+};
+
+/// Tokyo Night (night): <https://github.com/folke/tokyonight.nvim>
+/// (`lua/tokyonight/colors/night.lua`).
+pub const TOKYO_NIGHT: Palette = Palette {
+    name: "Tokyo Night",
+    tone: Tone::Dark,
+    bg: hex(0x1A1B26),              // bg
+    surface_2: hex(0x292E42),       // bg_highlight
+    surface_3: hex(0x3B4261),       // fg_gutter
+    stroke: hex(0x292E42),          // bg_highlight
+    stroke_2: hex(0x414868),        // terminal_black
+    text_1: hex(0xC0CAF5),          // fg
+    text_2: hex(0xA9B1D6),          // fg_dark
+    text_3: hex(0x737AA2),          // dark5 (comment #565F89 is 2.9:1)
+    on_accent: hex(0x16161E),       // bg_dark
+    danger: hex(0xF7768E),          // red
+    fallback_accent: hex(0x7AA2F7), // blue
+};
+
+/// Rosé Pine (main): <https://rosepinetheme.com/palette>.
+pub const ROSE_PINE: Palette = Palette {
+    name: "Rosé Pine",
+    tone: Tone::Dark,
+    bg: hex(0x191724),              // base
+    surface_2: hex(0x21202E),       // highlight low
+    surface_3: hex(0x403D52),       // highlight med
+    stroke: hex(0x26233A),          // overlay
+    stroke_2: hex(0x524F67),        // highlight high
+    text_1: hex(0xE0DEF4),          // text
+    text_2: hex(0x908CAA),          // subtle
+    text_3: hex(0x6E6A86),          // muted
+    on_accent: hex(0x191724),       // base
+    danger: hex(0xEB6F92),          // love
+    fallback_accent: hex(0xEBBCBA), // rose
+};
+
+/// Kanagawa Wave: <https://github.com/rebelot/kanagawa.nvim>
+/// (`lua/kanagawa/colors.lua`). text_2 blends fujiWhite and fujiGray: the
+/// theme's `fg_dim` (oldWhite #C8C093) reads as yellow and almost as strong
+/// as text_1 in the track table.
+pub const KANAGAWA_WAVE: Palette = Palette {
+    name: "Kanagawa Wave",
+    tone: Tone::Dark,
+    bg: hex(0x1F1F28),              // sumiInk3
+    surface_2: hex(0x2A2A37),       // sumiInk4
+    surface_3: hex(0x363646),       // sumiInk5
+    stroke: hex(0x2A2A37),          // sumiInk4
+    stroke_2: hex(0x54546D),        // sumiInk6
+    text_1: hex(0xDCD7BA),          // fujiWhite
+    text_2: hex(0xA7A492),          // fujiWhite at 50% over fujiGray
+    text_3: hex(0x727169),          // fujiGray
+    on_accent: hex(0x16161D),       // sumiInk0
+    danger: hex(0xE46876),          // waveRed
+    fallback_accent: hex(0x7E9CD8), // crystalBlue
+};
+
+/// Kanagawa Dragon: <https://github.com/rebelot/kanagawa.nvim>
+/// (`lua/kanagawa/colors.lua`).
+pub const KANAGAWA_DRAGON: Palette = Palette {
+    name: "Kanagawa Dragon",
+    tone: Tone::Dark,
+    bg: hex(0x181616),              // dragonBlack3
+    surface_2: hex(0x282727),       // dragonBlack4
+    surface_3: hex(0x393836),       // dragonBlack5
+    stroke: hex(0x282727),          // dragonBlack4
+    stroke_2: hex(0x625E5A),        // dragonBlack6
+    text_1: hex(0xC5C9C5),          // dragonWhite
+    text_2: hex(0xA6A69C),          // dragonGray
+    text_3: hex(0x737C73),          // dragonAsh
+    on_accent: hex(0x0D0C0C),       // dragonBlack0
+    danger: hex(0xC4746E),          // dragonRed
+    fallback_accent: hex(0x8BA4B0), // dragonBlue2
+};
+
+/// GitHub Dark: <https://github.com/primer/primitives> v7.17
+/// (`data/colors/vars/global_dark.ts`).
+pub const GITHUB_DARK: Palette = Palette {
+    name: "GitHub Dark",
+    tone: Tone::Dark,
+    bg: hex(0x0D1117),              // canvas.default
+    surface_2: hex(0x161B22),       // canvas.subtle
+    surface_3: hex(0x343941),       // neutral.muted (gray.4 at 40% over canvas)
+    stroke: hex(0x21262D),          // border.muted
+    stroke_2: hex(0x30363D),        // border.default
+    text_1: hex(0xE6EDF3),          // fg.default
+    text_2: hex(0x848D97),          // fg.muted
+    text_3: hex(0x6E7681),          // fg.subtle
+    on_accent: hex(0x0D1117),       // canvas.default
+    danger: hex(0xF85149),          // danger.fg
+    fallback_accent: hex(0x58A6FF), // blue.3 (accent.fg #2F81F7 looks heavy as a fill)
+};
+
+/// Catppuccin Macchiato: <https://github.com/catppuccin/palette>.
+pub const CATPPUCCIN_MACCHIATO: Palette = Palette {
+    name: "Catppuccin Macchiato",
+    tone: Tone::Medium,
+    bg: hex(0x24273A),              // base
+    surface_2: hex(0x2E3145),       // text at 6% over base (style guide: cursor line)
+    surface_3: hex(0x363A4F),       // surface0
+    stroke: hex(0x363A4F),          // surface0
+    stroke_2: hex(0x494D64),        // surface1
+    text_1: hex(0xCAD3F5),          // text
+    text_2: hex(0xA5ADCB),          // subtext0
+    text_3: hex(0x8087A2),          // overlay1
+    on_accent: hex(0x181926),       // crust
+    danger: hex(0xED8796),          // red
+    fallback_accent: hex(0xC6A0F6), // mauve
+};
+
+/// Tokyo Night Storm: <https://github.com/folke/tokyonight.nvim>
+/// (`lua/tokyonight/colors/storm.lua`). `bg` is Storm's `bg_dark` (its
+/// sidebar fill), not `bg` #24283B: on #24283B text_1 drops to 6.7:1 on the
+/// player tint.
+pub const TOKYO_NIGHT_STORM: Palette = Palette {
+    name: "Tokyo Night Storm",
+    tone: Tone::Medium,
+    bg: hex(0x1F2335),              // bg_dark
+    surface_2: hex(0x292E42),       // bg_highlight
+    surface_3: hex(0x3B4261),       // fg_gutter
+    stroke: hex(0x3B4261),          // fg_gutter
+    stroke_2: hex(0x545C7E),        // dark3
+    text_1: hex(0xC0CAF5),          // fg
+    text_2: hex(0xA9B1D6),          // fg_dark
+    text_3: hex(0x737AA2),          // dark5
+    on_accent: hex(0x1F2335),       // bg_dark
+    danger: hex(0xF7768E),          // red
+    fallback_accent: hex(0x7AA2F7), // blue
+};
+
+/// Nord: <https://www.nordtheme.com/docs/colors-and-palettes>. Nord has no
+/// gray between nord3 and nord4, so text_2 and text_3 blend them.
+pub const NORD: Palette = Palette {
+    name: "Nord",
+    tone: Tone::Medium,
+    bg: hex(0x2E3440),              // nord0
+    surface_2: hex(0x3B4252),       // nord1
+    surface_3: hex(0x434C5E),       // nord2
+    stroke: hex(0x3B4252),          // nord1
+    stroke_2: hex(0x4C566A),        // nord3
+    text_1: hex(0xECEFF4),          // nord6
+    text_2: hex(0xA8AEBA),          // nord4 at 72% over nord0
+    text_3: hex(0x868C98),          // nord4 at 52% over nord0
+    on_accent: hex(0x2E3440),       // nord0
+    danger: hex(0xBF616A),          // nord11
+    fallback_accent: hex(0x88C0D0), // nord8
+};
+
+/// Dracula: <https://github.com/dracula/visual-studio-code>
+/// (`src/dracula.yml`, base colors and UI variants).
+pub const DRACULA: Palette = Palette {
+    name: "Dracula",
+    tone: Tone::Medium,
+    bg: hex(0x282A36),              // Background
+    surface_2: hex(0x343746),       // BGLight
+    surface_3: hex(0x44475A),       // Selection
+    stroke: hex(0x343746),          // BGLight
+    stroke_2: hex(0x424450),        // BGLighter
+    text_1: hex(0xF8F8F2),          // Foreground
+    text_2: hex(0xA6AEC7),          // Foreground at 45% over Comment
+    text_3: hex(0x6272A4),          // Comment
+    on_accent: hex(0x191A21),       // BGDarker
+    danger: hex(0xFF5555),          // Red
+    fallback_accent: hex(0xBD93F9), // Purple
+};
+
+/// Gruvbox Dark (medium contrast): <https://github.com/morhetz/gruvbox>.
+pub const GRUVBOX_DARK: Palette = Palette {
+    name: "Gruvbox Dark",
+    tone: Tone::Medium,
+    bg: hex(0x282828),              // bg0
+    surface_2: hex(0x32302F),       // bg0_s (dark0_soft)
+    surface_3: hex(0x3C3836),       // bg1
+    stroke: hex(0x3C3836),          // bg1
+    stroke_2: hex(0x504945),        // bg2
+    text_1: hex(0xEBDBB2),          // fg1
+    text_2: hex(0xA89984),          // fg4
+    text_3: hex(0x928374),          // gray
+    on_accent: hex(0x1D2021),       // bg0_h
+    danger: hex(0xFB4934),          // red
+    fallback_accent: hex(0xFABD2F), // yellow
+};
+
+/// Rosé Pine Moon: <https://rosepinetheme.com/palette>.
+pub const ROSE_PINE_MOON: Palette = Palette {
+    name: "Rosé Pine Moon",
+    tone: Tone::Medium,
+    bg: hex(0x232136),              // base
+    surface_2: hex(0x2A283E),       // highlight low
+    surface_3: hex(0x44415A),       // highlight med
+    stroke: hex(0x393552),          // overlay
+    stroke_2: hex(0x56526E),        // highlight high
+    text_1: hex(0xE0DEF4),          // text
+    text_2: hex(0x908CAA),          // subtle
+    text_3: hex(0x6E6A86),          // muted
+    on_accent: hex(0x232136),       // base
+    danger: hex(0xEB6F92),          // love
+    fallback_accent: hex(0xEA9A97), // rose
+};
+
+/// Every palette the user can pick, default first, then the dark presets,
+/// then the medium ones.
+pub const PALETTES: &[Palette] = &[
+    GRAPHITE,
+    CATPPUCCIN_MOCHA,
+    TOKYO_NIGHT,
+    ROSE_PINE,
+    KANAGAWA_WAVE,
+    KANAGAWA_DRAGON,
+    GITHUB_DARK,
+    CATPPUCCIN_MACCHIATO,
+    TOKYO_NIGHT_STORM,
+    NORD,
+    DRACULA,
+    GRUVBOX_DARK,
+    ROSE_PINE_MOON,
+];
 
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
 
@@ -92,7 +345,6 @@ pub fn pal() -> &'static Palette {
 }
 
 /// Switches the palette (an index into [`PALETTES`]) and restyles `ctx`.
-#[allow(dead_code)] // b4-themes: the theme picker
 pub fn set_palette(ctx: &egui::Context, index: usize) {
     CURRENT.store(index.min(PALETTES.len() - 1), Ordering::Relaxed);
     style(ctx);
@@ -412,4 +664,150 @@ pub fn art_color(key: &str) -> Color32 {
     });
     let hue = (hash % 360) as f32 / 360.0;
     Hsva::new(hue, 0.45, 0.42, 1.0).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WCAG relative luminance.
+    fn luminance(c: Color32) -> f64 {
+        let lin = |v: u8| {
+            let v = f64::from(v) / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+
+    /// WCAG contrast ratio.
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// OKLab lightness (Ottosson's matrices, as in `art_color`).
+    fn oklab_l(c: Color32) -> f64 {
+        let lin = |v: u8| {
+            let v = f64::from(v) / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(c.r()), lin(c.g()), lin(c.b()));
+        let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+        let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+        let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+        0.210_454_255_3 * l + 0.793_617_785_0 * m - 0.004_072_046_8 * s
+    }
+
+    /// A neutral art accent: gray art at OKLCH L 0.80.
+    fn gray_accent() -> Color32 {
+        color(art_color::accent([128, 128, 128]))
+    }
+
+    /// Art accents at L 0.80 (the D-Tokens board) plus the neutral one.
+    fn art_accents() -> Vec<Color32> {
+        let mut out: Vec<Color32> = [0x71CFDA, 0x8DC4F4, 0xFA9FB4, 0xE0B767]
+            .into_iter()
+            .map(hex)
+            .collect();
+        out.push(gray_accent());
+        out
+    }
+
+    fn check(what: &str, p: &Palette, got: f64, min: f64) {
+        assert!(got >= min, "{}: {what} is {got:.2}, want >= {min}", p.name);
+    }
+
+    #[test]
+    fn oklab_matches_art_color() {
+        assert!((oklab_l(gray_accent()) - 0.80).abs() < 0.005);
+        assert!((oklab_l(hex(0xFFFFFF)) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn graphite_is_first_and_names_are_unique() {
+        assert_eq!(PALETTES[0], GRAPHITE);
+        assert_eq!(PALETTES[0].name, "Graphite");
+        for (i, a) in PALETTES.iter().enumerate() {
+            for b in &PALETTES[i + 1..] {
+                assert_ne!(a.name, b.name);
+            }
+        }
+    }
+
+    #[test]
+    fn tone_matches_bg_lightness() {
+        for p in PALETTES {
+            let l = oklab_l(p.bg);
+            let ok = match p.tone {
+                Tone::Dark => l < 0.25,
+                Tone::Medium => (0.25..=0.35).contains(&l),
+            };
+            assert!(ok, "{}: bg L {l:.3} does not fit {:?}", p.name, p.tone);
+        }
+    }
+
+    #[test]
+    fn text_reads_on_bg_and_selection() {
+        for p in PALETTES {
+            check("text_1 on bg", p, contrast(p.text_1, p.bg), 7.0);
+            check("text_2 on bg", p, contrast(p.text_2, p.bg), 4.5);
+            check("text_3 on bg", p, contrast(p.text_3, p.bg), 3.0);
+            check(
+                "text_1 on surface_3",
+                p,
+                contrast(p.text_1, p.surface_3),
+                4.5,
+            );
+            check("danger on bg", p, contrast(p.danger, p.bg), 3.0);
+        }
+    }
+
+    #[test]
+    fn on_accent_reads_on_every_accent() {
+        for p in PALETTES {
+            check(
+                "on_accent on fallback_accent",
+                p,
+                contrast(p.on_accent, p.fallback_accent),
+                4.5,
+            );
+            for a in art_accents() {
+                check("on_accent on art accent", p, contrast(p.on_accent, a), 4.5);
+            }
+        }
+    }
+
+    #[test]
+    fn surfaces_step_up_from_bg() {
+        for p in PALETTES {
+            let bg = oklab_l(p.bg);
+            check("stroke ΔL", p, (oklab_l(p.stroke) - bg).abs(), 0.02);
+            check("stroke_2 ΔL", p, oklab_l(p.stroke_2) - bg, 0.02);
+            check("surface_2 ΔL", p, oklab_l(p.surface_2) - bg, 0.02);
+            check(
+                "surface_3 over surface_2",
+                p,
+                oklab_l(p.surface_3) - oklab_l(p.surface_2),
+                0.0,
+            );
+        }
+    }
+
+    #[test]
+    fn player_tint_keeps_text_readable() {
+        for p in PALETTES {
+            for a in art_accents().into_iter().chain([p.fallback_accent]) {
+                let tint = color(art_color::tint_over(rgb(a), rgb(p.bg)));
+                check("text_1 on player tint", p, contrast(p.text_1, tint), 7.0);
+            }
+        }
+    }
 }
