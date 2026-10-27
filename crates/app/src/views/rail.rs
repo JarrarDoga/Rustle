@@ -1,45 +1,87 @@
-//! The 52 px icon rail (D-Collection): Collection, Search, Library. Batch 4
-//! adds a settings button at the bottom.
+//! The 52 px icon rail (D-Collection): the app mark, then Collection,
+//! Search and Library.
 //!
-//! Integrator stub. The `browse` worker owns this file.
+//! The space below the three buttons stays empty: Batch 4 adds a settings
+//! button at the bottom of the rail.
 
-use egui::{Align2, Pos2, Rect, Sense, Ui, vec2};
+use egui::{Align2, CornerRadius, Pos2, Rect, Sense, Ui, vec2};
 
 use crate::icons;
 use crate::state::State;
 use crate::theme;
 use crate::views::{Action, Out, Route, View};
 
-pub fn show(ui: &mut Ui, _state: &State, view: &View, out: &mut Out) {
+/// The app mark: a 16 px leaf (radius 8 / 1) in the accent, 16 px from
+/// the top, with 16 px below it (D-Collection `nav`).
+const MARK: f32 = theme::SPACE_16;
+const MARK_RADIUS: CornerRadius = CornerRadius {
+    nw: 8,
+    ne: 1,
+    sw: 1,
+    se: 8,
+};
+/// Rail buttons are 36 px with a 20 px glyph and 4 px between them
+/// (D-Collection), larger than the 28 px icon button token.
+const BUTTON: f32 = theme::ICON_BUTTON + theme::SPACE_8;
+const GLYPH: f32 = 20.0;
+
+pub fn show(ui: &mut Ui, state: &State, view: &View, out: &mut Out) {
     let p = theme::pal();
-    let top = ui.max_rect().top() + theme::SPACE_8;
-    let x = ui.max_rect().center().x;
-    for (i, (glyph, tip, route)) in [
-        (icons::PLAYLIST, "Everything", Route::Collection),
+    let rect = ui.max_rect();
+    let x = rect.center().x;
+    let mut y = rect.top() + theme::SPACE_16;
+
+    let mark = Rect::from_min_size(Pos2::new(x - MARK / 2.0, y), vec2(MARK, MARK));
+    ui.painter().rect_filled(mark, MARK_RADIUS, theme::accent());
+    y += MARK + theme::SPACE_16 + theme::SPACE_4;
+
+    let main = state
+        .main_view()
+        .map_or("Collection", |v| v.summary.name.as_str());
+    for (glyph, tip, route) in [
+        (icons::PLAYLIST, main, Route::Collection),
         (icons::MAGNIFYING_GLASS, "Search", Route::Search),
         (icons::BOOKS, "Library", Route::Library),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let center = Pos2::new(x, top + 52.0 + i as f32 * 40.0);
-        let rect = Rect::from_center_size(center, vec2(36.0, 36.0));
+    ] {
+        let rect = Rect::from_min_size(Pos2::new(x - BUTTON / 2.0, y), vec2(BUTTON, BUTTON));
+        y += BUTTON + theme::SPACE_4;
         let resp = ui.allocate_rect(rect, Sense::click()).on_hover_text(tip);
-        let active = view.route == route;
-        if active || resp.hovered() {
-            ui.painter()
-                .rect_filled(rect, theme::RADIUS_CONTROL, p.surface_2);
+        let active = lights(&view.route).as_ref() == Some(&route);
+        let fill = if active {
+            Some(p.surface_3)
+        } else if resp.hovered() {
+            Some(p.surface_2)
+        } else {
+            None
+        };
+        if let Some(fill) = fill {
+            ui.painter().rect_filled(rect, theme::RADIUS_CONTROL, fill);
         }
-        let color = if active { p.text_1 } else { p.text_2 };
+        let color = if active || resp.hovered() {
+            p.text_1
+        } else {
+            p.text_2
+        };
         ui.painter().text(
-            center,
+            rect.center(),
             Align2::CENTER_CENTER,
             glyph,
-            theme::icon(20.0),
+            theme::icon(GLYPH),
             color,
         );
-        if resp.clicked() {
+        if resp.clicked() && view.route != route {
             out.push(Action::Go(route));
         }
+    }
+}
+
+/// The rail button a route lights: other playlists and liked songs live
+/// under Library; album and artist pages light none.
+fn lights(route: &Route) -> Option<Route> {
+    match route {
+        Route::Collection => Some(Route::Collection),
+        Route::Search => Some(Route::Search),
+        Route::Library | Route::Liked | Route::Playlist(_) => Some(Route::Library),
+        Route::Album(_) | Route::Artist(_) => None,
     }
 }
