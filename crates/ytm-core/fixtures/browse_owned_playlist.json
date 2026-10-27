@@ -1,0 +1,320 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicEditablePlaylistDetailHeaderRenderer": {
+                      "editHeader": {}
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "secondaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "musicPlaylistShelfRenderer": {
+                "playlistId": "PLtest0000000000000000000000000000",
+                "contents": [
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://i.ytimg.com/vi/D8K90hX4PrE/sddefault.jpg",
+                                "width": 640,
+                                "height": 480
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Technologic",
+                                  "navigationEndpoint": {
+                                    "watchEndpoint": {
+                                      "videoId": "D8K90hX4PrE",
+                                      "playlistId": "PLtest0000000000000000000000000000",
+                                      "playlistSetVideoId": "1F3E5D7C9B0A2468"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      "menu": {
+                        "menuRenderer": {
+                          "items": [
+                            {
+                              "menuNavigationItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Start radio"
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "D8K90hX4PrE",
+                                    "playlistId": "RDAMVMD8K90hX4PrE"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "menuServiceItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Remove from playlist"
+                                    }
+                                  ]
+                                },
+                                "serviceEndpoint": {
+                                  "playlistEditEndpoint": {
+                                    "playlistId": "PLtest0000000000000000000000000000",
+                                    "actions": [
+                                      {
+                                        "setVideoId": "1F3E5D7C9B0A2468",
+                                        "action": "ACTION_REMOVE_VIDEO",
+                                        "removedVideoId": "D8K90hX4PrE"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "playlistItemData": {
+                        "videoId": "D8K90hX4PrE",
+                        "playlistSetVideoId": "1F3E5D7C9B0A2468"
+                      },
+                      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK"
+                    }
+                  },
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://i.ytimg.com/vi/K0HSD_i2DvA/sddefault.jpg",
+                                "width": 640,
+                                "height": 480
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Instant Crush",
+                                  "navigationEndpoint": {
+                                    "watchEndpoint": {
+                                      "videoId": "K0HSD_i2DvA",
+                                      "playlistId": "PLtest0000000000000000000000000000",
+                                      "playlistSetVideoId": "D0A0EF93DCE5742B"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      "menu": {
+                        "menuRenderer": {
+                          "items": [
+                            {
+                              "menuNavigationItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Start radio"
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "K0HSD_i2DvA",
+                                    "playlistId": "RDAMVMK0HSD_i2DvA"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "menuServiceItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Remove from playlist"
+                                    }
+                                  ]
+                                },
+                                "serviceEndpoint": {
+                                  "playlistEditEndpoint": {
+                                    "playlistId": "PLtest0000000000000000000000000000",
+                                    "actions": [
+                                      {
+                                        "setVideoId": "D0A0EF93DCE5742B",
+                                        "action": "ACTION_REMOVE_VIDEO",
+                                        "removedVideoId": "K0HSD_i2DvA"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "playlistItemData": {
+                        "videoId": "K0HSD_i2DvA"
+                      },
+                      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK"
+                    }
+                  },
+                  {
+                    "musicResponsiveListItemRenderer": {
+                      "thumbnail": {
+                        "musicThumbnailRenderer": {
+                          "thumbnail": {
+                            "thumbnails": [
+                              {
+                                "url": "https://i.ytimg.com/vi/FGBhQbmPwH8/sddefault.jpg",
+                                "width": 640,
+                                "height": 480
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "flexColumns": [
+                        {
+                          "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "One More Time",
+                                  "navigationEndpoint": {
+                                    "watchEndpoint": {
+                                      "videoId": "FGBhQbmPwH8",
+                                      "playlistId": "PLtest0000000000000000000000000000",
+                                      "playlistSetVideoId": "8D79FEDC0AA7D0F1"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      "menu": {
+                        "menuRenderer": {
+                          "items": [
+                            {
+                              "menuNavigationItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Start radio"
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "watchEndpoint": {
+                                    "videoId": "FGBhQbmPwH8",
+                                    "playlistId": "RDAMVMFGBhQbmPwH8"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "menuServiceItemRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Remove from playlist"
+                                    }
+                                  ]
+                                },
+                                "serviceEndpoint": {
+                                  "playlistEditEndpoint": {
+                                    "playlistId": "PLtest0000000000000000000000000000",
+                                    "actions": [
+                                      {
+                                        "setVideoId": "8D79FEDC0AA7D0F1",
+                                        "action": "ACTION_REMOVE_VIDEO",
+                                        "removedVideoId": "FGBhQbmPwH8"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      "playlistItemData": {
+                        "videoId": "FGBhQbmPwH8",
+                        "playlistSetVideoId": "8D79FEDC0AA7D0F1"
+                      },
+                      "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK"
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+                      "continuationEndpoint": {
+                        "continuationCommand": {
+                          "token": "4qmFsgKbARIkVkxQTHRlc3Q",
+                          "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "collapsedItemCount": 0,
+                "editable": true,
+                "targetId": "VLPLtest0000000000000000000000000000"
+              }
+            }
+          ],
+          "continuations": [
+            {
+              "nextContinuationData": {
+                "continuation": "SUGGESTIONS_TOKEN"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

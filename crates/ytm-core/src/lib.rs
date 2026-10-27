@@ -9,6 +9,7 @@ pub use model;
 use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
 
 mod fixture;
+mod innertube;
 mod rustypipe_backend;
 mod stream_cache;
 mod ytdlp;

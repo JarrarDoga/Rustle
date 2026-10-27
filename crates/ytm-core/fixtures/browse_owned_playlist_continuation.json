@@ -1,0 +1,187 @@
+{
+  "onResponseReceivedActions": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+                "musicThumbnailRenderer": {
+                  "thumbnail": {
+                    "thumbnails": [
+                      {
+                        "url": "https://i.ytimg.com/vi/5NV6Rdv1a3I/sddefault.jpg",
+                        "width": 640,
+                        "height": 480
+                      }
+                    ]
+                  }
+                }
+              },
+              "flexColumns": [
+                {
+                  "musicResponsiveListItemFlexColumnRenderer": {
+                    "text": {
+                      "runs": [
+                        {
+                          "text": "Get Lucky",
+                          "navigationEndpoint": {
+                            "watchEndpoint": {
+                              "videoId": "5NV6Rdv1a3I",
+                              "playlistId": "PLtest0000000000000000000000000000",
+                              "playlistSetVideoId": "2D1A2B9E8E4D21F5"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "menu": {
+                "menuRenderer": {
+                  "items": [
+                    {
+                      "menuNavigationItemRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Start radio"
+                            }
+                          ]
+                        },
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "5NV6Rdv1a3I",
+                            "playlistId": "RDAMVM5NV6Rdv1a3I"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "menuServiceItemRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Remove from playlist"
+                            }
+                          ]
+                        },
+                        "serviceEndpoint": {
+                          "playlistEditEndpoint": {
+                            "playlistId": "PLtest0000000000000000000000000000",
+                            "actions": [
+                              {
+                                "setVideoId": "2D1A2B9E8E4D21F5",
+                                "action": "ACTION_REMOVE_VIDEO",
+                                "removedVideoId": "5NV6Rdv1a3I"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "playlistItemData": {
+                "videoId": "5NV6Rdv1a3I",
+                "playlistSetVideoId": "2D1A2B9E8E4D21F5"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK"
+            }
+          },
+          {
+            "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+                "musicThumbnailRenderer": {
+                  "thumbnail": {
+                    "thumbnails": [
+                      {
+                        "url": "https://i.ytimg.com/vi/D8K90hX4PrE/sddefault.jpg",
+                        "width": 640,
+                        "height": 480
+                      }
+                    ]
+                  }
+                }
+              },
+              "flexColumns": [
+                {
+                  "musicResponsiveListItemFlexColumnRenderer": {
+                    "text": {
+                      "runs": [
+                        {
+                          "text": "Technologic",
+                          "navigationEndpoint": {
+                            "watchEndpoint": {
+                              "videoId": "D8K90hX4PrE",
+                              "playlistId": "PLtest0000000000000000000000000000",
+                              "playlistSetVideoId": "4A6C8E0B1D3F5A7C"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "menu": {
+                "menuRenderer": {
+                  "items": [
+                    {
+                      "menuNavigationItemRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Start radio"
+                            }
+                          ]
+                        },
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "D8K90hX4PrE",
+                            "playlistId": "RDAMVMD8K90hX4PrE"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "menuServiceItemRenderer": {
+                        "text": {
+                          "runs": [
+                            {
+                              "text": "Remove from playlist"
+                            }
+                          ]
+                        },
+                        "serviceEndpoint": {
+                          "playlistEditEndpoint": {
+                            "playlistId": "PLtest0000000000000000000000000000",
+                            "actions": [
+                              {
+                                "setVideoId": "4A6C8E0B1D3F5A7C",
+                                "action": "ACTION_REMOVE_VIDEO",
+                                "removedVideoId": "D8K90hX4PrE"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "playlistItemData": {
+                "videoId": "D8K90hX4PrE",
+                "playlistSetVideoId": "4A6C8E0B1D3F5A7C"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK"
+            }
+          }
+        ],
+        "targetId": "PLtest0000000000000000000000000000"
+      }
+    }
+  ]
+}
