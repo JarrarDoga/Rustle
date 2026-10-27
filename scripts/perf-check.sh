@@ -115,6 +115,8 @@ SCROLL_DELAY_MS=25
 # Large mode: stop waiting for the color pass after this long with no new color.
 COLORS_QUIET_S=20
 COLORS_MAX_S=300
+# Large mode: longest wait for the app to go quiet after the scroll.
+QUIET_MAX_S=15
 
 TMP=$(mktemp -d)
 PID=
@@ -279,6 +281,16 @@ if ((LARGE)) && alive; then
     done
     COLORS_MS=$((($(now_us) - T0) / 1000))
     snapshot colored
+    # The app may still be drawing queued wheel events: wait until it used
+    # no CPU for a whole second (at most QUIET_MAX_S) before the idle window.
+    quiet_end=$(($(now_us) + QUIET_MAX_S * 1000000))
+    while alive && (($(now_us) < quiet_end)); do
+        c0=$(cpu_ticks) || break
+        sleep 1
+        sample_rss
+        c1=$(cpu_ticks) || break
+        ((c1 == c0)) && break
+    done
 fi
 
 if alive; then

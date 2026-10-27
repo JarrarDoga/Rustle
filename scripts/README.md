@@ -65,7 +65,8 @@ playlist, with no network:
   tracks). The art color pass runs at the same time.
 - The script then waits until the app reports a color for every track
   (`rustle: art colors N` on stderr), or until no new color came for 20 s,
-  and only then opens the idle CPU window.
+  then until the app used no CPU for a whole second (it may still be
+  drawing queued wheel events), and only then opens the idle CPU window.
 
 Extra rows: the scroll (notches and time), the colors computed against the
 track count (fail if any are missing), and the files fetched. Peak RSS is
