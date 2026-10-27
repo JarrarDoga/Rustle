@@ -270,8 +270,16 @@ fn agent() -> ureq::Agent {
         .get_or_init(|| {
             ureq::Agent::new_with_config(
                 ureq::Agent::config_builder()
+                    // Per-phase timeouts, no global one: with a global (or
+                    // resolve) timeout, ureq resolves the host on a new
+                    // thread for every request, pooled connection or not
+                    // (1,500 threads in `perf-check.sh --large`). Without
+                    // one it resolves inline, bounded by the system
+                    // resolver's own timeout.
                     .timeout_connect(Some(Duration::from_secs(10)))
-                    .timeout_global(Some(Duration::from_secs(20)))
+                    .timeout_send_request(Some(Duration::from_secs(10)))
+                    .timeout_recv_response(Some(Duration::from_secs(20)))
+                    .timeout_recv_body(Some(Duration::from_secs(20)))
                     // ureq's 128 KB defaults cost about 6 MB of peak RSS
                     // across the two workers; thumbnail responses need far
                     // less.
