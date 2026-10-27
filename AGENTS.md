@@ -84,6 +84,9 @@ satisfactory. Keep code portable, but do not test or fix other platforms yet.
   offline. No live network in tests or CI.
 - `rustle --demo` runs the UI on `FixtureBackend` with no account. Keep it
   working.
+- Agents run the app only as `rustle --demo` (under Xvfb). A plain `rustle`
+  starts the real app with the user's keyring cookies and account, and a
+  plain `rustle` with no instance answering on the control socket does too.
 - Before you report done: `cargo build`, `cargo clippy --all-targets -- -D warnings`,
   `cargo test`, and `cargo fmt --check` all pass for the crates you touched.
 
