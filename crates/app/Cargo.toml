@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "Rustle is a lean, native YouTube Music desktop client: no browser engine, one big playlist at the center, synced lyrics, album-art accent colors."
 
 [dependencies]
 mimalloc = "0.1.52"
@@ -29,3 +30,28 @@ ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 # The allocator under `mimalloc`; `extended` only adds `mi_collect`, which the thumbs workers call after each image.
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
+
+# RPM for Nobara/Fedora, built by packaging/build-rpm.sh (cargo-generate-rpm).
+# The script copies rustypipe-botguard and its license into target/release/
+# before this runs; the release profile already strips the binaries.
+[package.metadata.generate-rpm]
+summary = "Native YouTube Music desktop client"
+assets = [
+    { source = "target/release/rustle", dest = "/usr/bin/rustle", mode = "755" },
+    { source = "../../packaging/rustle.desktop", dest = "/usr/share/applications/rustle.desktop", mode = "644" },
+    { source = "../../packaging/rustle.svg", dest = "/usr/share/icons/hicolor/scalable/apps/rustle.svg", mode = "644" },
+    { source = "target/release/rustypipe-botguard", dest = "/usr/libexec/rustle/rustypipe-botguard", mode = "755" },
+    { source = "target/release/LICENSE.rustypipe-botguard", dest = "/usr/share/licenses/rustle/LICENSE.rustypipe-botguard", mode = "644", doc = true },
+]
+auto-req = "auto"
+# No install scriptlets, so no /bin/sh dependency.
+require-sh = false
+
+[package.metadata.generate-rpm.requires]
+yt-dlp = "*"
+# eframe loads its Wayland window, keyboard and GL libraries with dlopen, so
+# auto-req cannot see them. The X11 fallback's libraries stay optional.
+"libwayland-client.so.0()(64bit)" = "*"
+"libwayland-egl.so.1()(64bit)" = "*"
+"libxkbcommon.so.0()(64bit)" = "*"
+"libEGL.so.1()(64bit)" = "*"

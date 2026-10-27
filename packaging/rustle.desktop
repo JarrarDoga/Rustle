@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rustle
+GenericName=Music Player
+Comment=YouTube Music desktop client
+Exec=rustle
+Icon=rustle
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=YouTube;Music;Player;
+StartupWMClass=rustle

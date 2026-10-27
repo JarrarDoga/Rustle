@@ -508,8 +508,16 @@ fn config_dir() -> Option<PathBuf> {
     Some(base.join("rustle"))
 }
 
-/// Finds `name` on PATH, then in `~/.local/bin`.
+/// Where the RPM installs its helper binaries (`rustypipe-botguard`).
+const LIBEXEC_DIR: &str = "/usr/libexec/rustle";
+
+/// Finds `name` on PATH, then in `~/.local/bin`, then in [`LIBEXEC_DIR`].
 pub(crate) fn find_bin(name: &str) -> Option<PathBuf> {
+    find_in(name, bin_dirs())
+}
+
+/// The directories [`find_bin`] searches, in order.
+fn bin_dirs() -> Vec<PathBuf> {
     let path_dirs = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
         .unwrap_or_default();
@@ -517,8 +525,13 @@ pub(crate) fn find_bin(name: &str) -> Option<PathBuf> {
     path_dirs
         .into_iter()
         .chain(local_bin)
-        .map(|d| d.join(name))
-        .find(|p| p.is_file())
+        .chain([PathBuf::from(LIBEXEC_DIR)])
+        .collect()
+}
+
+/// The first `dir/name` that is a file, in `dirs` order.
+fn find_in(name: &str, dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1313,6 +1326,33 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), n);
+    }
+
+    #[test]
+    fn bin_dirs_end_with_libexec() {
+        assert_eq!(bin_dirs().last(), Some(&PathBuf::from(LIBEXEC_DIR)));
+    }
+
+    #[test]
+    fn find_in_takes_the_first_dir_holding_the_file() {
+        let root = std::env::temp_dir().join(format!("rustle-find-bin-{}", std::process::id()));
+        let (path, local, libexec) = (root.join("path"), root.join("local"), root.join("libexec"));
+        for d in [&path, &local, &libexec] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let dirs = || [path.clone(), local.clone(), libexec.clone()];
+        assert_eq!(find_in("tool", dirs()), None);
+
+        std::fs::write(libexec.join("tool"), "").unwrap();
+        assert_eq!(find_in("tool", dirs()), Some(libexec.join("tool")));
+
+        std::fs::write(local.join("tool"), "").unwrap();
+        assert_eq!(find_in("tool", dirs()), Some(local.join("tool")));
+
+        // A directory with the binary's name is not the binary.
+        std::fs::create_dir_all(path.join("tool")).unwrap();
+        assert_eq!(find_in("tool", dirs()), Some(local.join("tool")));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[tokio::test]

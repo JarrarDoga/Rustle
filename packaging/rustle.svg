@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- D tokens: bg #111214, stroke #26272B, accent #71CFDA. -->
+  <rect x="5" y="5" width="118" height="118" rx="28" fill="#111214" stroke="#26272B" stroke-width="2"/>
+  <!-- The rail's app mark: a leaf, radii 8/1/1/8 at 16 px, scaled to 64 px. -->
+  <path fill="#71CFDA" d="M64 32H92Q96 32 96 36V64A32 32 0 0 1 64 96H36Q32 96 32 92V64A32 32 0 0 1 64 32Z"/>
+</svg>
