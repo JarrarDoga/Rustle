@@ -96,3 +96,25 @@ copy its line from `assets/fonts/phosphor-full/codepoints.rs` into
 `icons.rs` and run the script. The test
 `icons::tests::every_icon_is_in_both_subset_fonts` fails until you do. It
 needs `uv` (it runs a pinned `fonttools` with `uvx`).
+
+## Profiling memory
+
+`--large` with `RUSTLE_PERF_DEBUG` shows where RSS sits by mapping. For the
+heap by call site, use heaptrack (install it in the `agentbox` distrobox and
+export `heaptrack` and `heaptrack_print`). heaptrack hooks `malloc`, which
+mimalloc bypasses, so build with the system allocator, symbols and line
+tables, in a separate target directory:
+
+```sh
+CARGO_TARGET_DIR=target/prof CARGO_PROFILE_RELEASE_STRIP=false \
+  CARGO_PROFILE_RELEASE_DEBUG=line-tables-only \
+  cargo build --release -p rustle --features sysalloc
+```
+
+Run it the way `--large` does (Xvfb, the art server, `XDG_CACHE_HOME` on a
+temp directory, `rustle --demo`) under `heaptrack --record-only -o <file>`.
+Plain `heaptrack` starts `heaptrack_gui` when the app exits, which opens a
+window on your desktop. Inside the distrobox, pass `XDG_CACHE_HOME` and
+`DISPLAY` in an `env` after `distrobox enter agentbox --`: distrobox resets
+`XDG_CACHE_HOME`, and the app would then write to your real thumbnail cache.
+Read the result with `heaptrack_print -f <file>.gz --print-peaks 1`.

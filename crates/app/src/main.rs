@@ -1,5 +1,6 @@
 //! Rustle: a native YouTube Music client.
 
+#[cfg(not(feature = "sysalloc"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
