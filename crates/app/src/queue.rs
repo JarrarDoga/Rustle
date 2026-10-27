@@ -221,6 +221,51 @@ impl Queue {
         self.jump(0)
     }
 
+    // b3-queue: the methods below are stubs until the queue worker
+    // implements them.
+
+    /// Replaces the queue with `tracks` (a scope of the main playlist),
+    /// shuffled with `seed` or in order, starting at the first entry.
+    /// `label` is the "Playing from" text, e.g. "Saint Juniper · 41".
+    #[allow(dead_code)] // b3-queue; called by b3-wiring
+    pub fn play_scope(
+        &mut self,
+        _tracks: &[Arc<Track>],
+        _label: String,
+        _shuffle: bool,
+        _seed: u64,
+    ) -> Option<&Entry> {
+        None
+    }
+
+    /// The "Playing from" label of the scope the queue was built from.
+    #[allow(dead_code)] // b3-queue; read by the UI batch
+    pub fn playing_from(&self) -> Option<&str> {
+        None
+    }
+
+    #[allow(dead_code)] // b3-queue; called by b3-wiring
+    pub fn set_autoplay(&mut self, _on: bool) {}
+
+    #[allow(dead_code)] // b3-queue; read by the UI batch
+    pub fn autoplay(&self) -> bool {
+        false
+    }
+
+    /// True when autoplay is on and the queue has run out (or is about to),
+    /// so the backend should fetch radio for the last track. Pure query: it
+    /// stays true until `extend_radio` is called, because the reducer runs
+    /// on both the UI and the backend and must stay deterministic.
+    #[allow(dead_code)] // b3-queue; called by b3-wiring
+    pub fn needs_radio(&self) -> bool {
+        false
+    }
+
+    /// Appends radio tracks after the last entry, marked as autoplay radio
+    /// (not in the main playlist). Clears `needs_radio` for this run-out.
+    #[allow(dead_code)] // b3-queue; called by b3-wiring
+    pub fn extend_radio(&mut self, _tracks: Vec<Arc<Track>>) {}
+
     /// Moves to the previous entry. At the start it wraps with repeat-all and
     /// otherwise stays on the first entry.
     pub fn back(&mut self) -> Option<&Entry> {

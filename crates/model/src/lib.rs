@@ -70,6 +70,11 @@ pub struct PlaylistSummary {
 pub struct Playlist {
     pub summary: PlaylistSummary,
     pub tracks: Vec<Track>,
+    /// Each entry's YouTube Music `setVideoId`, parallel to `tracks`.
+    /// Removing a song from a playlist needs it. Empty when the source did
+    /// not provide entry ids; otherwise the same length as `tracks`.
+    #[serde(default)]
+    pub entry_ids: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

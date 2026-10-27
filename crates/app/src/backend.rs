@@ -687,6 +687,15 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                     log_store_error("cleared library", r);
                 });
             }
+            // b3-wiring
+            Effect::Like(_)
+            | Effect::Unlike(_)
+            | Effect::AddToPlaylist { .. }
+            | Effect::RemoveFromPlaylist { .. }
+            | Effect::SaveMainPlaylist(_)
+            | Effect::FetchRadio(_)
+            | Effect::RecordPlay { .. }
+            | Effect::NeedArtColors(_) => {}
         }
     }
 
@@ -765,6 +774,32 @@ mod tests {
         async fn stream(&self, track_id: &str) -> ytm_core::Result<StreamSource> {
             self.flags.streams.lock().unwrap().push(track_id.to_owned());
             self.inner.stream(track_id).await
+        }
+        async fn like(&self, track_id: &str) -> ytm_core::Result<()> {
+            self.inner.like(track_id).await
+        }
+        async fn unlike(&self, track_id: &str) -> ytm_core::Result<()> {
+            self.inner.unlike(track_id).await
+        }
+        async fn add_to_playlist(
+            &self,
+            playlist_id: &str,
+            track_ids: &[model::TrackId],
+        ) -> ytm_core::Result<Vec<Option<String>>> {
+            self.inner.add_to_playlist(playlist_id, track_ids).await
+        }
+        async fn remove_from_playlist(
+            &self,
+            playlist_id: &str,
+            entries: &[(model::TrackId, String)],
+        ) -> ytm_core::Result<()> {
+            self.inner.remove_from_playlist(playlist_id, entries).await
+        }
+        async fn radio(&self, track_id: &str) -> ytm_core::Result<Vec<Track>> {
+            self.inner.radio(track_id).await
+        }
+        async fn clear_cookies(&self) -> ytm_core::Result<()> {
+            self.inner.clear_cookies().await
         }
     }
 

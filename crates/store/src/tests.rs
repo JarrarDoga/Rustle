@@ -118,6 +118,7 @@ fn upsert_does_not_break_references() {
     let pl = Playlist {
         summary: summary(1),
         tracks: tracks(0..5),
+        entry_ids: Vec::new(),
     };
     s.save_playlist(&pl).unwrap();
     s.set_liked(&pl.tracks[..2]).unwrap();
@@ -158,6 +159,7 @@ fn playlist_round_trip_and_replace() {
     let mut pl = Playlist {
         summary: summary(1),
         tracks: tracks(0..20),
+        entry_ids: Vec::new(),
     };
     // Duplicate entries are common in YouTube Music playlists.
     pl.tracks.push(pl.tracks[4].clone());
@@ -168,6 +170,7 @@ fn playlist_round_trip_and_replace() {
     let mut replaced = Playlist {
         summary: summary(1),
         tracks: vec![track(7), track(100), track(2)],
+        entry_ids: Vec::new(),
     };
     replaced.summary.name = "Renamed".into();
     replaced.summary.track_count = Some(3);
@@ -178,6 +181,7 @@ fn playlist_round_trip_and_replace() {
     let empty = Playlist {
         summary: summary(2),
         tracks: vec![],
+        entry_ids: Vec::new(),
     };
     s.save_playlist(&empty).unwrap();
     assert_eq!(s.playlist("PL2").unwrap(), Some(empty));
@@ -197,6 +201,7 @@ fn save_playlist_then_library_keeps_tracks() {
     let pl = Playlist {
         summary: summary(1),
         tracks: tracks(0..3),
+        entry_ids: Vec::new(),
     };
     s.save_playlist(&pl).unwrap();
     s.set_library_playlists(&[summary(2), summary(1)]).unwrap();
@@ -217,6 +222,7 @@ fn library_then_save_playlist_keeps_library_order() {
     let mut pl = Playlist {
         summary: summary(2),
         tracks: tracks(0..4),
+        entry_ids: Vec::new(),
     };
     pl.summary.name = "Fresh name".into();
     s.save_playlist(&pl).unwrap();
@@ -341,6 +347,7 @@ fn file_reopen_keeps_data_and_reruns_migrations_safely() {
     let pl = Playlist {
         summary: summary(1),
         tracks: tracks(0..10),
+        entry_ids: Vec::new(),
     };
     {
         let s = Store::open(&path).unwrap();
@@ -390,6 +397,7 @@ fn save_5000_track_playlist_is_fast() {
     let pl = Playlist {
         summary: summary(1),
         tracks: tracks(0..5000),
+        entry_ids: Vec::new(),
     };
     let start = Instant::now();
     s.save_playlist(&pl).unwrap();

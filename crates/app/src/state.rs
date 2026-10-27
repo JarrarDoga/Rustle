@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track};
+use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
 use player::{PlaybackStatus, PlayerState};
 use ytm_core::BackendError;
 
@@ -150,6 +150,23 @@ impl State {
     }
 }
 
+/// What the track table currently shows, and what Shuffle / Play in order
+/// act on.
+#[allow(dead_code)] // b3-wiring; the UI batch sends it
+#[derive(Debug, Clone, PartialEq)]
+pub enum Scope {
+    /// The whole main playlist.
+    All,
+    /// A filter over the main playlist: the label shown in "Playing from"
+    /// (e.g. "Saint Juniper") and the matching track ids in playlist order.
+    Filter {
+        label: String,
+        ids: Arc<Vec<TrackId>>,
+    },
+    /// Main-playlist positions `from..=to`, 0-based (shown 1-based, "#380").
+    Range { from: usize, to: usize },
+}
+
 /// What the UI asks for.
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -189,6 +206,28 @@ pub enum Command {
     Login(String),
     #[allow(dead_code)] // sent by the batch 2 login screen
     Logout,
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    Like(TrackId),
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    Unlike(TrackId),
+    /// Append songs to the main playlist.
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    AddToMain(Vec<Arc<Track>>),
+    /// Remove songs from the main playlist, by track id.
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    RemoveFromMain(Vec<TrackId>),
+    /// Make this playlist the main playlist and open it.
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    SetMainPlaylist(String),
+    /// Replace the queue with the scope's tracks, shuffled or in order.
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    PlayScope {
+        scope: Scope,
+        shuffle: bool,
+        seed: u64,
+    },
+    #[allow(dead_code)] // b3-wiring; the UI batch sends it
+    SetAutoplay(bool),
 }
 
 /// Work the backend does after a reducer step. The UI ignores these.
@@ -212,6 +251,37 @@ pub enum Effect {
     Login(String),
     /// Forget the saved cookies.
     Logout,
+    #[allow(dead_code)] // b3-wiring
+    Like(TrackId),
+    #[allow(dead_code)] // b3-wiring
+    Unlike(TrackId),
+    #[allow(dead_code)] // b3-wiring
+    AddToPlaylist {
+        playlist_id: String,
+        track_ids: Vec<TrackId>,
+    },
+    /// Each item is `(track_id, entry_id)`.
+    #[allow(dead_code)] // b3-wiring
+    RemoveFromPlaylist {
+        playlist_id: String,
+        entries: Vec<(TrackId, String)>,
+    },
+    /// Save the main playlist id in the store.
+    #[allow(dead_code)] // b3-wiring
+    SaveMainPlaylist(String),
+    /// Fetch radio tracks that follow this track, for autoplay.
+    #[allow(dead_code)] // b3-wiring
+    FetchRadio(TrackId),
+    /// Store one play in the play history.
+    #[allow(dead_code)] // b3-wiring
+    RecordPlay {
+        track_id: TrackId,
+        played_ms: u64,
+    },
+    /// Compute art colors for these tracks (no stored color yet) with
+    /// `thumbs::request_colors`; results come back as `Event::ArtColors`.
+    #[allow(dead_code)] // b3-wiring
+    NeedArtColors(Vec<Arc<Track>>),
 }
 
 /// What the backend learns from YouTube Music and the player.
@@ -261,6 +331,37 @@ pub enum Event {
         current: Option<usize>,
     },
     CachedPlaylist(Playlist),
+    #[allow(dead_code)] // b3-wiring
+    LikeResult {
+        track_id: TrackId,
+        liked: bool,
+        result: Result<(), BackendError>,
+    },
+    /// `result` holds the new entry ids, one per track id.
+    #[allow(dead_code)] // b3-wiring
+    Added {
+        playlist_id: String,
+        track_ids: Vec<TrackId>,
+        result: Result<Vec<Option<String>>, BackendError>,
+    },
+    #[allow(dead_code)] // b3-wiring
+    Removed {
+        playlist_id: String,
+        entries: Vec<(TrackId, String)>,
+        result: Result<(), BackendError>,
+    },
+    #[allow(dead_code)] // b3-wiring
+    Radio {
+        seed: TrackId,
+        result: Result<Vec<Track>, BackendError>,
+    },
+    /// Art accent colors computed by `thumbs::request_colors`; the backend
+    /// stores them with `Store::set_art_colors`.
+    #[allow(dead_code)] // b3-wiring
+    ArtColors(Vec<(TrackId, [u8; 3])>),
+    /// The main playlist id read from the store at startup.
+    #[allow(dead_code)] // b3-wiring
+    CachedMainPlaylist(String),
 }
 
 fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
@@ -422,6 +523,14 @@ pub fn apply(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> {
             state.banner = None;
             Vec::new()
         }
+        // b3-wiring
+        Command::Like(_)
+        | Command::Unlike(_)
+        | Command::AddToMain(_)
+        | Command::RemoveFromMain(_)
+        | Command::SetMainPlaylist(_)
+        | Command::PlayScope { .. }
+        | Command::SetAutoplay(_) => Vec::new(),
     }
 }
 
@@ -616,6 +725,13 @@ pub fn on_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
                 *page = Loadable::Ready(playlist_view(p));
             }
         }
+        // b3-wiring
+        Event::LikeResult { .. }
+        | Event::Added { .. }
+        | Event::Removed { .. }
+        | Event::Radio { .. }
+        | Event::ArtColors(_)
+        | Event::CachedMainPlaylist(_) => {}
     }
     Vec::new()
 }

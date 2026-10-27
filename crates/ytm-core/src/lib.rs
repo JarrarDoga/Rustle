@@ -6,7 +6,7 @@
 use std::future::Future;
 
 pub use model;
-use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track};
+use model::{Playlist, PlaylistSummary, SearchResults, StreamSource, Track, TrackId};
 
 mod fixture;
 mod rustypipe_backend;
@@ -50,4 +50,34 @@ pub trait MusicBackend: Send + Sync + 'static {
 
     /// Best audio-only stream: Premium Opus, then Opus 251, then AAC 140.
     fn stream(&self, track_id: &str) -> impl Future<Output = Result<StreamSource>> + Send;
+
+    /// Add a song to the user's liked songs.
+    fn like(&self, track_id: &str) -> impl Future<Output = Result<()>> + Send;
+
+    /// Remove a song from the user's liked songs.
+    fn unlike(&self, track_id: &str) -> impl Future<Output = Result<()>> + Send;
+
+    /// Append songs to a playlist the user owns. Returns the new entries'
+    /// ids (`setVideoId`), one per track in order, `None` where YouTube did
+    /// not report one.
+    fn add_to_playlist(
+        &self,
+        playlist_id: &str,
+        track_ids: &[TrackId],
+    ) -> impl Future<Output = Result<Vec<Option<String>>>> + Send;
+
+    /// Remove entries from a playlist. Each item is `(track_id, entry_id)`;
+    /// the entry id says which copy to remove.
+    fn remove_from_playlist(
+        &self,
+        playlist_id: &str,
+        entries: &[(TrackId, String)],
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Radio (autoplay) tracks that follow `track_id`. The seed track itself
+    /// is not included.
+    fn radio(&self, track_id: &str) -> impl Future<Output = Result<Vec<Track>>> + Send;
+
+    /// Log out: forget the cookies this backend holds.
+    fn clear_cookies(&self) -> impl Future<Output = Result<()>> + Send;
 }

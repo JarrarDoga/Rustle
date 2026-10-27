@@ -4,6 +4,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod app;
+mod art_color;
 mod auth;
 mod backend;
 mod media_keys;

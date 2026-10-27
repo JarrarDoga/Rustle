@@ -67,6 +67,18 @@ pub fn get(ctx: &Context, thumbs: &[Thumbnail], size: f32) -> Option<TextureId> 
     None
 }
 
+/// Computes the art accent color (see `art_color`) for each track in a
+/// low-priority background pass and hands results to `sink` in batches.
+/// Never blocks the caller and keeps no images. The backend calls this on
+/// `Effect::NeedArtColors` with a sink that sends `Event::ArtColors`.
+#[allow(dead_code)] // b3-art; called by b3-wiring
+pub fn request_colors<F>(_tracks: Vec<Arc<model::Track>>, _sink: F)
+where
+    F: Fn(Vec<(model::TrackId, [u8; 3])>) + Send + Sync + 'static,
+{
+    // b3-art
+}
+
 /// The smallest thumbnail whose short side covers `px`, else the largest.
 /// Entries with an unknown size (0) are used only when nothing else is.
 pub fn pick(thumbs: &[Thumbnail], px: u32) -> Option<&Thumbnail> {

@@ -1,6 +1,7 @@
 //! Local SQLite cache: library, metadata, queue. The UI renders from here so
 //! the library opens instantly, even offline.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -227,7 +228,12 @@ impl Store {
         let tracks = stmt
             .query_map([id], track_from_row)?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Some(Playlist { summary, tracks }))
+        // b3-store: persist entry ids in playlist_tracks.
+        Ok(Some(Playlist {
+            summary,
+            tracks,
+            entry_ids: Vec::new(),
+        }))
     }
 
     pub fn set_liked(&self, tracks: &[Track]) -> Result<()> {
@@ -313,6 +319,74 @@ impl Store {
         };
         Ok((tracks, index))
     }
+
+    // b3-store: the methods below are stubs returning empty values until the
+    // store worker implements them. Times are Unix seconds.
+
+    /// Remember which playlist is the user's main playlist ("Everything").
+    pub fn set_main_playlist(&self, _id: &str) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn main_playlist(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
+
+    /// Record one play of `track_id` that started at `at` and lasted
+    /// `played_ms`. The app decides what counts as a play.
+    pub fn record_play(&self, _track_id: &str, _at: i64, _played_ms: u64) -> Result<()> {
+        Ok(())
+    }
+
+    /// Latest play time per id. Ids never played are absent.
+    pub fn last_played(&self, _ids: &[TrackId]) -> Result<HashMap<TrackId, i64>> {
+        Ok(HashMap::new())
+    }
+
+    /// Main-playlist tracks never played, or last played before `cutoff`, in
+    /// playlist order.
+    pub fn not_heard_since(&self, _cutoff: i64) -> Result<Vec<TrackId>> {
+        Ok(Vec::new())
+    }
+
+    /// Store art accent colors (sRGB), one transaction per call.
+    pub fn set_art_colors(&self, _colors: &[(TrackId, [u8; 3])]) -> Result<()> {
+        Ok(())
+    }
+
+    /// Stored art colors. Ids with no color are absent.
+    pub fn art_colors(&self, _ids: &[TrackId]) -> Result<HashMap<TrackId, [u8; 3]>> {
+        Ok(HashMap::new())
+    }
+
+    /// Songs per artist in a playlist, most first, then by name. A song
+    /// with several artists counts once under each.
+    pub fn artist_counts(&self, _playlist_id: &str) -> Result<Vec<NameCount>> {
+        Ok(Vec::new())
+    }
+
+    /// Songs per album in a playlist, most first, then by name.
+    pub fn album_counts(&self, _playlist_id: &str) -> Result<Vec<NameCount>> {
+        Ok(Vec::new())
+    }
+
+    /// When `key` ("library", "liked", "playlist:<id>") was last fetched.
+    pub fn fetched_at(&self, _key: &str) -> Result<Option<i64>> {
+        Ok(None)
+    }
+
+    pub fn set_fetched_at(&self, _key: &str, _at: i64) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// One row of [`Store::artist_counts`] or [`Store::album_counts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameCount {
+    /// Channel or album id; `None` for unlinked artist credits.
+    pub id: Option<String>,
+    pub name: String,
+    pub count: u32,
 }
 
 fn migrate(conn: &Connection) -> Result<()> {

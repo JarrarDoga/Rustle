@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use model::{
     AlbumRef, AlbumSummary, ArtistRef, ArtistSummary, AudioCodec, Playlist, PlaylistSummary,
-    SearchResults, StreamSource, Thumbnail, Track,
+    SearchResults, StreamSource, Thumbnail, Track, TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
 use rustypipe::client::{ClientType, RustyPipe};
@@ -330,6 +330,45 @@ impl MusicBackend for RustyPipeBackend {
     async fn stream(&self, track_id: &str) -> Result<StreamSource> {
         self.stream_info(track_id).await.map(|i| i.source)
     }
+
+    // b3-ytm-write: the methods below are stubs until the ytm-write worker
+    // implements them.
+
+    async fn like(&self, _track_id: &str) -> Result<()> {
+        Err(not_implemented())
+    }
+
+    async fn unlike(&self, _track_id: &str) -> Result<()> {
+        Err(not_implemented())
+    }
+
+    async fn add_to_playlist(
+        &self,
+        _playlist_id: &str,
+        _track_ids: &[TrackId],
+    ) -> Result<Vec<Option<String>>> {
+        Err(not_implemented())
+    }
+
+    async fn remove_from_playlist(
+        &self,
+        _playlist_id: &str,
+        _entries: &[(TrackId, String)],
+    ) -> Result<()> {
+        Err(not_implemented())
+    }
+
+    async fn radio(&self, _track_id: &str) -> Result<Vec<Track>> {
+        Err(not_implemented())
+    }
+
+    async fn clear_cookies(&self) -> Result<()> {
+        Err(not_implemented())
+    }
+}
+
+fn not_implemented() -> BackendError {
+    BackendError::Extraction("not implemented".to_owned())
 }
 
 /// Wraps rustypipe's JSON cache file and drops the login cookie and OAuth
@@ -505,6 +544,8 @@ fn map_playlist(mut p: rp::MusicPlaylist) -> Playlist {
             thumbnails: map_thumbnails(p.thumbnail),
         },
         tracks: p.tracks.items.into_iter().map(map_track).collect(),
+        // b3-ytm-write: rustypipe does not parse setVideoId.
+        entry_ids: Vec::new(),
     }
 }
 
