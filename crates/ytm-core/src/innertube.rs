@@ -1,5 +1,6 @@
 //! Innertube calls rustypipe 0.11.4 lacks: like, unlike, playlist edits,
-//! each playlist entry's `setVideoId`, and timed lyrics.
+//! each playlist entry's `setVideoId`, playlists the user owns (rustypipe
+//! cannot read their header), and timed lyrics.
 //!
 //! Requests go through `RustyPipeQuery::raw`. On an `.authenticated()` query
 //! with `ClientType::DesktopMusic`, rustypipe's request builder adds the
@@ -12,7 +13,7 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use model::{LyricLine, Lyrics};
+use model::{AlbumRef, ArtistRef, LyricLine, Lyrics, Thumbnail, Track};
 use rustypipe::client::{ClientType, RustyPipeQuery};
 use rustypipe::error::Error as RpError;
 use serde::Deserialize;
@@ -82,12 +83,16 @@ pub(crate) async fn playlist_entries(
     q: &RustyPipeQuery,
     playlist_id: &str,
     max_items: usize,
-) -> Result<Vec<RawEntry>> {
+) -> Result<RawPlaylist> {
     let body = json!({ "browseId": format!("VL{}", bare_playlist_id(playlist_id)) });
     let resp = post(q, "browse", &body, playlist_id).await?;
     let mut page = parse_entry_page(&parse_json(&resp)?)?;
+    let header = page.header.take();
     if page.entries.iter().all(|e| e.set_video_id.is_none()) {
-        return Ok(Vec::new());
+        return Ok(RawPlaylist {
+            header,
+            entries: Vec::new(),
+        });
     }
     let mut entries = std::mem::take(&mut page.entries);
     while let Some(token) = page.ctoken.take() {
@@ -102,7 +107,7 @@ pub(crate) async fn playlist_entries(
         entries.append(&mut page.entries);
     }
     entries.truncate(max_items);
-    Ok(entries)
+    Ok(RawPlaylist { header, entries })
 }
 
 async fn post(q: &RustyPipeQuery, endpoint: &str, body: &Value, id: &str) -> Result<String> {
@@ -265,10 +270,33 @@ pub(crate) struct RawEntry {
     /// Empty when the row has no video id (rustypipe skips such rows too).
     pub video_id: String,
     pub set_video_id: Option<String>,
+    /// The row as a track; `None` without a video id or a title.
+    pub track: Option<Track>,
+}
+
+/// The playlist's own header: `musicResponsiveHeaderRenderer`, which owned
+/// playlists wrap in `musicEditablePlaylistDetailHeaderRenderer`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RawHeader {
+    pub name: String,
+    pub owner: Option<String>,
+    pub track_count: Option<u64>,
+    pub thumbnails: Vec<Thumbnail>,
+}
+
+/// Every page of a playlist, read without rustypipe.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct RawPlaylist {
+    pub header: Option<RawHeader>,
+    /// Empty for a playlist the user does not own (no entry ids): the walk
+    /// stops after the first page.
+    pub entries: Vec<RawEntry>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct EntryPage {
+    /// Only on the first page.
+    pub header: Option<RawHeader>,
     pub entries: Vec<RawEntry>,
     pub ctoken: Option<String>,
 }
@@ -283,7 +311,10 @@ pub(crate) fn parse_entry_page(v: &Value) -> Result<EntryPage> {
     let (items, shelf) = find_items(v).ok_or_else(|| {
         BackendError::Extraction("playlist response has no track list".to_owned())
     })?;
-    let mut page = EntryPage::default();
+    let mut page = EntryPage {
+        header: parse_header(v),
+        ..EntryPage::default()
+    };
     for item in items {
         if let Some(row) = item.get("musicResponsiveListItemRenderer") {
             page.entries.push(parse_row(row));
@@ -366,10 +397,177 @@ fn parse_row(row: &Value) -> RawEntry {
         .or_else(|| str_at(edit, "/removedVideoId"))
         .unwrap_or_default();
     let set_video_id = str_at(data, "/playlistSetVideoId").or_else(|| str_at(edit, "/setVideoId"));
+    let track = (!video_id.is_empty())
+        .then(|| row_track(row, &video_id))
+        .flatten();
     RawEntry {
         video_id,
         set_video_id,
+        track,
     }
+}
+
+/// The text of a `{ "runs": [...] }` or `{ "simpleText": ... }` object.
+fn text_of(v: Option<&Value>) -> Option<String> {
+    let v = v?;
+    if let Some(t) = v.get("simpleText").and_then(Value::as_str) {
+        return Some(t.to_owned());
+    }
+    let runs = v.get("runs")?.as_array()?;
+    let text: String = runs
+        .iter()
+        .filter_map(|r| r.get("text").and_then(Value::as_str))
+        .collect();
+    Some(text)
+}
+
+/// The runs of the row's `i`th flex column.
+fn flex_runs(row: &Value, i: usize) -> &[Value] {
+    row.pointer(&format!(
+        "/flexColumns/{i}/musicResponsiveListItemFlexColumnRenderer/text/runs"
+    ))
+    .and_then(Value::as_array)
+    .map_or(&[], Vec::as_slice)
+}
+
+/// A run's link target: `(browseId, pageType)`.
+fn run_link(run: &Value) -> Option<(&str, &str)> {
+    let b = run.pointer("/navigationEndpoint/browseEndpoint")?;
+    let id = b.get("browseId")?.as_str()?;
+    let page = b
+        .pointer("/browseEndpointContextSupportedConfigs/browseEndpointContextMusicConfig/pageType")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Some((id, page))
+}
+
+/// The thumbnails of a `thumbnail.musicThumbnailRenderer`, as YouTube lists
+/// them.
+fn thumbnails_at(v: &Value, ptr: &str) -> Vec<Thumbnail> {
+    v.pointer(ptr)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|t| {
+            Some(Thumbnail {
+                url: t.get("url")?.as_str()?.to_owned(),
+                width: u32::try_from(t.get("width")?.as_u64()?).ok()?,
+                height: u32::try_from(t.get("height")?.as_u64()?).ok()?,
+            })
+        })
+        .collect()
+}
+
+/// "3:45" or "1:02:03" in seconds.
+fn parse_duration(s: &str) -> Option<u64> {
+    s.trim()
+        .split(':')
+        .try_fold(0u64, |acc, part| Some(acc * 60 + part.parse::<u64>().ok()?))
+}
+
+/// A playlist row as a track: title, artists (linked or not; the separators
+/// " & " and ", " are dropped), album, duration and art.
+fn row_track(row: &Value, video_id: &str) -> Option<Track> {
+    let title: String = flex_runs(row, 0)
+        .iter()
+        .filter_map(|r| r.get("text").and_then(Value::as_str))
+        .collect();
+    if title.is_empty() {
+        return None;
+    }
+    let artists = flex_runs(row, 1)
+        .iter()
+        .filter_map(|r| {
+            let name = r.get("text")?.as_str()?;
+            match run_link(r) {
+                Some((id, page))
+                    if page == "MUSIC_PAGE_TYPE_ARTIST"
+                        || page == "MUSIC_PAGE_TYPE_USER_CHANNEL" =>
+                {
+                    Some(ArtistRef {
+                        id: Some(id.to_owned()),
+                        name: name.to_owned(),
+                    })
+                }
+                Some(_) => None,
+                None => {
+                    let t = name.trim();
+                    let separator = t.is_empty() || matches!(t, "&" | "," | "•" | "·");
+                    (!separator).then(|| ArtistRef {
+                        id: None,
+                        name: t.to_owned(),
+                    })
+                }
+            }
+        })
+        .collect();
+    let album = flex_runs(row, 2).iter().find_map(|r| {
+        let (id, page) = run_link(r)?;
+        let name = r.get("text")?.as_str()?;
+        (page == "MUSIC_PAGE_TYPE_ALBUM").then(|| AlbumRef {
+            id: id.to_owned(),
+            name: name.to_owned(),
+        })
+    });
+    let duration =
+        text_of(row.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text"))
+            .and_then(|t| parse_duration(&t))
+            .map(Duration::from_secs);
+    Some(Track {
+        id: video_id.to_owned(),
+        title,
+        artists,
+        album,
+        duration,
+        thumbnails: thumbnails_at(
+            row,
+            "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails",
+        ),
+    })
+}
+
+/// The first value under `key` anywhere in `v`, skipping the bulky
+/// `responseContext`.
+fn find_key<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(map) => map.get(key).or_else(|| {
+            map.iter()
+                .filter(|(k, _)| k.as_str() != "responseContext")
+                .find_map(|(_, v)| find_key(v, key))
+        }),
+        Value::Array(a) => a.iter().find_map(|v| find_key(v, key)),
+        _ => None,
+    }
+}
+
+/// The playlist header of a first `browse` page, if it has one.
+fn parse_header(v: &Value) -> Option<RawHeader> {
+    let h = find_key(v, "musicResponsiveHeaderRenderer")
+        .or_else(|| find_key(v, "musicDetailHeaderRenderer"))?;
+    let name = text_of(h.get("title")).filter(|n| !n.is_empty())?;
+    let owner = h
+        .pointer("/facepile/avatarStackViewModel/text/content")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    // "1,535 tracks • 5+ hours": the first number.
+    let track_count = h
+        .pointer("/secondSubtitle/runs/0/text")
+        .and_then(Value::as_str)
+        .and_then(|t| {
+            let digits: String = t
+                .split_whitespace()
+                .next()?
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect();
+            digits.parse().ok()
+        });
+    Some(RawHeader {
+        name,
+        owner,
+        track_count,
+        thumbnails: thumbnails_at(h, "/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails"),
+    })
 }
 
 /// Entry ids parallel to `track_ids`, or an empty list when the two lists
@@ -611,7 +809,16 @@ mod tests {
         RawEntry {
             video_id: video.to_owned(),
             set_video_id: set.map(str::to_owned),
+            track: None,
         }
+    }
+
+    /// `entries` without their parsed tracks, to compare ids only.
+    fn ids_only(entries: &[RawEntry]) -> Vec<RawEntry> {
+        entries
+            .iter()
+            .map(|e| entry(&e.video_id, e.set_video_id.as_deref()))
+            .collect()
     }
 
     #[test]
@@ -714,7 +921,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            first.entries,
+            ids_only(&first.entries),
             [
                 entry("D8K90hX4PrE", Some("1F3E5D7C9B0A2468")),
                 // Only the "Remove from playlist" menu item has this one.
@@ -733,7 +940,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            next.entries,
+            ids_only(&next.entries),
             [
                 entry("5NV6Rdv1a3I", Some("2D1A2B9E8E4D21F5")),
                 entry("D8K90hX4PrE", Some("4A6C8E0B1D3F5A7C")),
@@ -756,6 +963,97 @@ mod tests {
         assert_eq!(ids[4].as_deref(), Some("4A6C8E0B1D3F5A7C"));
     }
 
+    /// A real owned playlist (recorded 2026-10-28, trimmed to three rows):
+    /// the header rustypipe 0.11.4 cannot read, and rows with one, two and
+    /// three linked artists.
+    #[test]
+    fn owned_playlist_header_and_rows_parse() {
+        let page = parse_entry_page(
+            &parse_json(include_str!("../fixtures/browse_owned_playlist_real.json")).unwrap(),
+        )
+        .unwrap();
+        let header = page.header.unwrap();
+        assert_eq!(header.name, "LikedSongsMigration");
+        assert_eq!(header.owner.as_deref(), Some("Playlist Owner"));
+        assert_eq!(header.track_count, Some(1535));
+        assert_eq!(header.thumbnails.len(), 3);
+        assert_eq!(page.ctoken.as_deref(), Some("CONTINUATION_TOKEN"));
+
+        let tracks: Vec<&Track> = page
+            .entries
+            .iter()
+            .filter_map(|e| e.track.as_ref())
+            .collect();
+        assert_eq!(tracks.len(), 3);
+        let t = tracks[0];
+        assert_eq!(t.id, "-ENYt2l1j3g");
+        assert_eq!(t.title, "I Bet on Losing Dogs");
+        assert_eq!(
+            t.artists,
+            [ArtistRef {
+                id: Some("UCqqY2nAz23oGDMNdiDzKdsA".into()),
+                name: "Mitski".into(),
+            }]
+        );
+        assert_eq!(
+            t.album,
+            Some(AlbumRef {
+                id: "MPREb_SwlUyDZPFaR".into(),
+                name: "Puberty 2 (10th Anniversary Deluxe Edition)".into(),
+            })
+        );
+        assert_eq!(t.duration, Some(Duration::from_secs(171)));
+        assert_eq!(t.thumbnails.len(), 2);
+        let names = |t: &Track| t.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(tracks[1]), ["Yung Lean", "Bladee"]);
+        assert_eq!(names(tracks[2]), ["Mechatok", "Ecco2k", "Bladee"]);
+        assert!(
+            tracks
+                .iter()
+                .all(|t| t.artists.iter().all(|a| a.id.is_some()))
+        );
+        assert_eq!(
+            page.entries[1].set_video_id.as_deref(),
+            Some("F63CD4D04198B046")
+        );
+    }
+
+    #[test]
+    fn rows_without_links_or_titles() {
+        let row = json!({
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Song"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                    {"text": "Some Uploader"}, {"text": " • "}, {"text": "Other"}
+                ]}}}
+            ],
+            "fixedColumns": [{"musicResponsiveListItemFixedColumnRenderer": {"text": {"simpleText": "1:02:03"}}}],
+            "playlistItemData": {"videoId": "vvvvvvvvvvv"}
+        });
+        let t = parse_row(&row).track.unwrap();
+        let names: Vec<_> = t
+            .artists
+            .iter()
+            .map(|a| (a.name.as_str(), a.id.is_none()))
+            .collect();
+        assert_eq!(names, [("Some Uploader", true), ("Other", true)]);
+        assert_eq!(t.album, None);
+        assert_eq!(t.duration, Some(Duration::from_secs(3723)));
+        // No title or no video id: no track.
+        assert!(
+            parse_row(&json!({"playlistItemData": {"videoId": "vvvvvvvvvvv"}}))
+                .track
+                .is_none()
+        );
+        assert!(
+            parse_row(&json!({"flexColumns": row["flexColumns"]}))
+                .track
+                .is_none()
+        );
+        assert_eq!(parse_duration("2:51"), Some(171));
+        assert_eq!(parse_duration("live"), None);
+    }
+
     #[test]
     fn old_style_continuation() {
         let v = json!({
@@ -767,7 +1065,7 @@ mod tests {
             }}
         });
         let page = parse_entry_page(&v).unwrap();
-        assert_eq!(page.entries, [entry("aaaaaaaaaaa", Some("S1"))]);
+        assert_eq!(ids_only(&page.entries), [entry("aaaaaaaaaaa", Some("S1"))]);
         assert_eq!(page.ctoken.as_deref(), Some("TOKEN"));
     }
 
@@ -777,7 +1075,7 @@ mod tests {
             {"musicResponsiveListItemRenderer": {"playlistItemData": {"videoId": "aaaaaaaaaaa"}}}
         ]}}});
         let page = parse_entry_page(&v).unwrap();
-        assert_eq!(page.entries, [entry("aaaaaaaaaaa", None)]);
+        assert_eq!(ids_only(&page.entries), [entry("aaaaaaaaaaa", None)]);
         assert_eq!(
             align_entry_ids(&["aaaaaaaaaaa"], &page.entries),
             Vec::<Option<String>>::new()

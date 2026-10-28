@@ -25,6 +25,11 @@ docs and from what the migration job saw live:
 - `edit_playlist_add.json`, `edit_playlist_remove.json`,
   `edit_playlist_duplicate.json`: `browse/edit_playlist` with `status`, and
   `playlistEditResults[].playlistEditVideoAddedResultData` for adds.
+- `browse_owned_playlist_real.json`: the real first `browse` page of an
+  owned playlist (2026-10-28), trimmed to three rows. Its header is a
+  `musicEditablePlaylistDetailHeaderRenderer`, which rustypipe 0.11.4 cannot
+  read. Scrubbed: owner name and avatar, playlist id (`PLownedreal`),
+  continuation token, player params, tracking data and `responseContext`.
 - `browse_owned_playlist.json`, `browse_owned_playlist_continuation.json`:
   `browse` `VL<id>` of an owned playlist, trimmed to three rows; entry ids
   sit in `playlistItemData.playlistSetVideoId` and in the "Remove from
