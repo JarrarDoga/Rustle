@@ -14,6 +14,9 @@ use crate::state::{Command, Session, State, apply};
 use crate::views::{self, Action, Route, View};
 use crate::{theme, widgets};
 
+/// The same 10 minutes as the store's staleness rule.
+const FOCUS_REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
+
 pub struct RustleApp {
     client: Client,
     /// The newest backend snapshot with pending commands re-applied on top.
@@ -28,6 +31,10 @@ pub struct RustleApp {
     /// Print `rustle: first frame` once the first frame is on screen.
     perf: bool,
     first_frame_done: bool,
+    /// Whether the window had focus last frame, to catch focus gains.
+    focused: bool,
+    /// When focus last asked for a refresh; quick window switches skip it.
+    focus_refresh_at: Instant,
     /// Art colors known at the last `rustle: art colors` line (perf only).
     colors_reported: usize,
     media_keys: MediaKeys,
@@ -97,6 +104,8 @@ impl RustleApp {
             guest: false,
             perf,
             first_frame_done: false,
+            focused: true,
+            focus_refresh_at: Instant::now(),
             colors_reported: 0,
             media_keys: MediaKeys::new(cc.egui_ctx.clone()),
             control: Control::start(rt, cc.egui_ctx.clone(), demo),
@@ -316,6 +325,18 @@ fn demo_large() -> Option<(usize, String)> {
 impl eframe::App for RustleApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.pull();
+        // Coming back to the window picks up changes made elsewhere (phone,
+        // browser); the store's 10-minute staleness rule keeps it cheap.
+        let focused = ui.ctx().input(|i| i.viewport().focused).unwrap_or(true);
+        if focused
+            && !self.focused
+            && self.state.session == Session::LoggedIn
+            && self.focus_refresh_at.elapsed() >= FOCUS_REFRESH_EVERY
+        {
+            self.focus_refresh_at = Instant::now();
+            self.send(Command::RefreshIfStale);
+        }
+        self.focused = focused;
         let from_keys = self.media_keys.poll();
         for command in from_keys {
             self.send(command);

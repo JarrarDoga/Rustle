@@ -387,6 +387,10 @@ pub enum Scope {
 pub enum Command {
     /// Fetch the library playlists and liked songs.
     Refresh,
+    /// Like `Refresh`, but each feed (library, liked, main playlist) is
+    /// fetched only if the store's copy is older than 10 minutes. Sent when
+    /// the window gains focus.
+    RefreshIfStale,
     Search(String),
     OpenPlaylist(String),
     /// Replace the queue with `tracks` and play `tracks[start]`.
@@ -669,6 +673,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
     let pb = &mut state.playback;
     match cmd {
         Command::Refresh => refresh(state, false),
+        Command::RefreshIfStale => refresh(state, true),
         Command::Search(query) => {
             let query = query.trim();
             state.search_query = query.to_owned();
@@ -2438,6 +2443,22 @@ mod tests {
             fx,
             [Effect::RefreshIfStale(Feed::Playlist("PLmain".into()))]
         );
+
+        // Window focus: every feed, each only if stale; logged out, nothing.
+        let fx = apply(&mut s, &Command::RefreshIfStale, now);
+        assert_eq!(
+            fx,
+            [
+                Effect::RefreshIfStale(Feed::Library),
+                Effect::RefreshIfStale(Feed::Liked),
+                Effect::RefreshIfStale(Feed::Playlist("PLmain".into())),
+            ]
+        );
+        let mut guest = State {
+            session: Session::LoggedOut,
+            ..State::default()
+        };
+        assert!(apply(&mut guest, &Command::RefreshIfStale, now).is_empty());
         // A pasted login refreshes without the staleness check.
         let mut s = State::default();
         on_event(&mut s, Event::NoSavedLogin, now);
