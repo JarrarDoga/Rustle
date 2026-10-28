@@ -36,7 +36,12 @@ const STREAM_FRESH: Duration = Duration::from_secs(60 * 60);
 /// Resolved streams kept for reuse.
 const STREAM_CACHE_CAP: usize = 8;
 /// How long dropping the [`Client`] waits for the store's last write.
+#[cfg(not(test))]
 const SHUTDOWN_WAIT: Duration = Duration::from_millis(500);
+/// Tests reopen the database file right after dropping the client, so they
+/// wait for the store thread to finish its writes; slow CI runners need it.
+#[cfg(test)]
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(30);
 /// Cached data younger than this is not refetched at startup (seconds).
 const FRESH_FOR: i64 = 10 * 60;
 

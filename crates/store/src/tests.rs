@@ -879,3 +879,33 @@ fn queries_on_5000_tracks_and_50000_plays_are_fast() {
         }
     }
 }
+
+/// Two connections opening a fresh file at once must not both migrate.
+/// CI once failed with "table tracks already exists" from this race.
+#[test]
+fn concurrent_opens_migrate_once() {
+    for _ in 0..20 {
+        let dir = TempDir::new();
+        let path = dir.0.join("race.db");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let (path, barrier) = (path.clone(), std::sync::Arc::clone(&barrier));
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    Store::open(&path).map(|_| ()).map_err(|e| e.to_string())
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap().unwrap();
+        }
+        assert!(
+            Store::open(&path)
+                .unwrap()
+                .main_playlist()
+                .unwrap()
+                .is_none()
+        );
+    }
+}

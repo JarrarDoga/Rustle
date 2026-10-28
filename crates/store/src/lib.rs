@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use model::{AlbumRef, Playlist, PlaylistSummary, Track, TrackId};
 use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -160,7 +160,30 @@ const _: () = {
 impl Store {
     /// Opens or creates the database and runs migrations.
     pub fn open(path: &Path) -> Result<Self> {
+        // Connections opening a new file together can get SQLITE_BUSY at once,
+        // without the busy handler (switching to WAL). Retry for at most 5 s;
+        // a normal start opens once and never loops.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match Self::open_once(path) {
+                Err(StoreError::Sqlite(rusqlite::Error::SqliteFailure(e, _)))
+                    if matches!(
+                        e.code,
+                        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                    ) && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                other => return other,
+            }
+        }
+    }
+
+    fn open_once(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
+        // Before anything that locks: switching to WAL needs an exclusive
+        // lock, and another connection may be opening the same file.
+        conn.busy_timeout(Duration::from_secs(5))?;
         // journal_mode returns the resulting mode as a row, so read it.
         conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
         // With WAL, NORMAL only risks the last commits on power loss; this is a cache.
@@ -637,13 +660,18 @@ pub struct NameCount {
 }
 
 fn migrate(conn: &Connection) -> Result<()> {
-    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    // One write transaction, taken before the version is read: a second
+    // connection opening the same file at the same time (a test reopening
+    // the file while the app's store thread still runs) waits on the busy
+    // timeout and then sees the migrated version, instead of reading a stale
+    // 0 and creating the tables again.
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
-        let tx = conn.unchecked_transaction()?;
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (i + 1) as i64)?;
-        tx.commit()?;
     }
+    tx.commit()?;
     Ok(())
 }
 
