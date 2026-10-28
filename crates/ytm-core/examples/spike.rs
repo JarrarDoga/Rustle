@@ -80,6 +80,7 @@ async fn main() -> AnyResult<()> {
                 let start = Instant::now();
                 let info = backend.stream_info(id).await?;
                 let path = match info.origin {
+                    StreamOrigin::VisionOs => "visionos",
                     StreamOrigin::Web => "web",
                     StreamOrigin::YtDlp => "yt-dlp",
                     StreamOrigin::Ios => "ios",

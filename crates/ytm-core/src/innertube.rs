@@ -666,9 +666,9 @@ pub(crate) async fn timed_lyrics(user_agent: &str, lyrics_id: &str) -> Result<Ti
     }
 }
 
-/// One client for the lyrics POST, built on first use. rustypipe keeps its
-/// own client private.
-fn http() -> Result<&'static reqwest::Client> {
+/// One client for the plain POSTs (lyrics, the visionOS player), built on
+/// first use. rustypipe keeps its own client private.
+pub(crate) fn http() -> Result<&'static reqwest::Client> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c);
