@@ -336,19 +336,31 @@ impl MusicBackend for RustyPipeBackend {
         // song needs, so a second walk over the raw pages collects them. Only
         // owned playlists have them; for others it stops after one request.
         // Best effort: without them the playlist still loads, read-only.
-        let entries = async {
+        let raw = async {
             if !logged_in {
-                return Ok(Vec::new());
+                return innertube::RawPlaylist::default();
             }
-            Ok(innertube::playlist_entries(&q, id, MAX_ITEMS)
+            innertube::playlist_entries(&q, id, MAX_ITEMS)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!("entry ids for playlist {id}: {e}");
-                    Vec::new()
-                }))
+                    innertube::RawPlaylist::default()
+                })
         };
-        // A failed track fetch cancels the entry walk.
-        let (pl, entries) = tokio::try_join!(tracks, entries)?;
+        let (pl, raw) = tokio::join!(tracks, raw);
+        let pl = match pl {
+            Ok(pl) => pl,
+            // rustypipe 0.11.4 cannot read the header YouTube sends for a
+            // playlist the user owns (`musicEditablePlaylistDetailHeaderRenderer`),
+            // takes it for an album and fails ("album playlist containing
+            // items from different albums"). The raw walk read every row.
+            Err(BackendError::Extraction(e)) if raw.entries.iter().any(|r| r.track.is_some()) => {
+                tracing::warn!("playlist {id}: rustypipe failed ({e}); using the raw pages");
+                return Ok(playlist_from_raw(id, raw));
+            }
+            Err(e) => return Err(e),
+        };
+        let entries = raw.entries;
         let mut playlist = map_playlist(pl);
         let ids: Vec<&str> = playlist.tracks.iter().map(|t| t.id.as_str()).collect();
         playlist.entry_ids = innertube::align_entry_ids(&ids, &entries);
@@ -619,14 +631,20 @@ fn map_plain_lyrics(l: rp::Lyrics) -> Option<Lyrics> {
 }
 
 fn map_thumbnails(thumbs: Vec<rp::Thumbnail>) -> Vec<Thumbnail> {
-    let mut out: Vec<Thumbnail> = thumbs
-        .into_iter()
-        .map(|t| Thumbnail {
-            url: t.url,
-            width: t.width,
-            height: t.height,
-        })
-        .collect();
+    with_smaller_variants(
+        thumbs
+            .into_iter()
+            .map(|t| Thumbnail {
+                url: t.url,
+                width: t.width,
+                height: t.height,
+            })
+            .collect(),
+    )
+}
+
+/// `thumbs` plus [`smaller_variants`], smallest first.
+fn with_smaller_variants(mut out: Vec<Thumbnail>) -> Vec<Thumbnail> {
     let extra = smaller_variants(&out);
     out.extend(extra);
     out.sort_by_key(|t| (t.width, t.height));
@@ -773,6 +791,36 @@ fn map_playlist_item(p: rp::MusicPlaylistItem) -> PlaylistSummary {
         owner: playlist_owner(p.channel, p.from_ytm),
         track_count: p.track_count,
         thumbnails: map_thumbnails(p.thumbnail),
+    }
+}
+
+/// A playlist built from the raw pages alone (see `MusicBackend::playlist`):
+/// rows without a title are skipped, as rustypipe skips them.
+fn playlist_from_raw(id: &str, raw: innertube::RawPlaylist) -> Playlist {
+    let header = raw.header.unwrap_or_default();
+    let (tracks, entry_ids): (Vec<Track>, Vec<Option<String>>) = raw
+        .entries
+        .into_iter()
+        .filter_map(|e| {
+            let mut t = e.track?;
+            t.thumbnails = with_smaller_variants(std::mem::take(&mut t.thumbnails));
+            Some((t, e.set_video_id))
+        })
+        .unzip();
+    Playlist {
+        summary: PlaylistSummary {
+            id: id.to_owned(),
+            name: if header.name.is_empty() {
+                id.to_owned()
+            } else {
+                header.name
+            },
+            owner: header.owner,
+            track_count: header.track_count.or(Some(tracks.len() as u64)),
+            thumbnails: with_smaller_variants(header.thumbnails),
+        },
+        tracks,
+        entry_ids,
     }
 }
 
@@ -955,6 +1003,49 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn playlist_from_raw_pages() {
+        let page = innertube::parse_entry_page(
+            &serde_json::from_str(include_str!("../fixtures/browse_owned_playlist_real.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let raw = innertube::RawPlaylist {
+            header: page.header,
+            entries: page.entries,
+        };
+        let p = playlist_from_raw("PLownedreal", raw);
+        assert_eq!(p.summary.id, "PLownedreal");
+        assert_eq!(p.summary.name, "LikedSongsMigration");
+        assert_eq!(p.summary.track_count, Some(1535));
+        assert_eq!(p.tracks.len(), 3);
+        assert_eq!(p.entry_ids.len(), 3);
+        assert_eq!(p.entry_ids[0].as_deref(), Some("56B44F6D10557CC6"));
+        // Smaller copies of the resizable art, smallest first, as for
+        // rustypipe's playlists.
+        let sides: Vec<u32> = p.tracks[0].thumbnails.iter().map(|t| t.width).collect();
+        assert_eq!(sides, [40, 60, 120]);
+
+        // No header: the id stands in for the name, the rows for the count.
+        let bare = playlist_from_raw(
+            "PLx",
+            innertube::RawPlaylist {
+                header: None,
+                entries: p
+                    .tracks
+                    .iter()
+                    .map(|t| innertube::RawEntry {
+                        video_id: t.id.clone(),
+                        set_video_id: None,
+                        track: Some(t.clone()),
+                    })
+                    .collect(),
+            },
+        );
+        assert_eq!(bare.summary.name, "PLx");
+        assert_eq!(bare.summary.track_count, Some(3));
+    }
 
     #[test]
     fn auth_errors_map_to_auth() {
