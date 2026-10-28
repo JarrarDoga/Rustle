@@ -208,6 +208,19 @@ fn not_heard(track: &Track, played: &Played, cutoff: i64) -> bool {
     played.get(&track.id).is_none_or(|&at| at < cutoff)
 }
 
+/// Chips of one kind are alternatives (shift-click several artists: songs
+/// by any of them); an artist chip and an album chip must both match.
+fn chips_match(chips: &[Chip], track: &Track) -> bool {
+    let kind_ok = |artist: bool| {
+        let mut of_kind = chips
+            .iter()
+            .filter(|c| matches!(c, Chip::Artist(_)) == artist)
+            .peekable();
+        of_kind.peek().is_none() || of_kind.any(|c| chip_matches(c, track))
+    };
+    kind_ok(true) && kind_ok(false)
+}
+
 fn chip_matches(chip: &Chip, track: &Track) -> bool {
     match chip {
         Chip::Artist(name) => track.artists.iter().any(|a| &a.name == name),
@@ -254,7 +267,7 @@ fn filter(
             if c.not_heard && !not_heard(t, played, cutoff) {
                 return false;
             }
-            if !c.chips.iter().all(|chip| chip_matches(chip, t)) {
+            if !chips_match(&c.chips, t) {
                 return false;
             }
             if needle.is_empty() {
@@ -804,16 +817,30 @@ fn filter_field(ui: &mut Ui, field: Rect, n: usize, c: &mut CollectionView) {
             .map(|(i, chip)| (chip_text(chip), Remove::Chip(i))),
     );
     let mut remove = None;
+    let mut hidden: Vec<String> = Vec::new();
     for (k, (text, what)) in chips.into_iter().enumerate() {
         let room = end - x - 80.0;
-        if room < 48.0 {
-            break;
+        if room < 48.0 || !hidden.is_empty() {
+            hidden.push(text);
+            continue;
         }
         let w = chip(ui, Pos2::new(x, cy), &text, room, id.with(("chip", k)));
         if w.1 {
             remove = Some(what);
         }
         x += w.0 + theme::SPACE_8;
+    }
+    // Chips that do not fit (several artists picked with shift): "+N", with
+    // their names on hover.
+    if !hidden.is_empty() {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(format!("+{}", hidden.len()), theme::secondary(), p.text_2);
+        let rect = Rect::from_min_size(Pos2::new(x, cy - galley.size().y / 2.0), galley.size());
+        ui.painter().galley(rect.min, galley, p.text_2);
+        ui.interact(rect, id.with("more-chips"), Sense::hover())
+            .on_hover_text(hidden.join("\n"));
+        x = rect.right() + theme::SPACE_8;
     }
 
     let hint = if active {
@@ -1180,6 +1207,19 @@ mod tests {
         v.collection.filter_text.clear();
         v.collection.chips = vec![Chip::Artist("Saint".to_owned())];
         assert_eq!(run(&s, &mut v), Vec::<usize>::new());
+        // Several artists: songs by any of them.
+        v.collection.chips = vec![
+            Chip::Artist("Saint Juniper".to_owned()),
+            Chip::Artist("Static Bloom".to_owned()),
+        ];
+        let any = run(&s, &mut v);
+        v.collection.chips = vec![Chip::Artist("Static Bloom".to_owned())];
+        let bloom = run(&s, &mut v);
+        assert!(!bloom.is_empty());
+        let mut want: Vec<usize> = [0, 2].into_iter().chain(bloom).collect();
+        want.sort_unstable();
+        want.dedup();
+        assert_eq!(any, want);
     }
 
     #[test]

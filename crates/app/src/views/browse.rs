@@ -118,7 +118,10 @@ fn panel_ui(ui: &mut Ui, panel: Rect, state: &State, view: &mut View, out: &mut 
         BrowseTab::Artists => ("All artists", &facets.artists),
         BrowseTab::Albums => ("All albums", &facets.albums),
     };
-    let selected = selected(&view.collection.chips, tab).map(str::to_owned);
+    let selected: Vec<String> = selected(&view.collection.chips, tab)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let playing: Vec<&str> = match (state.current_track(), tab) {
         (Some(t), BrowseTab::Artists) => t.artists.iter().map(|a| a.name.as_str()).collect(),
         (Some(t), BrowseTab::Albums) => t.album.iter().map(|a| a.name.as_str()).collect(),
@@ -151,24 +154,27 @@ fn panel_ui(ui: &mut Ui, panel: Rect, state: &State, view: &mut View, out: &mut 
                     let row = Row {
                         label,
                         count,
-                        selected: match &selected {
-                            Some(s) => i > 0 && s == label,
-                            None => i == 0,
+                        selected: if i == 0 {
+                            selected.is_empty()
+                        } else {
+                            selected.iter().any(|s| s == label)
                         },
                         playing: i > 0 && playing.contains(&label),
                     };
                     if facet_row(ui, &row) {
-                        clicked = Some(i);
+                        // Shift adds or removes this row only; it never
+                        // selects a span of rows.
+                        clicked = Some((i, ui.input(|inp| inp.modifiers.shift)));
                     }
                 }
             });
     });
 
-    if let Some(i) = clicked {
+    if let Some((i, shift)) = clicked {
         let chips = &mut view.collection.chips;
         match i {
             0 => clear(chips, tab),
-            _ => toggle(chips, chip(tab, list[i - 1].0.clone())),
+            _ => toggle(chips, chip(tab, list[i - 1].0.clone()), shift),
         }
         if view.route != Route::Collection {
             out.push(Action::Go(Route::Collection));
@@ -335,21 +341,38 @@ fn chip(tab: BrowseTab, name: String) -> Chip {
     }
 }
 
-/// The name in the active chip of `tab`'s kind: the selected row.
-fn selected(chips: &[Chip], tab: BrowseTab) -> Option<&str> {
-    chips.iter().find(|c| kind(c) == tab).map(|c| match c {
-        Chip::Artist(n) | Chip::Album(n) => n.as_str(),
-    })
+/// The names in the active chips of `tab`'s kind: the selected rows.
+fn selected(chips: &[Chip], tab: BrowseTab) -> Vec<&str> {
+    chips
+        .iter()
+        .filter(|c| kind(c) == tab)
+        .map(|c| match c {
+            Chip::Artist(n) | Chip::Album(n) => n.as_str(),
+        })
+        .collect()
 }
 
-/// A click on a row: removes `chip` if it is active, else puts it in place
-/// of any chip of the same kind (one artist chip at a time).
-fn toggle(chips: &mut Vec<Chip>, chip: Chip) {
-    if let Some(i) = chips.iter().position(|c| *c == chip) {
+/// A click on a row. With `shift`, adds `chip` or removes it if active,
+/// keeping the other rows. Without, selects only this row; a click on the
+/// only selected row clears it.
+fn toggle(chips: &mut Vec<Chip>, chip: Chip, shift: bool) {
+    let k = kind(&chip);
+    let active = chips.iter().position(|c| *c == chip);
+    if shift {
+        match active {
+            Some(i) => {
+                chips.remove(i);
+            }
+            None => chips.push(chip),
+        }
+        return;
+    }
+    if let Some(i) = active
+        && chips.iter().filter(|c| kind(c) == k).count() == 1
+    {
         chips.remove(i);
         return;
     }
-    let k = kind(&chip);
     let mut new = Some(chip);
     chips.retain_mut(|c| {
         if kind(c) != k {
@@ -451,18 +474,36 @@ mod tests {
         let album = |n: &str| Chip::Album(n.into());
         let mut chips = vec![album("Halogen")];
 
-        toggle(&mut chips, artist("A"));
+        toggle(&mut chips, artist("A"), false);
         assert_eq!(chips, [album("Halogen"), artist("A")]);
-        assert_eq!(selected(&chips, BrowseTab::Artists), Some("A"));
+        assert_eq!(selected(&chips, BrowseTab::Artists), ["A"]);
 
         // Another artist replaces the first, in place.
-        toggle(&mut chips, artist("B"));
+        toggle(&mut chips, artist("B"), false);
         assert_eq!(chips, [album("Halogen"), artist("B")]);
 
         // Clicking the selected row again removes its chip.
-        toggle(&mut chips, artist("B"));
+        toggle(&mut chips, artist("B"), false);
         assert_eq!(chips, [album("Halogen")]);
-        assert_eq!(selected(&chips, BrowseTab::Artists), None);
+        assert!(selected(&chips, BrowseTab::Artists).is_empty());
+    }
+
+    #[test]
+    fn shift_click_adds_and_removes_one_artist() {
+        let artist = |n: &str| Chip::Artist(n.into());
+        let album = |n: &str| Chip::Album(n.into());
+        let mut chips = vec![album("Halogen")];
+        toggle(&mut chips, artist("A"), false);
+        toggle(&mut chips, artist("C"), true);
+        toggle(&mut chips, artist("B"), true);
+        // Only the rows clicked, not the ones between them.
+        assert_eq!(selected(&chips, BrowseTab::Artists), ["A", "C", "B"]);
+        // Shift on a selected row removes just that one.
+        toggle(&mut chips, artist("C"), true);
+        assert_eq!(selected(&chips, BrowseTab::Artists), ["A", "B"]);
+        // A plain click on a selected row, with others selected, keeps only it.
+        toggle(&mut chips, artist("B"), false);
+        assert_eq!(chips, [album("Halogen"), artist("B")]);
     }
 
     #[test]

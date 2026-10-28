@@ -289,22 +289,23 @@ struct Layout {
 }
 
 impl Layout {
-    /// `n` songs in a strip `height` px tall. Segments are nominally
-    /// `SPINE_SEGMENT` px for `SPINE_SONGS_PER_SEGMENT` songs; a strip too
-    /// short for that shrinks them, and below 1 px puts more songs in each.
+    /// `n` songs in a strip `height` px tall. The segments always fill the
+    /// strip: each stands for as few songs as keeps it near
+    /// `SPINE_SEGMENT` px tall (about 10 songs for a 1,500-song library,
+    /// one song each for a short playlist).
     fn new(n: usize, top: f32, height: f32) -> Self {
-        let rows = height.floor().max(1.0) as usize;
-        let nominal = n.div_ceil(theme::SPINE_SONGS_PER_SEGMENT);
-        let songs_per = if nominal <= rows {
-            theme::SPINE_SONGS_PER_SEGMENT
+        let height = height.max(0.0);
+        let songs_per = if height < 1.0 {
+            n.max(1)
         } else {
-            n.div_ceil(rows)
+            let fit = (n as f32 * theme::SPINE_SEGMENT / height).round() as usize;
+            fit.clamp(1, n.max(1))
         };
         let segments = n.div_ceil(songs_per);
         let seg_h = if segments == 0 {
             theme::SPINE_SEGMENT
         } else {
-            theme::SPINE_SEGMENT.min(height / segments as f32)
+            height / segments as f32
         };
         Self {
             n,
@@ -483,7 +484,7 @@ mod tests {
         assert_eq!(l.songs_per, 10);
         assert_eq!(l.segments, 154);
         assert!(l.seg_h >= 1.0 && l.seg_h < theme::SPINE_SEGMENT);
-        assert!(l.bottom() <= 700.0 + 1e-3);
+        assert!((l.bottom() - 700.0).abs() < 1e-3, "fills the strip");
         assert_eq!(l.pos_at(100.0), 0);
         assert_eq!(l.pos_at(699.9), 1534);
         assert_eq!(l.pos_at(10_000.0), 1534, "below the strip clamps");
@@ -491,15 +492,15 @@ mod tests {
     }
 
     #[test]
-    fn a_small_playlist_keeps_4_px_segments() {
+    fn a_small_playlist_stretches_to_fill() {
         let l = Layout::new(40, 0.0, 600.0);
-        assert_eq!((l.songs_per, l.segments), (10, 4));
-        assert_eq!(l.seg_h, 4.0);
-        assert_eq!(l.bottom(), 16.0);
+        assert_eq!((l.songs_per, l.segments), (1, 40));
+        assert_eq!(l.seg_h, 15.0);
+        assert_eq!(l.bottom(), 600.0);
         assert_eq!(l.pos_at(0.0), 0);
-        assert_eq!(l.pos_at(3.9), 9);
-        assert_eq!(l.pos_at(4.0), 10);
-        assert_eq!(l.pos_at(300.0), 39);
+        assert_eq!(l.pos_at(14.9), 0);
+        assert_eq!(l.pos_at(15.0), 1);
+        assert_eq!(l.pos_at(599.0), 39);
     }
 
     #[test]
@@ -511,6 +512,30 @@ mod tests {
         assert!(l.songs_per * l.segments >= 1535);
         let tiny = Layout::new(1535, 0.0, 0.0);
         assert_eq!(tiny.segments, 1);
+    }
+
+    #[test]
+    fn segments_fill_the_whole_strip() {
+        for (n, h) in [
+            (1535, 616.0),
+            (1535, 900.0),
+            (33, 616.0),
+            (7, 600.0),
+            (5000, 616.0),
+        ] {
+            let l = Layout::new(n, 0.0, h);
+            assert!(
+                (l.segments as f32 * l.seg_h - h).abs() < 1e-2,
+                "n={n} h={h}: {} x {}",
+                l.segments,
+                l.seg_h
+            );
+            assert!(l.songs_per * l.segments >= n);
+            assert!(l.seg_h >= 1.0);
+        }
+        // About 10 songs per segment for a big library, one for a short one.
+        assert_eq!(Layout::new(1535, 0.0, 600.0).songs_per, 10);
+        assert_eq!(Layout::new(33, 0.0, 616.0).songs_per, 1);
     }
 
     #[test]
