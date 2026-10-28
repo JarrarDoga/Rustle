@@ -519,7 +519,7 @@ pub const SPINE_W: f32 = 20.0;
 /// 9 px gap (D-Collection). Its top part, beside the page header and filter
 /// row, belongs to the collection.
 pub const SPINE_COLUMN_W: f32 = 37.0;
-/// One spine segment stands for about 10 songs.
+/// The spine's segments stretch to fill the strip, each about this tall.
 pub const SPINE_SEGMENT: f32 = 4.0;
 pub const SPINE_SONGS_PER_SEGMENT: usize = 10;
 pub const VIEWPORT_BRACKET_MIN: f32 = 12.0;
