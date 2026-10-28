@@ -5,8 +5,8 @@
 
 use egui::text::LayoutJob;
 use egui::{
-    Align2, Color32, CornerRadius, FontFamily, FontId, Frame, Id, Key, Margin, Modifiers, Rect,
-    ScrollArea, Sense, Stroke, StrokeKind, TextFormat, Ui, vec2,
+    Align2, Color32, FontFamily, FontId, Frame, Id, Key, Margin, Modifiers, Rect, ScrollArea,
+    Sense, Stroke, StrokeKind, TextFormat, Ui, vec2,
 };
 
 use crate::auth::normalize_cookie_input;
@@ -94,8 +94,8 @@ fn card(ui: &mut Ui, state: &State, cookies: &mut String, logging_in: bool, out:
     // Logo mark and name.
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = theme::SPACE_8;
-        let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-        logo(ui, rect);
+        let (rect, _) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::hover());
+        crate::widgets::logo::paint(ui.painter(), rect, p.bg);
         ui.label(
             egui::RichText::new("rustle")
                 .font(theme::section())
@@ -199,18 +199,6 @@ fn card(ui: &mut Ui, state: &State, cookies: &mut String, logging_in: bool, out:
             out.push(Action::Guest(true));
         }
     });
-}
-
-/// The Rustle mark: a leaf, round on two opposite corners.
-fn logo(ui: &Ui, rect: Rect) {
-    let round = (rect.height() / 2.0) as u8;
-    let radius = CornerRadius {
-        nw: round,
-        ne: 1,
-        sw: 1,
-        se: round,
-    };
-    ui.painter().rect_filled(rect, radius, theme::pal().text_1);
 }
 
 /// One numbered how-to step: a 20 px badge, then the wrapped text.

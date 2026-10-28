@@ -9,6 +9,7 @@ use model::Thumbnail;
 
 use crate::{theme, thumbs};
 
+pub mod logo;
 pub mod spine;
 pub mod track_table;
 

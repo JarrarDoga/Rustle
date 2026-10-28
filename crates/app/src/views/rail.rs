@@ -4,22 +4,16 @@
 //! The space below the three buttons stays empty: Batch 4 adds a settings
 //! button at the bottom of the rail.
 
-use egui::{Align2, CornerRadius, Pos2, Rect, Sense, Ui, vec2};
+use egui::{Align2, Pos2, Rect, Sense, Ui, vec2};
 
 use crate::icons;
 use crate::state::State;
 use crate::theme;
 use crate::views::{Action, Out, Route, View};
 
-/// The app mark: a 16 px leaf (radius 8 / 1) in the accent, 16 px from
-/// the top, with 16 px below it (D-Collection `nav`).
-const MARK: f32 = theme::SPACE_16;
-const MARK_RADIUS: CornerRadius = CornerRadius {
-    nw: 8,
-    ne: 1,
-    sw: 1,
-    se: 8,
-};
+/// The Rustle mark (`widgets::logo`), 24 px, 16 px from the top. The rail
+/// buttons start where they did with the board's 16 px mark.
+const MARK: f32 = 24.0;
 /// Rail buttons are 36 px with a 20 px glyph and 4 px between them
 /// (D-Collection), larger than the 28 px icon button token.
 const BUTTON: f32 = theme::ICON_BUTTON + theme::SPACE_8;
@@ -32,8 +26,8 @@ pub fn show(ui: &mut Ui, state: &State, view: &View, out: &mut Out) {
     let mut y = rect.top() + theme::SPACE_16;
 
     let mark = Rect::from_min_size(Pos2::new(x - MARK / 2.0, y), vec2(MARK, MARK));
-    ui.painter().rect_filled(mark, MARK_RADIUS, theme::accent());
-    y += MARK + theme::SPACE_16 + theme::SPACE_4;
+    crate::widgets::logo::paint(ui.painter(), mark, p.bg);
+    y += MARK + theme::SPACE_8 + theme::SPACE_4;
 
     let main = state
         .main_view()

@@ -31,7 +31,8 @@ The release profile already strips the binaries.
 | --- | --- |
 | `/usr/bin/rustle` | the release binary |
 | `/usr/share/applications/rustle.desktop` | `packaging/rustle.desktop` (`StartupWMClass=rustle`, the eframe app id) |
-| `/usr/share/icons/hicolor/scalable/apps/rustle.svg` | `packaging/rustle.svg`: the rail's leaf mark in a D-token accent on bg |
+| `/usr/share/icons/hicolor/scalable/apps/rustle.svg` | `packaging/rustle.svg`: the three-leaf Rustle mark on a dark rounded tile (`packaging/logo/svg/rustle-icon.svg`) |
+| `/usr/share/icons/hicolor/<N>x<N>/apps/rustle.png` | `packaging/icons/hicolor/`: PNGs at 16, 22, 24, 32, 48, 64, 128, 256 and 512 px; the small sizes use the hand-tuned small variant |
 | `/usr/libexec/rustle/rustypipe-botguard` | `~/.local/bin/rustypipe-botguard`, found by `ytm-core`'s `find_bin` after PATH and `~/.local/bin` |
 | `/usr/share/licenses/rustle/LICENSE.rustypipe-botguard` | its MIT license, which must ship with copies |
 
