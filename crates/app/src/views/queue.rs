@@ -1,10 +1,12 @@
 //! The queue drawer (D-Queue): 360 px over the right of the content, the
 //! one region with a drop shadow. A header with the scope and a close
-//! button, the now-playing row, "Next up", and the "Autoplay radio"
-//! section with its toggle and the radio entries.
+//! button, the now-playing row, "Next in queue" (the tracks the user queued,
+//! shown only when there are some), "Next up" (the rest of the playlist,
+//! shuffle or radio order; "Next from <scope>" under queued tracks), and the
+//! "Autoplay radio" section with its toggle and the radio entries.
 //!
 //! `app.rs` places the drawer and gives it the background, hairline and
-//! shadow; [`show`] fills it. Both lists use `show_rows`.
+//! shadow; [`show`] fills it. Every list uses `show_rows`.
 
 use egui::{Align2, CornerRadius, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, UiBuilder, vec2};
 
@@ -26,6 +28,8 @@ const NEXT_CAPTION_H: f32 = 33.0;
 const AUTOPLAY_H: f32 = 58.0;
 /// The share of the drawer radio may take when both lists overflow.
 const RADIO_SHARE: f32 = 0.4;
+/// The share of the drawer "Next in queue" may take when the lists overflow.
+const QUEUED_SHARE: f32 = 0.4;
 
 /// Drag payload for reordering the queue: the dragged entry's index.
 struct QueueDrag(usize);
@@ -101,27 +105,57 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
     }
     y = now_rect.bottom();
 
-    // Next up and autoplay radio.
-    let (upcoming, radio) = if q.is_empty() {
-        (Vec::new(), Vec::new())
+    // Next in queue, next up and autoplay radio.
+    let Sections {
+        queued,
+        upcoming,
+        radio,
+    } = if q.is_empty() {
+        Sections::default()
     } else {
-        sections(q.entries().iter().map(|e| e.radio), q.upcoming_start())
+        sections(
+            q.entries().iter().map(|e| (e.queued, e.radio)),
+            q.upcoming_start(),
+        )
     };
     let from = q.playing_from().map(scope_name);
-    let next_title = from.map_or("Next up".to_owned(), |n| format!("Next up · from {n}"));
-    let more = (!upcoming.is_empty()).then(|| format!("{} more", thousands(upcoming.len())));
-    caption(&painter, full, y + 14.0, &next_title, more.as_deref());
-    y += NEXT_CAPTION_H;
-
+    // With nothing after the queued tracks, "Next up" and its hint go.
+    let show_upcoming = queued.is_empty() || !upcoming.is_empty();
     let row_h = theme::QUEUE_ROW_H;
-    let (up_h, radio_h) = split_heights(
-        full.bottom() - y - AUTOPLAY_H,
-        upcoming.len().max(1),
+    let captions = (!queued.is_empty() as u8 + show_upcoming as u8) as f32 * NEXT_CAPTION_H;
+    let (queued_h, up_h, radio_h) = split_heights(
+        full.bottom() - y - captions - AUTOPLAY_H,
+        queued.len(),
+        if show_upcoming {
+            upcoming.len().max(1)
+        } else {
+            0
+        },
         radio.len(),
         row_h,
     );
+
+    if !queued.is_empty() {
+        let more = format!("{} more", thousands(queued.len()));
+        caption(&painter, full, y + 14.0, "Next in queue", Some(&more));
+        y += NEXT_CAPTION_H;
+        let rect = Rect::from_min_size(Pos2::new(full.left(), y), vec2(full.width(), queued_h));
+        list(ui, rect, "queue-queued", &queued, state, out);
+        y = rect.bottom();
+    }
+
+    if show_upcoming {
+        let next_title = match from {
+            Some(n) if !queued.is_empty() => format!("Next from {n}"),
+            Some(n) => format!("Next up · from {n}"),
+            None => "Next up".to_owned(),
+        };
+        let more = (!upcoming.is_empty()).then(|| format!("{} more", thousands(upcoming.len())));
+        caption(&painter, full, y + 14.0, &next_title, more.as_deref());
+        y += NEXT_CAPTION_H;
+    }
     let up_rect = Rect::from_min_size(Pos2::new(full.left(), y), vec2(full.width(), up_h));
-    if upcoming.is_empty() {
+    if show_upcoming && upcoming.is_empty() {
         text_line(
             &painter,
             Pos2::new(full.left() + PAD_X, up_rect.top() + row_h / 2.0),
@@ -130,7 +164,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
             p.text_3,
             full.width() - 2.0 * PAD_X,
         );
-    } else {
+    } else if show_upcoming {
         list(ui, up_rect, "queue-next", &upcoming, state, out);
     }
     y = up_rect.bottom();
@@ -198,34 +232,59 @@ fn thousands(n: usize) -> String {
     out
 }
 
-/// Splits the entries after the current one into "Next up" and "Autoplay
-/// radio", by each entry's radio mark (`radio`, in queue order). Returns
-/// queue indices, in order.
-fn sections(radio: impl Iterator<Item = bool>, start: usize) -> (Vec<usize>, Vec<usize>) {
-    let (mut upcoming, mut autoplay) = (Vec::new(), Vec::new());
-    for (i, is_radio) in radio.enumerate().skip(start) {
-        if is_radio {
-            autoplay.push(i);
-        } else {
-            upcoming.push(i);
-        }
-    }
-    (upcoming, autoplay)
+/// Queue indices of the entries after the current one, in order, by
+/// drawer section.
+#[derive(Debug, Default, PartialEq)]
+struct Sections {
+    /// "Next in queue": the up-next segment the user queued.
+    queued: Vec<usize>,
+    /// "Next up": the rest of the playlist, shuffle or radio order.
+    upcoming: Vec<usize>,
+    /// "Autoplay radio".
+    radio: Vec<usize>,
 }
 
-/// Heights of the "Next up" and radio lists in `avail` px. Each list gets
-/// what its rows need while both fit. When they don't, radio keeps up to
-/// [`RADIO_SHARE`] of the room (more if "Next up" needs less) and "Next
-/// up" scrolls in the rest.
-fn split_heights(avail: f32, up_rows: usize, radio_rows: usize, row_h: f32) -> (f32, f32) {
+/// Splits the entries after the current one by each entry's `(queued,
+/// radio)` marks, in queue order. A queued mark wins over a radio one.
+fn sections(marks: impl Iterator<Item = (bool, bool)>, start: usize) -> Sections {
+    let mut out = Sections::default();
+    for (i, (queued, radio)) in marks.enumerate().skip(start) {
+        match (queued, radio) {
+            (true, _) => out.queued.push(i),
+            (false, true) => out.radio.push(i),
+            (false, false) => out.upcoming.push(i),
+        }
+    }
+    out
+}
+
+/// Heights of the "Next in queue", "Next up" and radio lists in `avail`
+/// px. Each list gets what its rows need while all fit. When they don't,
+/// "Next in queue" keeps up to [`QUEUED_SHARE`] of the room (more if the
+/// others need less), then radio keeps up to [`RADIO_SHARE`] of what is left
+/// (more if "Next up" needs less), and "Next up" scrolls in the rest.
+fn split_heights(
+    avail: f32,
+    queued_rows: usize,
+    up_rows: usize,
+    radio_rows: usize,
+    row_h: f32,
+) -> (f32, f32, f32) {
     let avail = avail.max(0.0);
+    let queued = queued_rows as f32 * row_h;
     let up = up_rows as f32 * row_h;
     let radio = radio_rows as f32 * row_h;
+    let queued = if queued + up + radio <= avail {
+        queued
+    } else {
+        queued.min((avail - up - radio).max(avail * QUEUED_SHARE))
+    };
+    let avail = avail - queued;
     if up + radio <= avail {
-        return (up, radio);
+        return (queued, up, radio);
     }
     let radio = radio.min((avail - up).max(avail * RADIO_SHARE));
-    (avail - radio, radio)
+    (queued, avail - radio, radio)
 }
 
 /// A caption (11/500, text-3) at `top`, with optional right-aligned text.
@@ -419,8 +478,14 @@ fn entry_row(ui: &mut Ui, state: &State, index: usize, out: &mut Out) {
     if resp.double_clicked() {
         cmd(out, Command::JumpTo(index));
     }
-    let start = q.upcoming_start();
-    let last = q.len().saturating_sub(1);
+    // Menu moves stay inside the entry's section: the queued tracks, or
+    // everything after them. Dragging can cross between them.
+    let context = q.context_start();
+    let (start, last) = if entry.queued {
+        (q.upcoming_start(), context.saturating_sub(1))
+    } else {
+        (context, q.len().saturating_sub(1))
+    };
     resp.context_menu(|ui| {
         if ui.button("Play now").clicked() {
             cmd(out, Command::JumpTo(index));
@@ -525,32 +590,66 @@ mod tests {
     #[test]
     fn sections_split_after_the_current_entry() {
         // Index 0 is history, 1 is current: upcoming starts at 2.
-        let marks = [false, false, false, true, false, true];
-        let (up, radio) = sections(marks.into_iter(), 2);
-        assert_eq!(up, vec![2, 4]);
-        assert_eq!(radio, vec![3, 5]);
-        let (up, radio) = sections(marks.into_iter(), 6);
-        assert!(up.is_empty() && radio.is_empty());
+        let radio = [false, false, false, true, false, true];
+        let marks = radio.map(|r| (false, r));
+        let s = sections(marks.into_iter(), 2);
+        assert!(s.queued.is_empty());
+        assert_eq!(s.upcoming, vec![2, 4]);
+        assert_eq!(s.radio, vec![3, 5]);
+        assert_eq!(sections(marks.into_iter(), 6), Sections::default());
+    }
+
+    #[test]
+    fn sections_put_queued_entries_first() {
+        // Current at 0, two queued, the playlist, one radio entry.
+        let marks = [
+            (false, false),
+            (true, false),
+            (true, false),
+            (false, false),
+            (false, false),
+            (false, true),
+        ];
+        let s = sections(marks.into_iter(), 1);
+        assert_eq!(s.queued, vec![1, 2]);
+        assert_eq!(s.upcoming, vec![3, 4]);
+        assert_eq!(s.radio, vec![5]);
+        // A queued radio entry shows as queued.
+        let s = sections([(false, false), (true, true)].into_iter(), 1);
+        assert_eq!((s.queued, s.radio), (vec![1], vec![]));
     }
 
     #[test]
     fn heights_fit_when_both_lists_fit() {
-        assert_eq!(split_heights(500.0, 3, 2, 44.0), (132.0, 88.0));
+        assert_eq!(split_heights(500.0, 0, 3, 2, 44.0), (0.0, 132.0, 88.0));
+        assert_eq!(split_heights(500.0, 2, 3, 2, 44.0), (88.0, 132.0, 88.0));
     }
 
     #[test]
     fn heights_cap_radio_when_both_overflow() {
-        let (up, radio) = split_heights(500.0, 1534, 25, 44.0);
+        let (queued, up, radio) = split_heights(500.0, 0, 1534, 25, 44.0);
+        assert_eq!(queued, 0.0);
         assert_eq!(radio, 200.0);
         assert_eq!(up, 300.0);
     }
 
     #[test]
+    fn heights_cap_queued_when_all_overflow() {
+        let (queued, up, radio) = split_heights(500.0, 40, 1534, 25, 44.0);
+        assert_eq!(queued, 200.0);
+        assert_eq!(radio, 120.0);
+        assert_eq!(up, 180.0);
+        // A short queue keeps its rows; the rest share what is left.
+        let (queued, up, radio) = split_heights(500.0, 3, 1534, 0, 44.0);
+        assert_eq!((queued, up, radio), (132.0, 368.0, 0.0));
+    }
+
+    #[test]
     fn radio_takes_what_next_up_leaves() {
         // Next up needs 88 px, so radio gets the other 412.
-        let (up, radio) = split_heights(500.0, 2, 25, 44.0);
+        let (_, up, radio) = split_heights(500.0, 0, 2, 25, 44.0);
         assert_eq!((up, radio), (88.0, 412.0));
-        assert_eq!(split_heights(-10.0, 2, 2, 44.0), (0.0, 0.0));
+        assert_eq!(split_heights(-10.0, 1, 2, 2, 44.0), (0.0, 0.0, 0.0));
     }
 
     #[test]

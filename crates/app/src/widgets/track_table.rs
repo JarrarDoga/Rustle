@@ -1398,12 +1398,17 @@ mod tests {
 
         #[test]
         fn a_drag_left_removes_only_an_upcoming_copy() {
-            let state = playing();
+            let mut state = playing();
             let mut r = Rig::new();
             r.frame(&state, vec![]);
-            // "a" is playing, not upcoming: nothing.
+            // "a" is playing and "b" only comes up in the playlist, not
+            // queued: nothing.
             r.drag(&state, 0, &[(-10.0, 0.0), (-60.0, 0.0)]);
+            r.drag(&state, 1, &[(-10.0, 0.0), (-60.0, 0.0)]);
             assert!(r.commands().is_empty());
+            let add = Command::AddToQueue(track("c"));
+            crate::state::apply(&mut state, &add, Instant::now());
+            r.frame(&state, vec![]);
             r.drag(&state, 2, &[(-10.0, 0.0), (-60.0, 0.0)]);
             match r.commands()[..] {
                 [Command::RemoveFromQueue(id)] => assert_eq!(id, "c"),

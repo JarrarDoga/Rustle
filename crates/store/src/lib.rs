@@ -17,6 +17,10 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// What `queue_extras` returns: the "Playing from" label, then the radio and
+/// queued flags, one per loaded queue entry.
+pub type QueueExtras = (Option<String>, Vec<bool>, Vec<bool>);
+
 /// Schema migrations, applied in order. `PRAGMA user_version` records how many
 /// have run, so each one runs exactly once per database file. Append only.
 ///
@@ -111,6 +115,10 @@ const MIGRATIONS: &[&str] = &[
     -- The queue's Playing from label. It lives with the queue snapshot,
     -- not in settings, because it is replaced and cleared with the queue.
     ALTER TABLE queue_state ADD COLUMN label TEXT;
+",
+    "
+    -- 1 for an entry the user queued to play next (save_queue_extras).
+    ALTER TABLE queue ADD COLUMN queued INTEGER NOT NULL DEFAULT 0;
 ",
 ];
 
@@ -418,17 +426,27 @@ impl Store {
         Ok(())
     }
 
-    /// Saves what `save_queue` does not: the "Playing from" label and which
-    /// entries are autoplay radio, parallel to the saved queue.
+    /// Saves what `save_queue` does not: the "Playing from" label, which
+    /// entries are autoplay radio and which the user queued to play next,
+    /// parallel to the saved queue.
     ///
-    /// Call it after `save_queue`: `radio[i]` marks queue position `i`, and
-    /// flags past the end of the saved queue are dropped.
-    pub fn save_queue_extras(&self, label: Option<&str>, radio: &[bool]) -> Result<()> {
+    /// Call it after `save_queue`: `radio[i]` and `queued[i]` mark queue
+    /// position `i`, and flags past the end of the saved queue are dropped.
+    pub fn save_queue_extras(
+        &self,
+        label: Option<&str>,
+        radio: &[bool],
+        queued: &[bool],
+    ) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute("UPDATE queue SET radio = 0 WHERE radio <> 0", [])?;
-        {
-            let mut mark = tx.prepare_cached("UPDATE queue SET radio = 1 WHERE position = ?1")?;
-            for (pos, _) in radio.iter().enumerate().filter(|(_, r)| **r) {
+        tx.execute(
+            "UPDATE queue SET radio = 0, queued = 0 WHERE radio <> 0 OR queued <> 0",
+            [],
+        )?;
+        for (column, flags) in [("radio", radio), ("queued", queued)] {
+            let sql = format!("UPDATE queue SET {column} = 1 WHERE position = ?1");
+            let mut mark = tx.prepare_cached(&sql)?;
+            for (pos, _) in flags.iter().enumerate().filter(|(_, f)| **f) {
                 mark.execute([pos as i64])?;
             }
         }
@@ -441,10 +459,10 @@ impl Store {
         Ok(())
     }
 
-    /// The label and radio flags saved with the queue. The flags are
-    /// parallel to the tracks `load_queue` returns: entries it skips for
-    /// missing metadata are skipped here too. Empty when none.
-    pub fn queue_extras(&self) -> Result<(Option<String>, Vec<bool>)> {
+    /// The label, radio flags and queued flags saved with the queue. The
+    /// flags are parallel to the tracks `load_queue` returns: entries it
+    /// skips for missing metadata are skipped here too. Empty when none.
+    pub fn queue_extras(&self) -> Result<QueueExtras> {
         let label: Option<String> = self
             .conn
             .prepare_cached("SELECT label FROM queue_state WHERE id = 0")?
@@ -452,13 +470,16 @@ impl Store {
             .optional()?
             .flatten();
         let mut stmt = self.conn.prepare_cached(
-            "SELECT q.radio FROM queue q JOIN tracks t ON t.id = q.track_id
+            "SELECT q.radio, q.queued FROM queue q JOIN tracks t ON t.id = q.track_id
              ORDER BY q.position",
         )?;
-        let radio = stmt
-            .query_map([], |r| r.get::<_, i64>(0).map(|v| v != 0))?
-            .collect::<rusqlite::Result<_>>()?;
-        Ok((label, radio))
+        let mut rows = stmt.query([])?;
+        let (mut radio, mut queued) = (Vec::new(), Vec::new());
+        while let Some(row) = rows.next()? {
+            radio.push(row.get::<_, i64>(0)? != 0);
+            queued.push(row.get::<_, i64>(1)? != 0);
+        }
+        Ok((label, radio, queued))
     }
 
     /// Remember which playlist is the user's main playlist ("Everything").

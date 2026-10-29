@@ -132,7 +132,8 @@ mod tests {
 
     /// The restart path for the queue: what the backend saves
     /// (`save_queue` then `save_queue_extras`), read back as `read_cache`
-    /// does and fed to the reducer, restores the label and radio marks.
+    /// does and fed to the reducer, restores the label, the radio marks
+    /// and the tracks queued to play next.
     #[test]
     fn queue_label_and_radio_survive_restart() {
         let dir = TempDir::new("queue");
@@ -147,16 +148,19 @@ mod tests {
                 1,
             );
             state.queue.extend_radio(vec![track("r1"), track("r2")]);
+            state.queue.add(track("x"));
+            state.queue.add(track("y"));
             let entries = state.queue.entries();
             let tracks: Vec<Track> = entries.iter().map(|e| Track::clone(&e.track)).collect();
             let ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
             let radio: Vec<bool> = entries.iter().map(|e| e.radio).collect();
+            let queued: Vec<bool> = entries.iter().map(|e| e.queued).collect();
 
             let store = Store::open(&dir.db()).unwrap();
             store.upsert_tracks(&tracks).unwrap();
             store.save_queue(&ids, state.queue.current_index()).unwrap();
             store
-                .save_queue_extras(state.queue.playing_from(), &radio)
+                .save_queue_extras(state.queue.playing_from(), &radio, &queued)
                 .unwrap();
             save(
                 &store,
@@ -172,7 +176,7 @@ mod tests {
         let mut state = State::default();
         on_event(&mut state, Event::CachedSettings(load(&store)), now);
         let (tracks, current) = store.load_queue().unwrap();
-        let (label, radio) = store.queue_extras().unwrap();
+        let (label, radio, queued) = store.queue_extras().unwrap();
         on_event(
             &mut state,
             Event::CachedQueue {
@@ -180,22 +184,32 @@ mod tests {
                 current,
                 label,
                 radio,
+                queued,
             },
             now,
         );
         assert!(!state.settings.autoplay);
         assert!(!state.queue.autoplay());
         assert_eq!(state.queue.playing_from(), Some("Everything \u{b7} 2"));
-        let marks: Vec<(&str, bool)> = state
+        let marks: Vec<(&str, bool, bool)> = state
             .queue
             .entries()
             .iter()
-            .map(|e| (e.track.id.as_str(), e.radio))
+            .map(|e| (e.track.id.as_str(), e.radio, e.queued))
             .collect();
         assert_eq!(
             marks,
-            [("a", false), ("b", false), ("r1", true), ("r2", true)]
+            [
+                ("a", false, false),
+                ("x", false, true),
+                ("y", false, true),
+                ("b", false, false),
+                ("r1", true, false),
+                ("r2", true, false)
+            ]
         );
+        assert_eq!(state.queue.upcoming_position("y"), Some(2));
+        assert_eq!(state.queue.upcoming_position("b"), None);
         assert_eq!(
             state.queue.current().map(|e| e.track.id.as_str()),
             Some("a")

@@ -661,10 +661,11 @@ pub enum Event {
     CachedQueue {
         tracks: Vec<Track>,
         current: Option<usize>,
-        /// The "Playing from" label and per-entry radio marks
+        /// The "Playing from" label and per-entry radio and queued marks
         /// (`Store::queue_extras`).
         label: Option<String>,
         radio: Vec<bool>,
+        queued: Vec<bool>,
     },
     CachedPlaylist(Playlist),
     LikeResult {
@@ -1751,13 +1752,14 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             current,
             label,
             radio,
+            queued,
         } => {
             // Restore it stopped; the user presses play to resume.
             if state.queue.is_empty() {
                 state
                     .queue
                     .play_list(&arc_tracks(tracks), current.unwrap_or(0), 0);
-                state.queue.restore_extras(label, &radio);
+                state.queue.restore_extras(label, &radio, &queued);
             }
         }
         Event::CachedPlaylist(p) => {
@@ -2120,10 +2122,10 @@ pub(crate) mod tests {
         for _ in 0..3 {
             assert!(apply(&mut s, &Command::AddToQueue(track("x")), now).is_empty());
         }
-        assert_eq!(queue_ids(&s), ["a", "b", "x", "x", "x"]);
+        assert_eq!(queue_ids(&s), ["a", "x", "x", "x", "b"]);
         let fx = apply(&mut s, &Command::RemoveFromQueue("x".into()), now);
         assert!(fx.is_empty());
-        assert_eq!(queue_ids(&s), ["a", "b", "x", "x"]);
+        assert_eq!(queue_ids(&s), ["a", "x", "x", "b"]);
         assert_eq!(current(&s), "a");
     }
 
@@ -2132,13 +2134,83 @@ pub(crate) mod tests {
         let now = Instant::now();
         let mut s = playing(&["a", "b", "c"], 1, now);
         let before = s.playback.status;
-        for id in ["a", "b", "nope"] {
+        // "c" comes up in the playlist but was never queued.
+        for id in ["a", "b", "c", "nope"] {
             let fx = apply(&mut s, &Command::RemoveFromQueue(id.into()), now);
             assert!(fx.is_empty());
         }
         assert_eq!(queue_ids(&s), ["a", "b", "c"]);
         assert_eq!(current(&s), "b");
         assert_eq!(s.playback.status, before);
+    }
+
+    #[test]
+    fn added_tracks_play_next_then_the_playlist_continues() {
+        let now = Instant::now();
+        let mut s = playing(&["a", "b", "c", "d"], 0, now);
+        apply(&mut s, &Command::Next, now);
+        for id in ["x", "y"] {
+            assert!(apply(&mut s, &Command::AddToQueue(track(id)), now).is_empty());
+        }
+        assert_eq!(queue_ids(&s), ["a", "b", "x", "y", "c", "d"]);
+        assert_eq!(s.queue.upcoming_position("y"), Some(3));
+        assert_eq!(s.queue.upcoming_position("c"), None);
+
+        // A track ending on its own moves into the queued tracks.
+        let fx = on_event(
+            &mut s,
+            Event::TrackEnded {
+                track_id: "b".into(),
+            },
+            now,
+        );
+        assert!(matches!(fx[..], [.., Effect::Load { .. }]), "{fx:?}");
+        assert_eq!(current(&s), "x");
+        apply(&mut s, &Command::Next, now);
+        assert_eq!(current(&s), "y");
+        apply(&mut s, &Command::Next, now);
+        assert_eq!(current(&s), "c");
+        // Previous goes back through the queued tracks.
+        apply(&mut s, &Command::Previous, now);
+        assert_eq!(current(&s), "y");
+        apply(&mut s, &Command::Previous, now);
+        assert_eq!(current(&s), "x");
+    }
+
+    #[test]
+    fn queued_tracks_survive_a_new_context() {
+        let now = Instant::now();
+        let mut s = playing(&["a", "b"], 0, now);
+        apply(&mut s, &Command::AddToQueue(track("x")), now);
+        apply(&mut s, &Command::AddToQueue(track("y")), now);
+        apply(&mut s, &Command::RemoveFromQueue("x".into()), now);
+        apply(&mut s, &Command::AddToQueue(track("z")), now);
+
+        // Play a row of another list.
+        apply(
+            &mut s,
+            &Command::PlayTracks {
+                tracks: list(&["p", "q", "r"]),
+                start: 1,
+                seed: 1,
+            },
+            now,
+        );
+        assert_eq!(queue_ids(&s), ["p", "q", "y", "z", "r"]);
+        assert_eq!(current(&s), "q");
+
+        // Jumping elsewhere in the drawer keeps them next too.
+        apply(&mut s, &Command::JumpTo(4), now);
+        assert_eq!(current(&s), "r");
+        assert_eq!(queue_ids(&s), ["p", "q", "r", "y", "z"]);
+
+        // Shuffle on and off.
+        apply(&mut s, &Command::JumpTo(0), now);
+        apply(&mut s, &Command::SetShuffle { on: true, seed: 5 }, now);
+        assert_eq!(&queue_ids(&s)[..3], ["p", "y", "z"]);
+        apply(&mut s, &Command::SetShuffle { on: false, seed: 0 }, now);
+        assert_eq!(queue_ids(&s), ["p", "y", "z", "q", "r"]);
+        assert_eq!(s.queue.queued_len(), 2);
     }
 
     #[test]
@@ -2318,6 +2390,7 @@ pub(crate) mod tests {
             current: Some(1),
             label: None,
             radio: Vec::new(),
+            queued: Vec::new(),
         };
         let mut s = State::default();
         on_event(&mut s, cached(), now);
@@ -3331,6 +3404,7 @@ pub(crate) mod tests {
                 current: Some(0),
                 label: None,
                 radio: Vec::new(),
+                queued: Vec::new(),
             },
             now,
         );
