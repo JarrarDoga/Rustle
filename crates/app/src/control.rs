@@ -48,8 +48,22 @@ const MAX_LINE: u64 = 256;
 const CLI_TIMEOUT: Duration = Duration::from_secs(2);
 /// Volume steps per 1.0: Ctrl+Up and Ctrl+Down move 5%.
 const VOLUME_STEPS: f32 = 20.0;
-const USAGE: &str = "usage: rustle [play | pause | toggle | next | previous | status]\n       \
-                     rustle --demo";
+const USAGE: &str = "usage: rustle [--demo [--first-run]]
+       rustle play | pause | toggle | next | previous | status
+       rustle --help | --version";
+const HELP: &str = "
+With no arguments, brings the running Rustle to the front, or starts one.
+
+Commands for the running Rustle:
+  play, pause, toggle   control playback
+  next, previous        skip tracks
+  status                print what is playing as JSON
+
+Options:
+  --demo                run on recorded data, with no account
+  --first-run           with --demo, start at the main-playlist picker
+  -h, --help            print this help
+  -V, --version         print the version";
 const CLI_VERBS: [&str; 6] = ["play", "pause", "toggle", "next", "previous", "status"];
 
 /// The control socket for this instance.
@@ -480,21 +494,66 @@ fn presses(input: &mut InputState, modifiers: Modifiers, key: Key, repeats: bool
     count
 }
 
-/// Handles `rustle play|pause|toggle|next|previous|status` and the single
-/// instance check. `None` means: start the app. Arguments starting with
-/// `--` (`--demo`, `--first-run`) always start the app.
-pub fn run_cli(args: &[String]) -> Option<ExitCode> {
-    if args.iter().any(|a| a.starts_with("--")) {
-        return None;
+/// The flags the app reads at start.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Flags {
+    /// `--demo`: run on `FixtureBackend` with no account.
+    pub demo: bool,
+    /// `--first-run`, only with `--demo`: start with no main playlist.
+    pub first_run: bool,
+}
+
+/// What the command line asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum Cli<'a> {
+    /// Start the app. With no flags at all, first try to raise a running one.
+    App(Flags),
+    /// One of [`CLI_VERBS`], sent to the running instance.
+    Verb(&'a str),
+    Help,
+    Version,
+    /// A usage error, with the message to print above the usage.
+    Usage(String),
+}
+
+/// Parses the arguments, left to right: the first bad one is the error, and
+/// `--help` or `--version` before it wins. A verb must come alone, and
+/// anything not listed in [`HELP`] is a usage error, so a typo never starts
+/// a second window.
+fn parse(args: &[String]) -> Cli<'_> {
+    let mut flags = Flags::default();
+    let mut verb = None;
+    for (i, arg) in args.iter().enumerate() {
+        match arg.as_str() {
+            "-h" | "--help" => return Cli::Help,
+            "-V" | "--version" => return Cli::Version,
+            "--demo" if verb.is_none() => flags.demo = true,
+            "--first-run" if verb.is_none() => flags.first_run = true,
+            v if i == 0 && CLI_VERBS.contains(&v) => verb = Some(v),
+            other => return Cli::Usage(format!("unexpected argument '{other}'")),
+        }
     }
+    if let Some(verb) = verb {
+        return Cli::Verb(verb);
+    }
+    if flags.first_run && !flags.demo {
+        return Cli::Usage("--first-run needs --demo".to_owned());
+    }
+    Cli::App(flags)
+}
+
+/// Handles `rustle play|pause|toggle|next|previous|status`, `--help`,
+/// `--version`, usage errors, and the single instance check. `Ok` means:
+/// start the app with these flags; `Err` means: exit with this code.
+pub fn run_cli(args: &[String]) -> Result<Flags, ExitCode> {
     let path = socket_path(false);
-    let code = cli(
+    cli(
         args,
         path.as_deref(),
         &mut io::stdout().lock(),
         &mut io::stderr().lock(),
-    )?;
-    Some(ExitCode::from(code))
+    )
+    .map_err(ExitCode::from)
 }
 
 /// [`run_cli`] with the socket path and output streams passed in.
@@ -503,21 +562,33 @@ fn cli(
     path: Option<&Path>,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> Option<u8> {
-    let Some(verb) = args.first() else {
-        // Plain `rustle` while one is running: bring that one up instead.
-        let raised = path.is_some_and(|p| request(p, "raise").is_ok());
-        return raised.then_some(0);
+) -> Result<Flags, u8> {
+    let verb = match parse(args) {
+        Cli::App(flags) => {
+            // Plain `rustle` while one is running: bring that one up
+            // instead. Flags always start a new instance.
+            let raised = args.is_empty() && path.is_some_and(|p| request(p, "raise").is_ok());
+            return if raised { Err(0) } else { Ok(flags) };
+        }
+        Cli::Verb(verb) => verb,
+        Cli::Help => {
+            let _ = writeln!(out, "{USAGE}\n{HELP}");
+            return Err(0);
+        }
+        Cli::Version => {
+            let _ = writeln!(out, "rustle {}", env!("CARGO_PKG_VERSION"));
+            return Err(0);
+        }
+        Cli::Usage(message) => {
+            let _ = writeln!(err, "rustle: {message}\n{USAGE}");
+            return Err(2);
+        }
     };
-    if args.len() > 1 || !CLI_VERBS.contains(&verb.as_str()) {
-        let _ = writeln!(err, "{USAGE}");
-        return Some(2);
-    }
     let result = match path {
         Some(path) => request(path, verb),
         None => Err(CliError::NotRunning),
     };
-    Some(match result {
+    Err(match result {
         Ok(reply) => match reply.strip_prefix("error ") {
             Some(message) => {
                 let _ = writeln!(err, "rustle: {message}");
@@ -805,7 +876,7 @@ mod tests {
     fn run(args: &[&str], path: Option<&Path>) -> (Option<u8>, String, String) {
         let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
         let (mut out, mut err) = (Vec::new(), Vec::new());
-        let code = cli(&args, path, &mut out, &mut err);
+        let code = cli(&args, path, &mut out, &mut err).err();
         let text = |b: Vec<u8>| String::from_utf8(b).unwrap();
         (code, text(out), text(err))
     }
@@ -877,16 +948,112 @@ mod tests {
         cleanup(&path);
     }
 
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| (*a).to_owned()).collect()
+    }
+
+    #[test]
+    fn parse_verbs() {
+        for verb in CLI_VERBS {
+            assert_eq!(parse(&strings(&[verb])), Cli::Verb(verb));
+        }
+    }
+
+    #[test]
+    fn parse_app_flags() {
+        let app = |demo, first_run| Cli::App(Flags { demo, first_run });
+        let cases: [(&[&str], _); 5] = [
+            (&[], app(false, false)),
+            (&["--demo"], app(true, false)),
+            (&["--demo", "--first-run"], app(true, true)),
+            (&["--first-run", "--demo"], app(true, true)),
+            (&["--demo", "--demo"], app(true, false)),
+        ];
+        for (args, want) in cases {
+            assert_eq!(parse(&strings(args)), want, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn parse_help_and_version() {
+        for args in [
+            &["--help"][..],
+            &["-h"],
+            &["--demo", "--help"],
+            &["next", "--help"],
+            &["--help", "--bogus"],
+        ] {
+            assert_eq!(parse(&strings(args)), Cli::Help, "{args:?}");
+        }
+        for args in [&["--version"][..], &["-V"], &["--demo", "--version"]] {
+            assert_eq!(parse(&strings(args)), Cli::Version, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn parse_usage_errors() {
+        let bad = |a: &str| Cli::Usage(format!("unexpected argument '{a}'"));
+        let cases: [(&[&str], _); 12] = [
+            (&["--demo2"], bad("--demo2")),
+            (&["--bogus", "--help"], bad("--bogus")),
+            (&["--"], bad("--")),
+            (&["-d"], bad("-d")),
+            (&["--DEMO"], bad("--DEMO")),
+            (&["bogus"], bad("bogus")),
+            (&["help"], bad("help")),
+            (&["raise"], bad("raise")),
+            (&["next", "now"], bad("now")),
+            (&["next", "--demo"], bad("--demo")),
+            (&["--demo", "next"], bad("next")),
+            (
+                &["--first-run"],
+                Cli::Usage("--first-run needs --demo".into()),
+            ),
+        ];
+        for (args, want) in cases {
+            assert_eq!(parse(&strings(args)), want, "{args:?}");
+        }
+    }
+
     #[test]
     fn cli_usage_exits_2() {
         let path = temp_sock("cli-usage");
-        for args in [&["jump"][..], &["next", "now"], &["-h"], &["help"]] {
+        for args in [
+            &["jump"][..],
+            &["next", "now"],
+            &["help"],
+            &["--demo2"],
+            &["--first-run"],
+        ] {
             let (code, out, err) = run(args, Some(&path));
             assert_eq!(code, Some(2), "{args:?}");
             assert!(out.is_empty());
-            assert!(err.starts_with("usage: rustle"), "{err}");
+            assert!(err.starts_with("rustle: "), "{err}");
+            assert!(err.contains("\nusage: rustle"), "{err}");
         }
         assert!(!path.exists(), "usage never connects");
+    }
+
+    #[test]
+    fn cli_help_and_version_exit_0() {
+        // A live instance must not hear about either.
+        let path = temp_sock("cli-help");
+        let server = fake_server(&path, "ok");
+        let (code, out, err) = run(&["--help"], Some(&path));
+        assert_eq!((code, err.as_str()), (Some(0), ""));
+        assert!(out.starts_with("usage: rustle"), "{out}");
+        for word in CLI_VERBS
+            .iter()
+            .chain(&["--demo", "--first-run", "--version"])
+        {
+            assert!(out.contains(word), "{word} missing from {out}");
+        }
+        let version = format!("rustle {}\n", env!("CARGO_PKG_VERSION"));
+        assert_eq!(run(&["-V"], Some(&path)), (Some(0), version, "".into()));
+        // Wake the fake server with one real request; it saw only that.
+        assert_eq!(run(&["next"], Some(&path)).0, Some(0));
+        assert_eq!(server.join().unwrap(), ["next"]);
+        cleanup(&path);
     }
 
     #[test]
@@ -901,11 +1068,23 @@ mod tests {
     }
 
     #[test]
-    fn dashed_args_start_the_app() {
-        for args in [&["--demo"][..], &["--first-run"], &["next", "--demo"]] {
-            let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-            assert!(run_cli(&args).is_none(), "{args:?}");
+    fn app_flags_start_without_raising() {
+        let path = temp_sock("cli-flags");
+        let server = fake_server(&path, "ok");
+        for args in [&["--demo"][..], &["--demo", "--first-run"]] {
+            let (code, out, err) = run(args, Some(&path));
+            assert_eq!((code, out.as_str(), err.as_str()), (None, "", ""));
         }
+        let args = strings(&["--demo", "--first-run"]);
+        let flags = cli(&args, Some(&path), &mut io::sink(), &mut io::sink());
+        let want = Flags {
+            demo: true,
+            first_run: true,
+        };
+        assert_eq!(flags, Ok(want));
+        assert_eq!(run(&["next"], Some(&path)).0, Some(0));
+        assert_eq!(server.join().unwrap(), ["next"]);
+        cleanup(&path);
     }
 
     fn key(key: Key, modifiers: Modifiers, repeat: bool) -> Event {

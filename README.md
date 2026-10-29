@@ -93,7 +93,8 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
 - MPRIS: media keys and KDE's media applet.
 - Keyboard: Space, Ctrl+Left/Right, Ctrl+Up/Down for volume, Ctrl+F, Ctrl+L, Ctrl+Q.
 - A control socket and CLI: `rustle play | pause | toggle | next | previous | status`
-  (status prints JSON), handy for global shortcuts in KDE.
+  (status prints JSON), handy for global shortcuts in KDE. `rustle --help` lists the
+  commands and options; anything else prints usage and exits 2.
 - Single instance: running `rustle` again asks the open window to come to the front.
 - An RPM for Fedora and Nobara with a desktop entry and icons.
 

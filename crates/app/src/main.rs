@@ -26,12 +26,10 @@ fn main() -> ExitCode {
     disable_thp();
     let args: Vec<String> = std::env::args().skip(1).collect();
     // `rustle next` and friends: no tokio, no window.
-    if let Some(code) = control::run_cli(&args) {
-        return code;
-    }
-    let demo = args.iter().any(|a| a == "--demo");
-    // With `--demo`: start with no main playlist, to show the first-run picker.
-    let first_run = args.iter().any(|a| a == "--first-run");
+    let control::Flags { demo, first_run } = match control::run_cli(&args) {
+        Ok(flags) => flags,
+        Err(code) => return code,
+    };
     let perf = std::env::var_os("RUSTLE_PERF").is_some_and(|v| v == "1");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
