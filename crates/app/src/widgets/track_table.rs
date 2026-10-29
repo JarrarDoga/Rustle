@@ -1,6 +1,7 @@
 //! The one song table every list uses (D-Tokens track rows, D-Collection,
 //! D-Search, D-Album). Rows are virtualized: only the rows inside the
-//! viewport are laid out and painted.
+//! viewport are laid out and painted. Dragging a row sideways queues its
+//! track (right) or takes one queued copy out (left); see [`swipe`].
 //!
 //! Geometry follows the boards' CSS: the table sits 12 px in from the left
 //! and 8 px in from the right of the region it is given, rows have 8 px
@@ -507,16 +508,26 @@ fn row(
     out: &mut Out,
 ) -> Response {
     let p = theme::pal();
-    let resp = ui.interact(rect, id, Sense::click());
+    let resp = ui.interact(rect, id, Sense::click_and_drag());
+    // Swipe to queue: while dragged sideways the row slides inside its slot.
+    let slot = rect;
+    let swipe = swipe(ui, &resp, id, ctx.state, track, out);
+    let rect = swipe.map_or(rect, |s| rect.translate(vec2(s.offset, 0.0)));
     // Half-open: on the line between two rows only the lower one hovers.
     let hover = resp.contains_pointer()
         && ui
             .ctx()
             .pointer_hover_pos()
             .is_some_and(|p| p.y < rect.bottom());
+    let hover = hover || swipe.is_some();
     let is_current = ctx.current == Some(track.id.as_str());
     let liked = ctx.liked.contains(&track.id);
     let painter = ui.painter().clone();
+    let hint = swipe.map(|s| SwipeHint::new(&painter, slot, s));
+    let painter = match &hint {
+        Some(h) => painter.with_clip_rect(painter.clip_rect().intersect(h.row_clip(slot))),
+        None => painter,
+    };
     let cy = rect.center().y;
 
     // The play button, heart and Add sit on top of the row, so they take
@@ -757,7 +768,202 @@ fn row(
     if add.as_ref().is_some_and(|(r, _)| r.clicked()) {
         cmd(out, Command::AddToMain(vec![Arc::clone(track)]));
     }
+    if let Some(h) = hint {
+        h.paint(ui.painter());
+    }
     resp
+}
+
+// ------------------------------------------------------------------- swipe
+
+/// Horizontal travel at which a swipe commits on release.
+const SWIPE_COMMIT: f32 = 40.0;
+/// Vertical travel past which a drag stops being a swipe until release.
+const SWIPE_SLOP_Y: f32 = 16.0;
+/// How far the row slides at most.
+const SWIPE_MAX: f32 = 96.0;
+
+/// Right adds the track to the queue, left removes its first upcoming copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwipeDir {
+    Add,
+    Remove,
+}
+
+/// A swipe in progress, as the pointer has moved so far.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SwipeMove {
+    dir: SwipeDir,
+    /// How far the row slides, signed.
+    offset: f32,
+    /// Releasing now commits.
+    armed: bool,
+}
+
+/// One row drag, kept in egui's temp memory between frames.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SwipeDrag {
+    origin: Pos2,
+    /// The drag went past [`SWIPE_SLOP_Y`]; it stays dead until release.
+    vertical: bool,
+}
+
+impl SwipeDrag {
+    fn new(origin: Pos2) -> Self {
+        Self {
+            origin,
+            vertical: false,
+        }
+    }
+
+    /// Feeds the pointer position. `None` while the drag is not a sideways
+    /// swipe: not moved, more vertical than horizontal, or past the
+    /// vertical slop at any point.
+    fn update(&mut self, pos: Pos2) -> Option<SwipeMove> {
+        let d = pos - self.origin;
+        self.vertical |= d.y.abs() > SWIPE_SLOP_Y;
+        if self.vertical || d.x.abs() <= d.y.abs() {
+            return None;
+        }
+        Some(SwipeMove {
+            dir: if d.x > 0.0 {
+                SwipeDir::Add
+            } else {
+                SwipeDir::Remove
+            },
+            offset: d.x.clamp(-SWIPE_MAX, SWIPE_MAX),
+            armed: d.x.abs() >= SWIPE_COMMIT,
+        })
+    }
+}
+
+/// What the row draws while swiped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SwipeShown {
+    dir: SwipeDir,
+    offset: f32,
+    armed: bool,
+    /// False for a left swipe on a track with no upcoming copy: it would do
+    /// nothing, so the hint is dimmed.
+    live: bool,
+}
+
+/// Reads a primary-button drag on a row as a swipe. Releasing an armed swipe
+/// sends `AddToQueue` or `RemoveFromQueue`; releasing earlier cancels.
+/// Returns what to draw while the drag lasts. Needs no repaint of its own:
+/// pointer moves repaint (so repaints happen only while a drag is in
+/// progress), and the release frame draws the row back in place.
+fn swipe(
+    ui: &Ui,
+    resp: &Response,
+    id: egui::Id,
+    state: &State,
+    track: &Arc<Track>,
+    out: &mut Out,
+) -> Option<SwipeShown> {
+    let key = id.with("swipe");
+    let primary = egui::PointerButton::Primary;
+    if resp.drag_started_by(primary)
+        && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+    {
+        ui.data_mut(|d| d.insert_temp(key, SwipeDrag::new(origin)));
+    }
+    let live = |dir| dir == SwipeDir::Add || state.queue.upcoming_position(&track.id).is_some();
+    if resp.dragged_by(primary) {
+        let pos = ui.input(|i| i.pointer.latest_pos())?;
+        let mut drag = ui.data(|d| d.get_temp::<SwipeDrag>(key))?;
+        let m = drag.update(pos);
+        ui.data_mut(|d| d.insert_temp(key, drag));
+        // The row takes drags, so on a touch screen (where the scroll area
+        // scrolls by dragging) a vertical one scrolls the list instead.
+        if drag.vertical && ui.input(|i| i.has_touch_screen()) {
+            let dy = ui.input(|i| i.pointer.delta().y);
+            ui.scroll_with_delta_animation(vec2(0.0, dy), egui::style::ScrollAnimation::none());
+        }
+        let m = m?;
+        return Some(SwipeShown {
+            dir: m.dir,
+            offset: m.offset,
+            armed: m.armed,
+            live: live(m.dir),
+        });
+    }
+    if resp.drag_stopped()
+        && let Some(mut drag) = ui.data_mut(|d| {
+            let drag = d.get_temp::<SwipeDrag>(key);
+            d.remove::<SwipeDrag>(key);
+            drag
+        })
+        && let Some(pos) = ui.input(|i| i.pointer.latest_pos())
+        && let Some(m) = drag.update(pos)
+        && m.armed
+        && live(m.dir)
+    {
+        cmd(
+            out,
+            match m.dir {
+                SwipeDir::Add => Command::AddToQueue(Arc::clone(track)),
+                SwipeDir::Remove => Command::RemoveFromQueue(track.id.clone()),
+            },
+        );
+    }
+    None
+}
+
+/// "+ Queue" or "- Queue" at the edge the row is dragged toward: accent once
+/// releasing would commit, dimmed when it would do nothing.
+struct SwipeHint {
+    shown: SwipeShown,
+    pill: Rect,
+    galley: Arc<egui::Galley>,
+}
+
+impl SwipeHint {
+    fn new(painter: &Painter, slot: Rect, shown: SwipeShown) -> Self {
+        let text = match shown.dir {
+            SwipeDir::Add => "+ Queue",
+            SwipeDir::Remove => "- Queue",
+        };
+        let galley =
+            painter.layout_no_wrap(text.to_owned(), theme::secondary(), Color32::PLACEHOLDER);
+        let size = vec2(galley.size().x + 2.0 * theme::SPACE_8, ADD_H);
+        let x = match shown.dir {
+            SwipeDir::Add => slot.right() - PAD - size.x,
+            SwipeDir::Remove => slot.left() + PAD,
+        };
+        let pill = Rect::from_min_size(pos2(x, slot.center().y - size.y / 2.0), size);
+        Self {
+            shown,
+            pill,
+            galley,
+        }
+    }
+
+    /// Where the sliding row paints: its slot, short of the pill, so the
+    /// pill sits on a clear strip at the edge.
+    fn row_clip(&self, slot: Rect) -> Rect {
+        let mut clip = slot;
+        match self.shown.dir {
+            SwipeDir::Add => clip.max.x = self.pill.left() - theme::SPACE_4,
+            SwipeDir::Remove => clip.min.x = self.pill.right() + theme::SPACE_4,
+        }
+        clip
+    }
+
+    fn paint(self, painter: &Painter) {
+        let p = theme::pal();
+        let s = self.shown;
+        let (fill, fg) = if !s.live {
+            (p.surface_2, p.text_3)
+        } else if s.armed {
+            (theme::accent(), p.on_accent)
+        } else {
+            (p.surface_3, p.text_1)
+        };
+        painter.rect_filled(self.pill, CornerRadius::same(theme::RADIUS_CONTROL), fill);
+        let at = self.pill.center() - self.galley.size() / 2.0;
+        painter.galley(at, self.galley, fg);
+    }
 }
 
 /// Row art: the thumbnail once loaded, a flat tile until then.
@@ -994,6 +1200,235 @@ mod tests {
         // Rubber-banding above the top.
         assert_eq!(rows_on_screen(-20.0, 300.0, h, 100), Some((0, 9)));
         assert_eq!(rows_on_screen(0.0, 320.0, h, 0), None);
+    }
+
+    fn drag_to(points: &[(f32, f32)]) -> Option<SwipeMove> {
+        let mut drag = SwipeDrag::new(pos2(100.0, 100.0));
+        let mut last = None;
+        for &(x, y) in points {
+            last = drag.update(pos2(100.0 + x, 100.0 + y));
+        }
+        last
+    }
+
+    #[test]
+    fn swipe_arms_at_the_threshold() {
+        let m = drag_to(&[(39.0, 2.0)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Add);
+        assert!(!m.armed);
+        assert_eq!(m.offset, 39.0);
+        let m = drag_to(&[(20.0, 0.0), (SWIPE_COMMIT, 3.0)]).unwrap();
+        assert!(m.armed);
+        let m = drag_to(&[(-45.0, -4.0)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Remove);
+        assert!(m.armed);
+    }
+
+    #[test]
+    fn swipe_back_below_the_threshold_disarms() {
+        let m = drag_to(&[(60.0, 0.0), (30.0, 0.0)]).unwrap();
+        assert!(!m.armed);
+        // Crossing over turns it into the other direction.
+        let m = drag_to(&[(60.0, 0.0), (-50.0, 0.0)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Remove);
+        assert!(m.armed);
+    }
+
+    #[test]
+    fn row_slides_at_most_swipe_max() {
+        assert_eq!(drag_to(&[(400.0, 0.0)]).unwrap().offset, SWIPE_MAX);
+        assert_eq!(drag_to(&[(-400.0, 0.0)]).unwrap().offset, -SWIPE_MAX);
+    }
+
+    #[test]
+    fn vertical_drags_are_not_swipes() {
+        assert_eq!(drag_to(&[(0.0, 0.0)]), None);
+        // More vertical than horizontal.
+        assert_eq!(drag_to(&[(8.0, 10.0)]), None);
+        // Past the slop, even though the horizontal travel is large.
+        assert_eq!(drag_to(&[(80.0, SWIPE_SLOP_Y + 1.0)]), None);
+        // Once vertical, the rest of the drag stays dead, even back on the
+        // row's line.
+        assert_eq!(drag_to(&[(0.0, 30.0), (80.0, 0.0)]), None);
+        assert_eq!(drag_to(&[(0.0, -30.0), (-80.0, 2.0)]), None);
+    }
+
+    /// The swipe through real egui input: drags on a headless table.
+    mod swipe_gesture {
+        use std::time::Instant;
+
+        use egui::{Event, PointerButton, Vec2};
+
+        use super::super::*;
+        use crate::queue::tests::track;
+        use crate::views::Action;
+
+        struct Rig {
+            ctx: egui::Context,
+            view: View,
+            out: Out,
+            full: Rect,
+            time: f64,
+            tracks: Arc<Vec<Arc<Track>>>,
+        }
+
+        impl Rig {
+            fn new() -> Self {
+                let ctx = egui::Context::default();
+                theme::apply(&ctx);
+                let tracks = Arc::new(["a", "b", "c"].iter().map(|id| track(id)).collect());
+                Self {
+                    ctx,
+                    view: View::default(),
+                    out: Out::new(),
+                    full: Rect::NOTHING,
+                    time: 0.0,
+                    tracks,
+                }
+            }
+
+            fn frame(&mut self, state: &State, events: Vec<Event>) {
+                self.time += 0.05;
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))),
+                    time: Some(self.time),
+                    events,
+                    ..Default::default()
+                };
+                let (view, out, full, tracks) =
+                    (&mut self.view, &mut self.out, &mut self.full, &self.tracks);
+                self.ctx
+                    .run_ui(input, |ui| {
+                        *full = ui.available_rect_before_wrap();
+                        let table = Table {
+                            salt: "t",
+                            tracks,
+                            rows: None,
+                            columns: ALBUM,
+                            scroll_to: None,
+                        };
+                        show(ui, state, view, table, out);
+                    })
+                    .textures_delta
+                    .clear();
+            }
+
+            /// A point `x` px into row `k`, on its centre line.
+            fn at(&self, k: usize, x: f32) -> Pos2 {
+                let top = self.full.top() + theme::TABLE_HEADER_H + theme::SPACE_4;
+                pos2(
+                    self.full.left() + INSET_L + x,
+                    top + (k as f32 + 0.5) * theme::ROW_H,
+                )
+            }
+
+            fn button(&mut self, state: &State, pos: Pos2, pressed: bool) {
+                let e = Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                };
+                self.frame(state, vec![Event::PointerMoved(pos), e]);
+            }
+
+            /// Presses on row `k`, moves through `path` (offsets from the
+            /// press) one frame each, and releases at the last point.
+            fn drag(&mut self, state: &State, k: usize, path: &[(f32, f32)]) {
+                let from = self.at(k, 200.0);
+                self.frame(state, vec![Event::PointerMoved(from)]);
+                self.button(state, from, true);
+                let mut pos = from;
+                for &(x, y) in path {
+                    pos = from + Vec2::new(x, y);
+                    self.frame(state, vec![Event::PointerMoved(pos)]);
+                }
+                self.button(state, pos, false);
+                self.frame(state, vec![]);
+            }
+
+            fn commands(&self) -> Vec<&Command> {
+                self.out
+                    .iter()
+                    .filter_map(|a| match a {
+                        Action::Cmd(c) => Some(c),
+                        _ => None,
+                    })
+                    .collect()
+            }
+        }
+
+        /// Playing "a" with "b" and "c" upcoming.
+        fn playing() -> State {
+            let mut state = State::default();
+            let tracks = Arc::new(["a", "b", "c"].iter().map(|id| track(id)).collect());
+            let play = Command::PlayTracks {
+                tracks,
+                start: 0,
+                seed: 1,
+            };
+            crate::state::apply(&mut state, &play, Instant::now());
+            state
+        }
+
+        #[test]
+        fn a_drag_right_past_the_threshold_queues_the_row() {
+            let state = State::default();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            r.drag(&state, 1, &[(10.0, 0.0), (30.0, 2.0), (60.0, 3.0)]);
+            match r.commands()[..] {
+                [Command::AddToQueue(t)] => assert_eq!(t.id, "b"),
+                ref other => panic!("{other:?}"),
+            }
+            assert_eq!(r.view.selected, None);
+        }
+
+        #[test]
+        fn short_or_vertical_drags_do_nothing() {
+            let state = playing();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            r.drag(&state, 1, &[(10.0, 0.0), (30.0, 0.0)]);
+            r.drag(&state, 1, &[(10.0, 0.0), (60.0, 0.0), (20.0, 0.0)]);
+            r.drag(&state, 1, &[(0.0, 10.0), (10.0, 40.0)]);
+            r.drag(&state, 1, &[(0.0, 30.0), (60.0, 0.0)]);
+            assert!(r.commands().is_empty(), "{:?}", r.commands());
+        }
+
+        #[test]
+        fn a_drag_left_removes_only_an_upcoming_copy() {
+            let state = playing();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            // "a" is playing, not upcoming: nothing.
+            r.drag(&state, 0, &[(-10.0, 0.0), (-60.0, 0.0)]);
+            assert!(r.commands().is_empty());
+            r.drag(&state, 2, &[(-10.0, 0.0), (-60.0, 0.0)]);
+            match r.commands()[..] {
+                [Command::RemoveFromQueue(id)] => assert_eq!(id, "c"),
+                ref other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn click_still_selects_and_double_click_still_plays() {
+            let state = State::default();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            let pos = r.at(2, 200.0);
+            r.frame(&state, vec![Event::PointerMoved(pos)]);
+            r.button(&state, pos, true);
+            r.button(&state, pos, false);
+            assert!(r.commands().is_empty());
+            assert!(matches!(r.view.selected, Some((_, 2))));
+            r.button(&state, pos, true);
+            r.button(&state, pos, false);
+            match r.commands()[..] {
+                [Command::PlayTracks { start, .. }] => assert_eq!(*start, 2),
+                ref other => panic!("{other:?}"),
+            }
+        }
     }
 
     #[test]
