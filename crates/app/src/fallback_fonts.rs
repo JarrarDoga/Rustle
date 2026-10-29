@@ -2,10 +2,10 @@
 //! Korean, and symbols such as `❥`. Without them those titles draw as boxes.
 //!
 //! [`install`] looks the fonts up with `fc-match` on a background thread at
-//! startup, memory-maps the files, and hands each to egui as a
-//! [`FontProvider`]. egui asks the providers only for a character no
-//! installed font has, and appends the font it gets to the end of that
-//! family's chain, so Inter and Phosphor always win. Nothing is bundled.
+//! startup and memory-maps the files, and gives egui a [`FontProvider`] for
+//! each. egui asks the providers only for a character no installed font
+//! has, and appends the font it gets to the end of that family's chain, so
+//! Inter and Phosphor always win. Nothing is bundled.
 //!
 //! Costs: a library without such characters never parses a fallback font,
 //! and a mapped font's pages count toward RSS only once read, so a 33 MB
@@ -19,7 +19,8 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::JoinHandle;
 
 use egui::epaint::text::VariationCoords;
 use egui::{FallbackRequest, FontData, FontInsert, FontProvider, FontTweak};
@@ -56,27 +57,80 @@ const KNOWN_PATHS: [&str; 9] = [
 /// `fc-match` output: path, face index, color flag, languages, families.
 const FC_FORMAT: &str = "%{file}\t%{index}\t%{color}\t%{lang}\t%{family}";
 
-/// Finds the fallback fonts on a background thread and installs them.
-/// Returns at once; until the thread finishes (tens of ms) missing glyphs
-/// draw as boxes, then egui reloads its fonts and redraws.
+/// At most this many fallback fonts: one per CJK pattern, one symbol font.
+const MAX_FONTS: usize = CJK_PATTERNS.len() + 1;
+
+/// Starts the font lookup on a background thread and installs a provider
+/// for each font it may return. Call before the first frame: providers
+/// installed later make egui rebuild all its fonts and its glyph atlas.
 pub fn install(ctx: &egui::Context) {
-    let ctx = ctx.clone();
-    // No thread: no fallback, as on a system without the fonts.
-    let _ = std::thread::Builder::new()
-        .name("rustle-fonts".into())
-        .spawn(move || {
-            let providers: Vec<Arc<dyn FontProvider>> = find()
-                .iter()
-                .enumerate()
-                .filter_map(|(i, font)| SystemFont::open(i, font))
-                .map(|font| Arc::new(font) as Arc<dyn FontProvider>)
-                .collect();
-            if !providers.is_empty() {
-                // eframe's own provider is off (`system_font_fallback`), so
-                // this replaces nothing.
-                ctx.set_font_providers(providers);
-            }
-        });
+    ctx.set_font_providers(slots(Lookup::spawn(|| open_all(&find()))));
+}
+
+/// One provider per possible font, in [`find`]'s order. egui tries them in
+/// turn and keeps the first with the glyph.
+fn slots(lookup: Lookup) -> Vec<Arc<dyn FontProvider>> {
+    let lookup = Arc::new(lookup);
+    (0..MAX_FONTS)
+        .map(|i| {
+            Arc::new(Slot {
+                lookup: Arc::clone(&lookup),
+                i,
+            }) as Arc<dyn FontProvider>
+        })
+        .collect()
+}
+
+/// The fallback fonts, found on a background thread.
+struct Lookup {
+    thread: Mutex<Option<JoinHandle<Vec<SystemFont>>>>,
+    fonts: OnceLock<Vec<SystemFont>>,
+}
+
+impl Lookup {
+    fn spawn(f: impl FnOnce() -> Vec<SystemFont> + Send + 'static) -> Self {
+        // No thread: no fallback, as on a system without the fonts.
+        let thread = std::thread::Builder::new()
+            .name("rustle-fonts".into())
+            .spawn(f)
+            .ok();
+        Self {
+            thread: Mutex::new(thread),
+            fonts: OnceLock::new(),
+        }
+    }
+
+    /// The fonts. egui asks only when a glyph is missing; if that happens
+    /// before the lookup is done (it takes tens of ms), this waits for it,
+    /// once, because egui remembers a miss for good.
+    fn fonts(&self) -> &[SystemFont] {
+        self.fonts.get_or_init(|| {
+            let thread = self.thread.lock().ok().and_then(|mut t| t.take());
+            thread.and_then(|t| t.join().ok()).unwrap_or_default()
+        })
+    }
+}
+
+/// The `i`th fallback font, if the lookup found that many.
+struct Slot {
+    lookup: Arc<Lookup>,
+    i: usize,
+}
+
+impl FontProvider for Slot {
+    fn font_for(&self, request: &FallbackRequest<'_>) -> Option<FontInsert> {
+        self.lookup.fonts().get(self.i)?.font_for(request)
+    }
+}
+
+/// Maps the fonts; skips any that cannot be read.
+fn open_all(found: &[Found]) -> Vec<SystemFont> {
+    found
+        .iter()
+        .take(MAX_FONTS)
+        .enumerate()
+        .filter_map(|(i, font)| SystemFont::open(i, font))
+        .collect()
 }
 
 /// One font face in a font file.
@@ -492,6 +546,26 @@ mod tests {
     }
 
     #[test]
+    fn a_slot_waits_for_a_slow_lookup() {
+        let icon = crate::icons::X.chars().next().unwrap();
+        let lookup = Lookup::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            open_all(&[found(PHOSPHOR, 0)])
+        });
+        let ctx = inter_only(slots(lookup));
+        assert!(ctx.fonts_mut(|f| f.has_glyph(&FontId::proportional(14.0), icon)));
+    }
+
+    #[test]
+    fn slots_with_nothing_found_change_nothing() {
+        let ctx = inter_only(slots(Lookup::spawn(Vec::new)));
+        ctx.fonts_mut(|f| {
+            assert!(!f.has_glyph(&FontId::proportional(14.0), '한'));
+            assert!(f.has_glyph(&FontId::proportional(14.0), 'a'));
+        });
+    }
+
+    #[test]
     fn a_broken_font_file_draws_boxes_without_panicking() {
         let junk = SystemFont::open(
             0,
@@ -520,13 +594,7 @@ mod tests {
         }
         let ctx = egui::Context::default();
         theme::apply(&ctx);
-        let providers: Vec<Arc<dyn FontProvider>> = find()
-            .iter()
-            .enumerate()
-            .filter_map(|(i, f)| SystemFont::open(i, f))
-            .map(|f| Arc::new(f) as Arc<dyn FontProvider>)
-            .collect();
-        ctx.set_font_providers(providers);
+        install(&ctx);
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .textures_delta
             .clear();
