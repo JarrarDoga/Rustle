@@ -2469,10 +2469,10 @@ mod tests {
     fn hearts_change_liked_music_main_too() {
         let now = Instant::now();
         let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
-        s.search = Loadable::Ready(SearchView {
+        s.search = Loadable::Ready(Arc::new(SearchView {
             tracks: list(&["x"]),
             results: SearchResults::default(),
-        });
+        }));
         assert_eq!(
             apply(&mut s, &Command::Like("x".into()), now),
             [Effect::Like("x".into())]
