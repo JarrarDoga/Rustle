@@ -1070,7 +1070,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
 mod tests {
     use std::path::Path;
     use std::sync::Mutex as StdMutex;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use model::{PlaylistSummary, SearchResults};
     use ytm_core::FixtureBackend;
@@ -1096,6 +1096,13 @@ mod tests {
         cookies_cleared: AtomicBool,
         /// Network fetches: "library", "liked", "playlist:<id>".
         fetches: StdMutex<Vec<String>>,
+        /// Likes and unlikes wait on the wire until this is cleared.
+        hold_likes: AtomicBool,
+        /// Likes and unlikes as sent: "like:<id>", "unlike:<id>".
+        likes: StdMutex<Vec<String>>,
+        likes_in_flight: AtomicUsize,
+        /// The most likes and unlikes ever on the wire at once.
+        likes_overlap: AtomicUsize,
         streams: StdMutex<Vec<String>>,
     }
 
@@ -1111,6 +1118,10 @@ mod tests {
     }
 
     impl Flags {
+        fn likes(&self) -> Vec<String> {
+            self.likes.lock().unwrap().clone()
+        }
+
         fn fetched(&self, key: &str) -> usize {
             let fetches = self.fetches.lock().unwrap();
             fetches.iter().filter(|k| *k == key).count()
@@ -1128,6 +1139,23 @@ mod tests {
         fn fetch(&self, key: &str) -> ytm_core::Result<()> {
             self.flags.fetches.lock().unwrap().push(key.to_owned());
             self.offline()
+        }
+
+        /// A like or unlike on the wire, held while `hold_likes` is set.
+        async fn like_request(&self, what: &str, track_id: &str) -> ytm_core::Result<()> {
+            let flags = &self.flags;
+            flags
+                .likes
+                .lock()
+                .unwrap()
+                .push(format!("{what}:{track_id}"));
+            let now = flags.likes_in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            flags.likes_overlap.fetch_max(now, Ordering::SeqCst);
+            while flags.hold_likes.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            flags.likes_in_flight.fetch_sub(1, Ordering::SeqCst);
+            self.write()
         }
 
         fn write(&self) -> ytm_core::Result<()> {
@@ -1186,11 +1214,11 @@ mod tests {
             self.inner.stream(track_id).await
         }
         async fn like(&self, track_id: &str) -> ytm_core::Result<()> {
-            self.write()?;
+            self.like_request("like", track_id).await?;
             self.inner.like(track_id).await
         }
         async fn unlike(&self, track_id: &str) -> ytm_core::Result<()> {
-            self.write()?;
+            self.like_request("unlike", track_id).await?;
             self.inner.unlike(track_id).await
         }
         async fn add_to_playlist(
@@ -1806,6 +1834,135 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(stored, want);
+    }
+
+    /// Sends `commands` from `seq` on with likes held on the wire, checks
+    /// that only `first` went out, then lets them through and waits until
+    /// every edit has settled.
+    fn toggle_held(
+        h: &mut Harness,
+        flags: &Flags,
+        seq: u64,
+        commands: Vec<Command>,
+        first: &str,
+    ) -> Arc<State> {
+        flags.hold_likes.store(true, Ordering::SeqCst);
+        let sent = flags.likes().len();
+        let last = seq + commands.len() as u64 - 1;
+        for (i, command) in commands.into_iter().enumerate() {
+            h.client.send(seq + i as u64, command);
+        }
+        h.wait_for("commands", |s| s.acked == last);
+        // Room for a request the reducer should not have sent to start.
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(flags.likes()[sent..], [first]);
+        flags.hold_likes.store(false, Ordering::SeqCst);
+        h.wait_for("settled", |s| s.pending.is_empty())
+    }
+
+    /// Issue #6: a double-click on a heart never has a like and an unlike
+    /// for one song on the wire at once, and the store ends as YouTube.
+    #[test]
+    fn double_click_sends_like_and_unlike_one_at_a_time() {
+        let db = TempDb::new("double-click");
+        let (backend, flags) = test_backend();
+        let (mut h, s) = with_main(backend, db.opener());
+        let id = s
+            .main_view()
+            .unwrap()
+            .tracks
+            .iter()
+            .find(|t| !s.is_liked(&t.id))
+            .unwrap()
+            .id
+            .clone();
+        let like = format!("like:{id}");
+        let unlike = format!("unlike:{id}");
+
+        let toggle = vec![Command::Like(id.clone()), Command::Unlike(id.clone())];
+        let s = toggle_held(&mut h, &flags, 2, toggle, &like);
+        assert_eq!(flags.likes(), [like.clone(), unlike.clone()]);
+        assert!(!s.is_liked(&id));
+
+        // Three clicks: the last two cancel before going out.
+        let toggle = vec![
+            Command::Like(id.clone()),
+            Command::Unlike(id.clone()),
+            Command::Like(id.clone()),
+        ];
+        let s = toggle_held(&mut h, &flags, 4, toggle, &like);
+        assert_eq!(flags.likes()[2..], [like]);
+        assert!(s.is_liked(&id));
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        assert_eq!(flags.likes_overlap.load(Ordering::SeqCst), 1);
+
+        let want = ids(s.liked.ready().unwrap());
+        drop(h);
+        let stored: Vec<String> = db
+            .open()
+            .liked()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(stored, want);
+    }
+
+    /// The like the second click waited for failed: YouTube kept the song,
+    /// and so do the screen and the store.
+    #[test]
+    fn failed_first_click_of_a_double_click_keeps_the_song() {
+        let db = TempDb::new("double-click-fail");
+        let (backend, flags) = test_backend();
+        let (mut h, s) = with_main(backend, db.opener());
+        let before = ids(s.liked.ready().unwrap());
+        let id = before[1].clone();
+        flags.fail_writes.store(true, Ordering::SeqCst);
+        let toggle = vec![Command::Unlike(id.clone()), Command::Like(id.clone())];
+        let s = toggle_held(&mut h, &flags, 2, toggle, &format!("unlike:{id}"));
+        assert_eq!(flags.likes().len(), 1, "nothing left to send");
+        assert_eq!(ids(s.liked.ready().unwrap()), before);
+        drop(h);
+        let stored: Vec<String> = db
+            .open()
+            .liked()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(stored, before);
+    }
+
+    /// With Liked Music as the main playlist, a remove and add of one song
+    /// go out one after the other and the playlist is fetched once after.
+    #[test]
+    fn liked_music_main_toggle_refetches_once_settled() {
+        let (backend, flags) = test_backend();
+        let mut h = Harness::with(backend, logged_in(), memory_store(), None);
+        h.wait_for("liked", |s| s.liked.ready().is_some());
+        h.client
+            .send(1, Command::SetMainPlaylist(LIKED_MUSIC.into()));
+        let s = h.wait_for("main", |s| s.main_view().is_some());
+        let fetched = || flags.fetched(&format!("playlist:{LIKED_MUSIC}"));
+        assert_eq!(fetched(), 1);
+        let song = Arc::clone(&s.liked.ready().unwrap()[1]);
+
+        let toggle = vec![
+            Command::RemoveFromMain(vec![song.id.clone()]),
+            Command::AddToMain(vec![Arc::clone(&song)]),
+        ];
+        toggle_held(&mut h, &flags, 2, toggle, &format!("unlike:{}", song.id));
+        assert_eq!(
+            flags.likes(),
+            [format!("unlike:{}", song.id), format!("like:{}", song.id)]
+        );
+        eventually("main refetched", || fetched() == 2);
+        // The like put the song at the top, on YouTube and on screen.
+        let s = h.wait_for("settled", |s| s.pending.is_empty());
+        assert_eq!(main_ids(&s)[0], song.id);
+        assert_eq!(main_ids(&s), ids(s.liked.ready().unwrap()));
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        assert_eq!(fetched(), 2, "one fetch, after the last like");
     }
 
     #[test]

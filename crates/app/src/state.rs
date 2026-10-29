@@ -173,6 +173,10 @@ pub struct State {
 }
 
 /// An optimistic edit and what undoes it.
+///
+/// One track has at most one like or unlike on the wire (`sent`), and at
+/// most one of the other kind queued behind it: YouTube may apply two
+/// requests in flight at once in either order (issue #6).
 #[derive(Debug, Clone)]
 pub(crate) enum Pending {
     /// `inserted`: the track was put at the top of the liked list;
@@ -182,6 +186,7 @@ pub(crate) enum Pending {
         track_id: TrackId,
         inserted: bool,
         in_main: bool,
+        sent: bool,
     },
     /// The track was taken out of the liked list at `at`, and out of the
     /// main playlist (when it is [`LIKED_MUSIC`]) at `main`, with its entry
@@ -191,6 +196,7 @@ pub(crate) enum Pending {
         at: Option<usize>,
         main: Option<(usize, Option<String>)>,
         track: Arc<Track>,
+        sent: bool,
     },
     /// Appended to the main playlist with no entry id yet.
     Add {
@@ -203,6 +209,51 @@ pub(crate) enum Pending {
         entries: Vec<(TrackId, String)>,
         removed: Vec<(usize, Arc<Track>, Option<String>)>,
     },
+}
+
+impl Pending {
+    /// For a like or unlike: its track, whether it likes, and whether it
+    /// is on the wire.
+    fn like_edit(&self) -> Option<(&TrackId, bool, bool)> {
+        match self {
+            Pending::Like { track_id, sent, .. } => Some((track_id, true, *sent)),
+            Pending::Unlike { track_id, sent, .. } => Some((track_id, false, *sent)),
+            _ => None,
+        }
+    }
+
+    /// The request for a like or unlike.
+    fn like_effect(&self) -> Option<Effect> {
+        match self.like_edit()? {
+            (id, true, _) => Some(Effect::Like(id.clone())),
+            (id, false, _) => Some(Effect::Unlike(id.clone())),
+        }
+    }
+
+    /// Folds in the undo of a later edit of the same kind and track, so
+    /// undoing this one undoes both.
+    fn absorb(&mut self, later: Pending) {
+        match (self, later) {
+            (
+                Pending::Like {
+                    inserted, in_main, ..
+                },
+                Pending::Like {
+                    inserted: i,
+                    in_main: m,
+                    ..
+                },
+            ) => {
+                *inserted |= i;
+                *in_main |= m;
+            }
+            (Pending::Unlike { at, main, .. }, Pending::Unlike { at: a, main: m, .. }) => {
+                *at = at.or(a);
+                *main = main.take().or(m);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Data that is cached in the store and refreshed from YouTube Music.
@@ -350,6 +401,14 @@ impl State {
             .chain(lists.into_iter().flatten().flatten())
             .find(|t| t.id == id)
             .cloned()
+            // A song unliked off the only list that showed it, liked again
+            // before YouTube answered.
+            .or_else(|| {
+                self.pending.iter().find_map(|p| match p {
+                    Pending::Unlike { track, .. } if track.id == id => Some(Arc::clone(track)),
+                    _ => None,
+                })
+            })
     }
 
     /// The playlist page shows the main playlist's view when it is open.
@@ -988,12 +1047,15 @@ fn like(state: &mut State, id: &TrackId, track: Option<Arc<Track>>) -> Vec<Effec
         _ => false,
     };
     state.sync_page();
-    state.pending.push(Pending::Like {
-        track_id: id.clone(),
-        inserted: track.is_some(),
-        in_main,
-    });
-    vec![Effect::Like(id.clone())]
+    queue_like_edit(
+        state,
+        Pending::Like {
+            track_id: id.clone(),
+            inserted: track.is_some(),
+            in_main,
+            sent: false,
+        },
+    )
 }
 
 fn unlike(state: &mut State, id: &TrackId) -> Vec<Effect> {
@@ -1017,13 +1079,51 @@ fn unlike(state: &mut State, id: &TrackId) -> Vec<Effect> {
     let Some(track) = from_liked.or(from_main.map(|(_, (track, _))| track)) else {
         return Vec::new();
     };
-    state.pending.push(Pending::Unlike {
-        track_id: id.clone(),
-        at,
-        main,
-        track,
-    });
-    vec![Effect::Unlike(id.clone())]
+    queue_like_edit(
+        state,
+        Pending::Unlike {
+            track_id: id.clone(),
+            at,
+            main,
+            track,
+            sent: false,
+        },
+    )
+}
+
+/// Records a like or unlike whose optimistic edit is on screen, and
+/// returns the request to send now, if any. A track has one request on the
+/// wire at a time; a toggle while the other kind is in flight waits behind
+/// it, and a toggle back cancels the one waiting.
+fn queue_like_edit(state: &mut State, mut edit: Pending) -> Vec<Effect> {
+    let Some((id, liked, _)) = edit.like_edit() else {
+        return Vec::new();
+    };
+    let id = id.clone();
+    let of_track = |p: &Pending| p.like_edit().is_some_and(|(t, ..)| *t == id);
+    let Some(last) = state.pending.iter().rposition(of_track) else {
+        let effects = edit.like_effect().into_iter().collect();
+        if let Pending::Like { sent, .. } | Pending::Unlike { sent, .. } = &mut edit {
+            *sent = true;
+        }
+        state.pending.push(edit);
+        return effects;
+    };
+    match state.pending[last].like_edit() {
+        // The same edit is already coming, e.g. a refresh dropped its row.
+        Some((_, l, _)) if l == liked => state.pending[last].absorb(edit),
+        // Waiting behind the opposite one in flight: the two cancel, and
+        // the one in flight is undone as if this had never happened.
+        Some((_, _, false)) => {
+            state.pending.remove(last);
+            if let Some(sent) = state.pending.iter().rposition(of_track) {
+                state.pending[sent].absorb(edit);
+            }
+        }
+        // The opposite one is in flight: send this once it has answered.
+        _ => state.pending.push(edit),
+    }
+    Vec::new()
 }
 
 /// The main playlist's id and view, ready to edit, or a banner saying why
@@ -1155,13 +1255,21 @@ fn on_like_result(
     liked: bool,
     result: Result<(), BackendError>,
 ) -> Vec<Effect> {
-    let pending = take_pending(state, |p| match p {
-        Pending::Like { track_id: id, .. } => liked && *id == track_id,
-        Pending::Unlike { track_id: id, .. } => !liked && *id == track_id,
-        _ => false,
-    });
+    let pending = take_pending(state, |p| p.like_edit() == Some((&track_id, liked, true)));
+    // The opposite edit waiting behind this one.
+    let waiting = state
+        .pending
+        .iter()
+        .position(|p| matches!(p.like_edit(), Some((id, _, false)) if *id == track_id));
     let error = match result {
         Ok(()) => {
+            if let Some(i) = waiting {
+                let next = &mut state.pending[i];
+                if let Pending::Like { sent, .. } | Pending::Unlike { sent, .. } = next {
+                    *sent = true;
+                }
+                return next.like_effect().into_iter().collect();
+            }
             let mut effects = Vec::new();
             // The liked list never had the track: fetch it as YouTube has it.
             if matches!(
@@ -1176,10 +1284,7 @@ fn on_like_result(
             // The main playlist is the liked list: once the last like or
             // unlike is in, fetch it for YouTube's positions. A fetch while
             // others are in flight would drop their optimistic rows.
-            let settled = !state
-                .pending
-                .iter()
-                .any(|p| matches!(p, Pending::Like { .. } | Pending::Unlike { .. }));
+            let settled = !state.pending.iter().any(|p| p.like_edit().is_some());
             if settled && main_is_liked(state) {
                 effects.push(Effect::FetchPlaylist(LIKED_MUSIC.to_owned()));
             }
@@ -1187,15 +1292,39 @@ fn on_like_result(
         }
         Err(e) => e,
     };
-    // Undo by content: a refresh may have replaced the lists meanwhile.
+    // YouTube still has the song as before this edit. An edit waiting
+    // behind it is moot: undo it first, then this one.
+    let waiting = waiting.map(|i| state.pending.remove(i));
+    let cancelled = waiting.is_some();
+    undo_like_edit(state, &track_id, waiting);
+    undo_like_edit(state, &track_id, pending);
+    state.sync_page();
+    if cancelled {
+        // The song ends as the user last left it: no news but a session
+        // that expired.
+        describe(&error, state);
+        return Vec::new();
+    }
+    let what = if liked {
+        "Could not like that song"
+    } else {
+        "Could not remove that song from liked songs"
+    };
+    edit_failed(state, what, &error);
+    Vec::new()
+}
+
+/// Undoes a like or unlike on both lists, by content: a refresh may have
+/// replaced the lists meanwhile.
+fn undo_like_edit(state: &mut State, track_id: &TrackId, pending: Option<Pending>) {
     if let Loadable::Ready(list) = &mut state.liked {
         match &pending {
-            Some(Pending::Like { .. }) => Arc::make_mut(list).retain(|t| t.id != track_id),
+            Some(Pending::Like { .. }) => Arc::make_mut(list).retain(|t| t.id != *track_id),
             Some(Pending::Unlike {
                 at: Some(at),
                 track,
                 ..
-            }) if !list.iter().any(|t| t.id == track_id) => {
+            }) if !list.iter().any(|t| t.id == *track_id) => {
                 let at = (*at).min(list.len());
                 Arc::make_mut(list).insert(at, Arc::clone(track));
             }
@@ -1205,7 +1334,7 @@ fn on_like_result(
     if let Some(view) = main_view_mut(state, LIKED_MUSIC) {
         match pending {
             Some(Pending::Like { in_main: true, .. }) => {
-                if let Some(i) = view.position(&track_id) {
+                if let Some(i) = view.position(track_id) {
                     view.remove(i);
                 }
             }
@@ -1213,18 +1342,10 @@ fn on_like_result(
                 main: Some((at, entry)),
                 track,
                 ..
-            }) if view.position(&track_id).is_none() => view.insert(at, track, entry),
+            }) if view.position(track_id).is_none() => view.insert(at, track, entry),
             _ => {}
         }
     }
-    state.sync_page();
-    let what = if liked {
-        "Could not like that song"
-    } else {
-        "Could not remove that song from liked songs"
-    };
-    edit_failed(state, what, &error);
-    Vec::new()
 }
 
 /// The main playlist is Liked Music.
@@ -2509,6 +2630,132 @@ mod tests {
                 track_ids: vec!["c".into()],
             }]
         );
+    }
+
+    /// Issue #6: a heart toggled back while its request is in flight waits
+    /// for the answer, then goes out alone.
+    #[test]
+    fn toggle_toggle_sends_the_second_once_the_first_answers() {
+        let now = Instant::now();
+        let mut s = with_main(&["a", "b", "c"], &["a", "b", "c"]);
+        assert_eq!(
+            apply(&mut s, &Command::Unlike("b".into()), now),
+            [Effect::Unlike("b".into())]
+        );
+        assert!(apply(&mut s, &Command::Like("b".into()), now).is_empty());
+        // The screen shows where the user left it at once.
+        assert_eq!(liked_ids(&s), ["b", "a", "c"]);
+        assert!(s.is_liked("b"));
+        assert_eq!(
+            like_result(&mut s, "b", false, Ok(())),
+            [Effect::Like("b".into())]
+        );
+        assert!(like_result(&mut s, "b", true, Ok(())).is_empty());
+        assert_eq!(liked_ids(&s), ["b", "a", "c"]);
+        assert!(s.pending.is_empty());
+        assert!(s.banner.is_none());
+    }
+
+    #[test]
+    fn toggle_toggle_toggle_sends_one_request() {
+        let now = Instant::now();
+        let mut s = with_main(&["a", "b", "x"], &["a", "b"]);
+        // From liked: ends unliked.
+        assert_eq!(
+            apply(&mut s, &Command::Unlike("b".into()), now),
+            [Effect::Unlike("b".into())]
+        );
+        assert!(apply(&mut s, &Command::Like("b".into()), now).is_empty());
+        assert!(apply(&mut s, &Command::Unlike("b".into()), now).is_empty());
+        assert_eq!(liked_ids(&s), ["a"]);
+        // From unliked: ends liked.
+        assert_eq!(
+            apply(&mut s, &Command::Like("x".into()), now),
+            [Effect::Like("x".into())]
+        );
+        assert!(apply(&mut s, &Command::Unlike("x".into()), now).is_empty());
+        assert!(apply(&mut s, &Command::Like("x".into()), now).is_empty());
+        assert_eq!(liked_ids(&s), ["x", "a"]);
+        assert!(like_result(&mut s, "b", false, Ok(())).is_empty());
+        assert!(like_result(&mut s, "x", true, Ok(())).is_empty());
+        assert_eq!(liked_ids(&s), ["x", "a"]);
+        assert!(s.pending.is_empty());
+    }
+
+    #[test]
+    fn failure_mid_toggle_rolls_back_to_what_youtube_has() {
+        let now = Instant::now();
+        let mut s = with_main(&["a", "b", "c"], &["a", "b", "c"]);
+        // The first fails with the second waiting: YouTube still has the
+        // song where it was, which is where the user left it.
+        apply(&mut s, &Command::Unlike("b".into()), now);
+        apply(&mut s, &Command::Like("b".into()), now);
+        assert!(like_result(&mut s, "b", false, Err(net())).is_empty());
+        assert_eq!(liked_ids(&s), ["a", "b", "c"]);
+        assert!(s.pending.is_empty());
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        // The second fails: back to after the first.
+        apply(&mut s, &Command::Unlike("b".into()), now);
+        apply(&mut s, &Command::Like("b".into()), now);
+        assert_eq!(
+            like_result(&mut s, "b", false, Ok(())),
+            [Effect::Like("b".into())]
+        );
+        assert!(like_result(&mut s, "b", true, Err(net())).is_empty());
+        assert_eq!(liked_ids(&s), ["a", "c"]);
+        assert!(!s.is_liked("b"));
+        assert!(s.pending.is_empty());
+        let banner = s.banner.clone().unwrap();
+        assert!(banner.starts_with("Could not like"), "{banner}");
+    }
+
+    #[test]
+    fn a_like_in_flight_is_not_sent_twice() {
+        let now = Instant::now();
+        let mut s = with_main(&["a"], &["a"]);
+        // Not in any list, so the heart stays empty until YouTube answers.
+        assert_eq!(
+            apply(&mut s, &Command::Like("zz".into()), now),
+            [Effect::Like("zz".into())]
+        );
+        assert!(apply(&mut s, &Command::Like("zz".into()), now).is_empty());
+        assert_eq!(
+            like_result(&mut s, "zz", true, Ok(())),
+            [Effect::FetchLiked]
+        );
+        assert!(s.pending.is_empty());
+    }
+
+    #[test]
+    fn liked_music_main_toggles_one_at_a_time_and_refetches_once() {
+        let now = Instant::now();
+        let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
+        assert_eq!(
+            apply(&mut s, &Command::RemoveFromMain(vec!["a".into()]), now),
+            [Effect::Unlike("a".into())]
+        );
+        assert!(apply(&mut s, &Command::AddToMain(vec![track("a")]), now).is_empty());
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert_eq!(liked_ids(&s), ["a", "b"]);
+        // No fetch while the second is still to go.
+        assert_eq!(
+            like_result(&mut s, "a", false, Ok(())),
+            [Effect::Like("a".into())]
+        );
+        assert_eq!(
+            like_result(&mut s, "a", true, Ok(())),
+            [refetch_liked_main()]
+        );
+        assert!(s.pending.is_empty());
+
+        // A failure with the second waiting puts both lists back.
+        apply(&mut s, &Command::Unlike("b".into()), now);
+        apply(&mut s, &Command::Like("b".into()), now);
+        assert_eq!(main_ids(&s), ["b", "a"]);
+        assert!(like_result(&mut s, "b", false, Err(net())).is_empty());
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert_eq!(liked_ids(&s), ["a", "b"]);
+        assert!(s.pending.is_empty());
     }
 
     #[test]
