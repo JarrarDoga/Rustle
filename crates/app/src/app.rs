@@ -163,6 +163,27 @@ impl RustleApp {
         }
     }
 
+    /// Puts the saved look into effect: the palette (or the theme builder's
+    /// draft while it is on), sizes, zoom, animations and the "Not heard
+    /// in" window. Each setter does nothing when nothing changed.
+    fn apply_settings(&self, ctx: &egui::Context) {
+        let s = &self.state.settings;
+        let builder = &self.view.settings.builder;
+        let palette = if builder.on {
+            builder.palette()
+        } else {
+            views::settings::saved_palette(s)
+        };
+        theme::set_palette(ctx, palette);
+        theme::set_layout(ctx, views::settings::layout(s));
+        theme::set_animations(ctx, s.animations);
+        let zoom = f32::from(s.ui_scale) / 100.0;
+        if (ctx.zoom_factor() - zoom).abs() > 0.001 {
+            ctx.set_zoom_factor(zoom);
+        }
+        views::collection::set_not_heard_months(s.not_heard_months);
+    }
+
     /// Shown while the backend starts and checks the keyring.
     fn starting(ui: &mut egui::Ui) {
         CentralPanel::default()
@@ -195,7 +216,7 @@ impl RustleApp {
     fn shell(&mut self, ui: &mut egui::Ui) {
         let now = Instant::now();
         let mut out = Vec::new();
-        let p = *theme::pal();
+        let p = theme::pal();
         views::banners::show(ui, &self.state, &mut out);
         let state = &self.state;
         let view = &mut self.view;
@@ -220,8 +241,7 @@ impl RustleApp {
             .frame(region(p.bg))
             .show(ui, |ui| {
                 views::rail::show(ui, state, view, &mut out);
-                let anchor = views::rail::settings_button(ui);
-                views::settings::show(ui, &anchor, state, view, &mut out);
+                views::rail::settings_button(ui, view, &mut out);
             });
         if collection {
             Panel::left("browse")
@@ -249,9 +269,11 @@ impl RustleApp {
                     ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
                         views::collection::show(ui, state, view, &mut out);
                     });
-                    ui.scope_builder(UiBuilder::new().max_rect(spine), |ui| {
-                        widgets::spine::show(ui, state, view, &mut out);
-                    });
+                    if state.settings.spine {
+                        ui.scope_builder(UiBuilder::new().max_rect(spine), |ui| {
+                            widgets::spine::show(ui, state, view, &mut out);
+                        });
+                    }
                 } else {
                     let inner = rect.shrink2(egui::vec2(theme::PAGE_INSET_X, theme::SPACE_16));
                     ui.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
@@ -332,6 +354,7 @@ impl eframe::App for RustleApp {
         let focused = ui.ctx().input(|i| i.viewport().focused).unwrap_or(true);
         if focused
             && !self.focused
+            && self.state.settings.refresh_on_focus
             && self.state.session == Session::LoggedIn
             && self.focus_refresh_at.elapsed() >= FOCUS_REFRESH_EVERY
         {
@@ -348,7 +371,7 @@ impl eframe::App for RustleApp {
             self.send(command);
         }
         self.control.publish(&self.state);
-        theme::set_palette_by_name(ui.ctx(), &self.state.settings.theme);
+        self.apply_settings(ui.ctx());
         let accent = self
             .state
             .current_track()

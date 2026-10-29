@@ -16,8 +16,7 @@
 #![allow(dead_code)]
 
 use std::cell::Cell;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 
 use egui::epaint::Hsva;
 use egui::{
@@ -335,29 +334,333 @@ pub const PALETTES: &[Palette] = &[
     ROSE_PINE_MOON,
 ];
 
-static CURRENT: AtomicUsize = AtomicUsize::new(0);
+/// The name of a palette built in the settings page's theme builder. Its
+/// own name lives in the settings (`state::CustomTheme`).
+pub const CUSTOM_NAME: &str = "Custom";
+
+static ACTIVE: RwLock<Palette> = RwLock::new(GRAPHITE);
 
 /// The palette in use.
-pub fn pal() -> &'static Palette {
-    PALETTES
-        .get(CURRENT.load(Ordering::Relaxed))
-        .unwrap_or(&PALETTES[0])
+pub fn pal() -> Palette {
+    *ACTIVE.read().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Switches the palette (an index into [`PALETTES`]) and restyles `ctx`.
-pub fn set_palette(ctx: &egui::Context, index: usize) {
-    CURRENT.store(index.min(PALETTES.len() - 1), Ordering::Relaxed);
+/// Switches to `palette` and restyles `ctx`. Does nothing when it is
+/// already in use, so the app can call it every frame.
+pub fn set_palette(ctx: &egui::Context, palette: Palette) {
+    {
+        let mut active = ACTIVE.write().unwrap_or_else(PoisonError::into_inner);
+        if *active == palette {
+            return;
+        }
+        *active = palette;
+    }
     style(ctx);
     ctx.request_repaint();
 }
 
-/// Switches to the palette called `name`; an unknown name picks the
-/// default. Does nothing when it is already in use.
-pub fn set_palette_by_name(ctx: &egui::Context, name: &str) {
-    let index = PALETTES.iter().position(|p| p.name == name).unwrap_or(0);
-    if index != CURRENT.load(Ordering::Relaxed) {
-        set_palette(ctx, index);
+/// The preset called `name`.
+pub fn preset(name: &str) -> Option<&'static Palette> {
+    PALETTES.iter().find(|p| p.name == name)
+}
+
+/// The 11 colors of a palette in a fixed order, for saving custom themes
+/// and for the theme builder's "Every color" list. [`ROLES`] names them.
+pub fn colors(p: &Palette) -> [Color32; 11] {
+    [
+        p.bg,
+        p.surface_2,
+        p.surface_3,
+        p.stroke,
+        p.stroke_2,
+        p.text_1,
+        p.text_2,
+        p.text_3,
+        p.on_accent,
+        p.danger,
+        p.fallback_accent,
+    ]
+}
+
+/// The role names and hints for [`colors`], in the same order.
+pub const ROLES: [(&str, &str); 11] = [
+    ("bg", "Every region, one fill"),
+    ("surface_2", "Hover"),
+    ("surface_3", "Selected, active, chips"),
+    ("stroke", "Region edges, table rules"),
+    ("stroke_2", "Inputs, button borders"),
+    ("text_1", "Primary text"),
+    ("text_2", "Secondary text, icons"),
+    ("text_3", "Captions, index numbers"),
+    ("on_accent", "Text on an accent fill"),
+    ("danger", "Errors, expired session"),
+    ("fallback_accent", "Accent with no album art"),
+];
+
+/// A custom palette from its [`colors`]. The tone follows `bg`.
+pub fn from_colors(c: [Color32; 11]) -> Palette {
+    let tone = if art_color::lightness(rgb(c[0])) < 0.25 {
+        Tone::Dark
+    } else {
+        Tone::Medium
+    };
+    Palette {
+        name: CUSTOM_NAME,
+        tone,
+        bg: c[0],
+        surface_2: c[1],
+        surface_3: c[2],
+        stroke: c[3],
+        stroke_2: c[4],
+        text_1: c[5],
+        text_2: c[6],
+        text_3: c[7],
+        on_accent: c[8],
+        danger: c[9],
+        fallback_accent: c[10],
     }
+}
+
+/// The theme builder's Quick sliders.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Recipe {
+    /// Hue of the neutrals, degrees.
+    pub hue: f32,
+    /// OKLCH chroma of the neutrals, 0 to 0.05.
+    pub tint: f32,
+    /// OKLab lightness of `bg`, 0.12 to 0.34.
+    pub darkness: f32,
+    /// 0 to 1: how far the text colors sit from `bg`.
+    pub contrast: f32,
+    /// Lightness step between `bg` and each surface, 0.02 to 0.08.
+    pub steps: f32,
+    /// Hue of the fallback accent, degrees.
+    pub accent_hue: f32,
+}
+
+impl Default for Recipe {
+    fn default() -> Self {
+        Self {
+            hue: 265.0,
+            tint: 0.014,
+            darkness: 0.18,
+            contrast: 0.7,
+            steps: 0.04,
+            accent_hue: 300.0,
+        }
+    }
+}
+
+impl Recipe {
+    /// The palette these sliders make: every neutral on one hue, surfaces
+    /// a step apart, text at the contrast asked for.
+    pub fn palette(&self) -> Palette {
+        let (h, c) = (f64::from(self.hue), f64::from(self.tint));
+        let (l, k, step) = (
+            f64::from(self.darkness),
+            f64::from(self.contrast),
+            f64::from(self.steps),
+        );
+        let n = |l: f64, c: f64| color(art_color::from_oklch(l, c, h));
+        from_colors([
+            n(l, c),
+            n(l + step, c),
+            n(l + step * 2.0, c),
+            n(l + step * 1.1, c),
+            n(l + step * 3.0, c),
+            n(0.86 + 0.10 * k, c * 0.5),
+            n(0.70 + 0.08 * k, c * 0.8),
+            n(0.60 + 0.06 * k, c * 0.9),
+            n((l - 0.03).min(0.2), c),
+            color(art_color::from_oklch(0.72, 0.15, 22.0)),
+            color(art_color::from_oklch(
+                0.80,
+                0.11,
+                f64::from(self.accent_hue),
+            )),
+        ])
+    }
+
+    /// Sliders that start from `p`: its `bg` hue, chroma and lightness and
+    /// its accent's hue; contrast and steps stay.
+    pub fn starting_from(&self, p: &Palette) -> Self {
+        let (l, c, h) = art_color::to_oklch(rgb(p.bg));
+        let (_, _, accent_hue) = art_color::to_oklch(rgb(p.fallback_accent));
+        Self {
+            hue: h as f32,
+            tint: (c as f32).min(0.05),
+            darkness: (l as f32).clamp(0.12, 0.34),
+            accent_hue: accent_hue as f32,
+            ..*self
+        }
+    }
+}
+
+// --------------------------------------------------------------- checks
+
+/// One of the contrast rules every palette must meet; the presets are
+/// tested against the same list.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Check {
+    pub what: &'static str,
+    pub got: f64,
+    pub min: f64,
+    /// Contrast ratio, else an OKLab lightness step.
+    pub ratio: bool,
+}
+
+impl Check {
+    pub fn ok(&self) -> bool {
+        self.got >= self.min
+    }
+}
+
+/// WCAG relative luminance.
+fn luminance(c: Color32) -> f64 {
+    let lin = |v: u8| {
+        let v = f64::from(v) / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+}
+
+/// WCAG contrast ratio.
+pub fn contrast(a: Color32, b: Color32) -> f64 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// Art accents at L 0.80 (the D-Tokens board) plus the neutral one.
+pub fn sample_accents() -> [Color32; 5] {
+    [
+        hex(0x71CFDA),
+        hex(0x8DC4F4),
+        hex(0xFA9FB4),
+        hex(0xE0B767),
+        color(art_color::accent([128, 128, 128])),
+    ]
+}
+
+/// The checks for `p` with the player bar tint at `tint` (0 to 1).
+pub fn checks(p: &Palette, tint: f64) -> Vec<Check> {
+    let l = |c: Color32| art_color::lightness(rgb(c));
+    let accents = sample_accents();
+    let worst = |f: &dyn Fn(Color32) -> f64| {
+        accents
+            .iter()
+            .chain([&p.fallback_accent])
+            .map(|&a| f(a))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let ratio = |what, got, min| Check {
+        what,
+        got,
+        min,
+        ratio: true,
+    };
+    let step = |what, got, min| Check {
+        what,
+        got,
+        min,
+        ratio: false,
+    };
+    let bg = l(p.bg);
+    vec![
+        ratio("text_1 on bg", contrast(p.text_1, p.bg), 7.0),
+        ratio("text_2 on bg", contrast(p.text_2, p.bg), 4.5),
+        ratio("text_3 on bg", contrast(p.text_3, p.bg), 3.0),
+        ratio("text_1 on surface_3", contrast(p.text_1, p.surface_3), 4.5),
+        ratio("danger on bg", contrast(p.danger, p.bg), 3.0),
+        ratio(
+            "on_accent on accents",
+            worst(&|a| contrast(p.on_accent, a)),
+            4.5,
+        ),
+        ratio(
+            "text_1 on player tint",
+            worst(&|a| {
+                let t = color(art_color::tint_over_by(rgb(a), rgb(p.bg), tint));
+                contrast(p.text_1, t)
+            }),
+            7.0,
+        ),
+        step("stroke steps from bg", (l(p.stroke) - bg).abs(), 0.02),
+        step("stroke_2 steps up", l(p.stroke_2) - bg, 0.02),
+        step("surface_2 steps up", l(p.surface_2) - bg, 0.02),
+        step(
+            "surface_3 over surface_2",
+            l(p.surface_3) - l(p.surface_2),
+            0.0,
+        ),
+        step("bg is dark or medium", 0.35 - bg, 0.0),
+    ]
+}
+
+// ------------------------------------------------------------------ layout
+
+/// The size settings, read by the views through [`layout`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Layout {
+    /// Body text size in px; every text style scales from 13.
+    pub text_size: f32,
+    /// Track table row height.
+    pub row_h: f32,
+    /// Album art in track table rows.
+    pub row_art: bool,
+    /// The Album column in the main playlist.
+    pub album_column: bool,
+    /// The accent's share of the player bar, 0 to 1.
+    pub tint: f64,
+}
+
+impl Layout {
+    pub const DEFAULT: Self = Self {
+        text_size: 13.0,
+        row_h: ROW_H,
+        row_art: true,
+        album_column: true,
+        tint: 0.14,
+    };
+}
+
+static LAYOUT: RwLock<Layout> = RwLock::new(Layout::DEFAULT);
+
+/// The size settings in use.
+pub fn layout() -> Layout {
+    *LAYOUT.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Switches the size settings and restyles `ctx`; does nothing when they
+/// are already in use.
+pub fn set_layout(ctx: &egui::Context, layout: Layout) {
+    {
+        let mut active = LAYOUT.write().unwrap_or_else(PoisonError::into_inner);
+        if *active == layout {
+            return;
+        }
+        *active = layout;
+    }
+    style(ctx);
+    ctx.request_repaint();
+}
+
+/// Track table row height ("Row density").
+pub fn row_h() -> f32 {
+    layout().row_h
+}
+
+/// Row art: 24 px, smaller in compact rows.
+pub fn row_art() -> f32 {
+    (row_h() - 8.0).min(ROW_ART)
+}
+
+/// `size` at the "Text size" setting.
+fn sized(size: f32) -> f32 {
+    (size * layout().text_size / 13.0).round()
 }
 
 // ------------------------------------------------------------------- accent
@@ -408,7 +711,11 @@ pub fn accent_pressed() -> Color32 {
 
 /// The player bar fill: the accent at 14% over `bg`. Player bar only.
 pub fn tint() -> Color32 {
-    color(art_color::tint_over(rgb(accent()), rgb(pal().bg)))
+    color(art_color::tint_over_by(
+        rgb(accent()),
+        rgb(pal().bg),
+        layout().tint,
+    ))
 }
 
 /// A track-colored mark on the tint: `text_1` at 16% over [`tint`].
@@ -446,42 +753,42 @@ pub fn text_weight(f: &FontFamily) -> Option<f32> {
 
 /// 22 / 600: page title.
 pub fn page_title() -> FontId {
-    FontId::new(22.0, family(INTER_600))
+    FontId::new(sized(22.0), family(INTER_600))
 }
 
 /// 16 / 600: section heading.
 pub fn section() -> FontId {
-    FontId::new(16.0, family(INTER_600))
+    FontId::new(sized(16.0), family(INTER_600))
 }
 
 /// 13 / 500: row title, nav, button.
 pub fn row() -> FontId {
-    FontId::new(13.0, family(INTER_500))
+    FontId::new(sized(13.0), family(INTER_500))
 }
 
 /// 13 / 600: the playing row's title.
 pub fn row_strong() -> FontId {
-    FontId::new(13.0, family(INTER_600))
+    FontId::new(sized(13.0), family(INTER_600))
 }
 
 /// 12 / 400: secondary text, chips.
 pub fn secondary() -> FontId {
-    FontId::new(12.0, FontFamily::Proportional)
+    FontId::new(sized(12.0), FontFamily::Proportional)
 }
 
 /// 13 / 400: body text (lyrics, settings rows, notes).
 pub fn body() -> FontId {
-    FontId::new(13.0, FontFamily::Proportional)
+    FontId::new(sized(13.0), FontFamily::Proportional)
 }
 
 /// 11 / 400: small regular text (sources, hints).
 pub fn small() -> FontId {
-    FontId::new(11.0, FontFamily::Proportional)
+    FontId::new(sized(11.0), FontFamily::Proportional)
 }
 
 /// 11 / 500: caption, table header.
 pub fn caption() -> FontId {
-    FontId::new(11.0, family(INTER_500))
+    FontId::new(sized(11.0), family(INTER_500))
 }
 
 /// A Phosphor regular icon at `size` px.
@@ -558,6 +865,24 @@ pub fn hairline() -> Stroke {
 pub fn apply(ctx: &egui::Context) {
     fonts(ctx);
     style(ctx);
+    ctx.options_mut(|o| {
+        // Quit is a rebindable shortcut (`control::shortcuts`).
+        o.quit_shortcuts.clear();
+        // The "Interface scale" setting owns the zoom factor.
+        o.zoom_with_keyboard = false;
+    });
+}
+
+/// Turns egui's fades and slides on or off.
+pub fn set_animations(ctx: &egui::Context, on: bool) {
+    let time = if on {
+        egui::Style::default().animation_time
+    } else {
+        0.0
+    };
+    if ctx.global_style().animation_time != time {
+        ctx.all_styles_mut(|s| s.animation_time = time);
+    }
 }
 
 fn fonts(ctx: &egui::Context) {
@@ -605,7 +930,7 @@ fn fonts(ctx: &egui::Context) {
 }
 
 fn style(ctx: &egui::Context) {
-    let p = *pal();
+    let p = pal();
     ctx.set_theme(ThemePreference::Dark);
     ctx.style_mut_of(Theme::Dark, |style| {
         let v: &mut Visuals = &mut style.visuals;
@@ -735,6 +1060,39 @@ mod tests {
 
     fn check(what: &str, p: &Palette, got: f64, min: f64) {
         assert!(got >= min, "{}: {what} is {got:.2}, want >= {min}", p.name);
+    }
+
+    #[test]
+    fn presets_pass_the_builder_checks() {
+        for p in PALETTES {
+            for c in checks(p, 0.14) {
+                assert!(
+                    c.ok(),
+                    "{}: {} is {:.3}, want >= {}",
+                    p.name,
+                    c.what,
+                    c.got,
+                    c.min
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_recipe_passes_and_colors_round_trip() {
+        let p = Recipe::default().palette();
+        assert!(checks(&p, 0.14).iter().all(Check::ok));
+        assert_eq!(from_colors(colors(&p)), p);
+        assert_eq!(p.tone, Tone::Dark);
+        // A light bg fails the tone check.
+        let light = Recipe {
+            darkness: 0.34,
+            ..Recipe::default()
+        }
+        .palette();
+        assert_eq!(light.tone, Tone::Medium);
+        let pale = from_colors([hex(0xF0F0F0); 11]);
+        assert!(!checks(&pale, 0.14).iter().all(Check::ok));
     }
 
     #[test]

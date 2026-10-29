@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -24,10 +25,32 @@ use crate::theme;
 use crate::views::{Chip, CollectionView, Out, Sort, View, artists, cmd};
 use crate::widgets::{ArtKind, art, seed, text_line, track_table};
 
-/// "Not heard in 3 months": never played here, or last played more than
-/// 90 days ago.
-const NOT_HEARD_SECS: i64 = 90 * 86_400;
-const NOT_HEARD_LABEL: &str = "Not heard in 3 months";
+/// The "Not heard in" window in months (the setting), set by `app.rs`
+/// each frame. A month is 30 days, so 3 months is 90.
+static NOT_HEARD_MONTHS: AtomicU8 = AtomicU8::new(3);
+
+/// Sets the "Not heard in" window from the settings.
+pub fn set_not_heard_months(months: u8) {
+    NOT_HEARD_MONTHS.store(months.max(1), Ordering::Relaxed);
+}
+
+fn not_heard_months() -> u8 {
+    NOT_HEARD_MONTHS.load(Ordering::Relaxed)
+}
+
+/// "Not heard in 3 months": never played here, or last played longer
+/// ago than the window.
+fn not_heard_secs(months: u8) -> i64 {
+    i64::from(months) * 30 * 86_400
+}
+
+fn not_heard_label() -> String {
+    match not_heard_months() {
+        1 => "Not heard in a month".to_owned(),
+        12 => "Not heard in a year".to_owned(),
+        n => format!("Not heard in {n} months"),
+    }
+}
 
 /// Narrowest the filter field gets before the quick filter and the sort
 /// menu give up text.
@@ -101,6 +124,7 @@ struct Memo {
     tracks: Weak<Tracks>,
     played: Weak<Played>,
     hour: i64,
+    months: u8,
     stats: Stats,
     query: Option<Query>,
     visible: Arc<Vec<usize>>,
@@ -163,15 +187,20 @@ fn lookup(
     hour: i64,
 ) -> (Arc<Vec<usize>>, Scope) {
     MEMO.with_borrow_mut(|memo| {
-        let cutoff = hour * 3600 - NOT_HEARD_SECS;
-        let fresh = memo
-            .as_ref()
-            .is_some_and(|m| same(&m.tracks, tracks) && same(&m.played, played) && m.hour == hour);
+        let months = not_heard_months();
+        let cutoff = hour * 3600 - not_heard_secs(months);
+        let fresh = memo.as_ref().is_some_and(|m| {
+            same(&m.tracks, tracks)
+                && same(&m.played, played)
+                && m.hour == hour
+                && m.months == months
+        });
         if !fresh {
             *memo = Some(Memo {
                 tracks: Arc::downgrade(tracks),
                 played: Arc::downgrade(played),
                 hour,
+                months,
                 stats: stats(tracks, played, cutoff),
                 query: None,
                 visible: Arc::default(),
@@ -347,7 +376,7 @@ fn label(text: &str, chips: &[Chip]) -> String {
     match chips {
         [one] => chip_name(one).to_owned(),
         _ if !text.is_empty() => format!("\u{201c}{text}\u{201d}"),
-        [] => NOT_HEARD_LABEL.to_owned(),
+        [] => not_heard_label(),
         many => many.iter().map(chip_name).collect::<Vec<_>>().join(", "),
     }
 }
@@ -407,7 +436,13 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
     let table = Rect::from_min_max(
         rest.min,
         Pos2::new(
-            (rest.right() - theme::SPINE_COLUMN_W).max(rest.left()),
+            (rest.right()
+                - if state.settings.spine {
+                    theme::SPINE_COLUMN_W
+                } else {
+                    0.0
+                })
+            .max(rest.left()),
             rest.bottom(),
         ),
     );
@@ -533,7 +568,7 @@ fn not_ready(ui: &mut Ui, state: &State, view: &mut View) {
         p.text_3,
         field.width() - 20.0,
     );
-    let rows = (ui.available_height() / theme::ROW_H)
+    let rows = (ui.available_height() / theme::row_h())
         .ceil()
         .clamp(1.0, 40.0) as usize;
     track_table::skeleton(ui, rows);
@@ -1011,7 +1046,7 @@ impl Pill {
             painter.layout_no_wrap(text.to_owned(), theme::secondary(), Color32::PLACEHOLDER)
         };
         Self {
-            label: label.then(|| layout(NOT_HEARD_LABEL)),
+            label: label.then(|| layout(&not_heard_label())),
             count: count_shown.then(|| layout(count)),
         }
     }
@@ -1026,12 +1061,15 @@ impl Pill {
     }
 
     fn show(self, ui: &mut Ui, rect: Rect, on: bool, count: &str) -> Response {
-        const HINT: &str = "Songs never played here, or last played over 90 days ago";
+        let hint = format!(
+            "Songs never played here, or last played over {} days ago",
+            not_heard_secs(not_heard_months()) / 86_400
+        );
         let p = theme::pal();
         let hover = if self.label.is_some() {
-            HINT.to_owned()
+            hint
         } else {
-            format!("{NOT_HEARD_LABEL} \u{b7} {count}\n{HINT}")
+            format!("{} \u{b7} {count}\n{hint}", not_heard_label())
         };
         let resp = ui
             .interact(rect, ui.scope_id().with("not-heard"), Sense::click())
@@ -1495,7 +1533,7 @@ mod tests {
             not_heard: true,
             ..CollectionView::default()
         };
-        let cutoff = NOW - NOT_HEARD_SECS;
+        let cutoff = NOW - not_heard_secs(3);
         // The fastest of a few runs: on a loaded machine (load average 35
         // seen) a single run can be descheduled past the bound.
         let fastest = |c: &CollectionView, with_stats: bool| {

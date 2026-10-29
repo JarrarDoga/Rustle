@@ -1,8 +1,7 @@
 //! The 52 px icon rail (D-Collection): the app mark, then Collection,
 //! Search and Library.
 //!
-//! The space below the three buttons stays empty: Batch 4 adds a settings
-//! button at the bottom of the rail.
+//! The settings button sits at the bottom of the rail.
 
 use egui::{Align2, Pos2, Rect, Sense, Ui, vec2};
 
@@ -69,9 +68,9 @@ pub fn show(ui: &mut Ui, state: &State, view: &View, out: &mut Out) {
     }
 }
 
-/// The settings button at the bottom of the rail; opens the settings
-/// popover (`views::settings`).
-pub fn settings_button(ui: &mut Ui) -> egui::Response {
+/// The settings button at the bottom of the rail; opens the settings page
+/// (`views::settings`).
+pub fn settings_button(ui: &mut Ui, view: &View, out: &mut Out) {
     let p = theme::pal();
     let rect = ui.max_rect();
     let center = Pos2::new(
@@ -82,11 +81,16 @@ pub fn settings_button(ui: &mut Ui) -> egui::Response {
     let resp = ui
         .allocate_rect(r, Sense::click())
         .on_hover_text("Settings");
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(r, theme::RADIUS_CONTROL, p.surface_2);
+    let active = view.route == Route::Settings;
+    if active || resp.hovered() {
+        let fill = if active { p.surface_3 } else { p.surface_2 };
+        ui.painter().rect_filled(r, theme::RADIUS_CONTROL, fill);
     }
-    let color = if resp.hovered() { p.text_1 } else { p.text_2 };
+    let color = if active || resp.hovered() {
+        p.text_1
+    } else {
+        p.text_2
+    };
     ui.painter().text(
         center,
         Align2::CENTER_CENTER,
@@ -94,7 +98,9 @@ pub fn settings_button(ui: &mut Ui) -> egui::Response {
         theme::icon(GLYPH),
         color,
     );
-    resp
+    if resp.clicked() && !active {
+        out.push(Action::Go(Route::Settings));
+    }
 }
 
 /// The rail button a route lights: other playlists and liked songs live
@@ -104,6 +110,6 @@ fn lights(route: &Route) -> Option<Route> {
         Route::Collection => Some(Route::Collection),
         Route::Search => Some(Route::Search),
         Route::Library | Route::Liked | Route::Playlist(_) => Some(Route::Library),
-        Route::Album(_) | Route::Artist(_) => None,
+        Route::Album(_) | Route::Artist(_) | Route::Settings => None,
     }
 }
