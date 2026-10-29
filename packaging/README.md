@@ -40,7 +40,7 @@ they were for and how to put them back.
 After review, on the host:
 
 ```sh
-SUDO_ASKPASS=~/.local/bin/swoq-askpass sudo -A dnf install ./target/generate-rpm/rustle-0.1.0-1.x86_64.rpm
+SUDO_ASKPASS=~/.local/bin/swoq-askpass sudo -A dnf install ./target/generate-rpm/rustle-0.2.0-1.x86_64.rpm
 ```
 
 Remove it with `sudo -A dnf remove rustle` the same way.

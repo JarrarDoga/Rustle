@@ -31,7 +31,7 @@ pipeline, and never starts a browser engine.
 
 | Measure | Result | Budget |
 | --- | --- | --- |
-| Release binary | **19.9 MB** | 25 MB |
+| Release binary | **21.2 MB** | 25 MB |
 | Peak RAM, 33-song demo | **117.7 MB** | 150 MB |
 | Peak RAM, 1,535-song library with album art | **138.1 MB** | 150 MB |
 | Cold start to first frame | **101 ms** | 1 s |
@@ -144,7 +144,7 @@ redraws from immutable state snapshots, and it repaints only on input or state c
 **Fedora / Nobara (RPM)** from the [releases](../../releases):
 
 ```sh
-sudo dnf install ./rustle-0.1.0-1.x86_64.rpm
+sudo dnf install ./rustle-0.2.0-1.x86_64.rpm
 ```
 
 **From source:**
