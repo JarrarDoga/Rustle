@@ -23,7 +23,8 @@ use ytm_core::{BackendError, MusicBackend};
 use crate::playback::Playback;
 use crate::queue::Queue;
 use crate::state::{
-    Command, Effect, Event, Feed, Session, State, apply, next_wake, on_event, sync_position, tick,
+    Command, Effect, Event, Feed, LIKED_MUSIC, Session, State, apply, next_wake, on_event,
+    sync_position, tick,
 };
 
 /// Called after each new snapshot; the app passes `ctx.request_repaint()`.
@@ -796,6 +797,10 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
                 let tracks: Vec<Track> = liked.iter().map(|t| Track::clone(t)).collect();
                 self.store
                     .run(move |s| log_store_error("liked songs", s.set_liked(&tracks)));
+                // Liked Music as the main playlist changed with it.
+                if state.main.as_ref().is_some_and(|(id, _)| id == LIKED_MUSIC) {
+                    self.write_back(state, WriteBack::Main);
+                }
             }
             WriteBack::Main => {
                 let Some(p) = state.main_playlist() else {
@@ -1154,6 +1159,22 @@ mod tests {
         }
         async fn playlist(&self, id: &str) -> ytm_core::Result<model::Playlist> {
             self.fetch(&format!("playlist:{id}"))?;
+            // The fixtures have no Liked Music playlist: serve the liked
+            // songs, which have no entry ids, as YouTube does.
+            if id == LIKED_MUSIC {
+                let tracks = self.inner.liked_tracks().await?;
+                return Ok(model::Playlist {
+                    summary: PlaylistSummary {
+                        id: id.to_owned(),
+                        name: "Liked Music".to_owned(),
+                        owner: None,
+                        track_count: Some(tracks.len() as u64),
+                        thumbnails: Vec::new(),
+                    },
+                    entry_ids: vec![None; tracks.len()],
+                    tracks,
+                });
+            }
             self.inner.playlist(id).await
         }
         async fn liked_tracks(&self) -> ytm_core::Result<Vec<Track>> {
@@ -1178,6 +1199,7 @@ mod tests {
             track_ids: &[model::TrackId],
         ) -> ytm_core::Result<Vec<Option<String>>> {
             self.write()?;
+            liked_music_edit(playlist_id)?;
             self.inner.add_to_playlist(playlist_id, track_ids).await
         }
         async fn remove_from_playlist(
@@ -1186,6 +1208,7 @@ mod tests {
             entries: &[(model::TrackId, String)],
         ) -> ytm_core::Result<()> {
             self.write()?;
+            liked_music_edit(playlist_id)?;
             self.inner.remove_from_playlist(playlist_id, entries).await
         }
         async fn radio(&self, track_id: &str) -> ytm_core::Result<Vec<Track>> {
@@ -1205,6 +1228,16 @@ mod tests {
         async fn lyrics(&self, id: &str) -> ytm_core::Result<Option<model::Lyrics>> {
             self.inner.lyrics(id).await
         }
+    }
+
+    /// YouTube's answer to `browse/edit_playlist` on Liked Music (issue #10).
+    fn liked_music_edit(playlist_id: &str) -> ytm_core::Result<()> {
+        if playlist_id == LIKED_MUSIC {
+            return Err(BackendError::Extraction(
+                "bad request: Request contains an invalid argument.".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn test_backend() -> (TestBackend, Arc<Flags>) {
@@ -1812,6 +1845,52 @@ mod tests {
         assert_eq!(saved.entry_ids.len(), saved.tracks.len());
         assert!(saved.entry_ids.iter().all(Option::is_some));
         assert_eq!(store.main_playlist().unwrap().as_deref(), Some(MAIN));
+    }
+
+    /// Liked Music as the main playlist: adds and removes are likes and
+    /// unlikes, both lists change together, and the main playlist is
+    /// fetched again once YouTube has answered.
+    #[test]
+    fn liked_music_main_edits_by_liking() {
+        let db = TempDb::new("liked-main");
+        let (backend, flags) = test_backend();
+        let mut h = Harness::with(backend, logged_in(), db.opener(), None);
+        h.wait_for("liked", |s| s.liked.ready().is_some());
+        h.client
+            .send(1, Command::SetMainPlaylist(LIKED_MUSIC.into()));
+        let s = h.wait_for("main", |s| s.main_view().is_some());
+        assert_eq!(main_ids(&s), ids(s.liked.ready().unwrap()));
+        let fetched = || flags.fetched(&format!("playlist:{LIKED_MUSIC}"));
+        assert_eq!(fetched(), 1);
+        let extra = fixture_playlist(MAIN)
+            .tracks
+            .into_iter()
+            .find(|t| !s.is_liked(&t.id))
+            .map(Arc::new)
+            .unwrap();
+
+        h.client
+            .send(2, Command::AddToMain(vec![Arc::clone(&extra)]));
+        eventually("main refetched", || fetched() == 2);
+        let s = h.wait_for("added", |s| s.acked == 2 && s.pending.is_empty());
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        assert!(s.is_liked(&extra.id));
+        assert_eq!(main_ids(&s)[0], extra.id);
+        assert_eq!(main_ids(&s), ids(s.liked.ready().unwrap()));
+
+        h.client
+            .send(3, Command::RemoveFromMain(vec![extra.id.clone()]));
+        eventually("main refetched", || fetched() == 3);
+        let s = h.wait_for("removed", |s| s.acked == 3 && s.pending.is_empty());
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        assert!(!s.is_liked(&extra.id));
+        assert!(s.main_position(&extra.id).is_none());
+        let want = main_ids(&s);
+        assert_eq!(want, ids(s.liked.ready().unwrap()));
+        drop(h);
+        let saved = db.open().playlist(LIKED_MUSIC).unwrap().unwrap();
+        let saved: Vec<String> = saved.tracks.into_iter().map(|t| t.id).collect();
+        assert_eq!(saved, want);
     }
 
     #[test]

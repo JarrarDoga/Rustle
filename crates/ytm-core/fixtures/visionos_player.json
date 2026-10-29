@@ -1,0 +1,58 @@
+{
+  "playabilityStatus": {
+    "status": "OK"
+  },
+  "videoDetails": {
+    "videoId": "jvm6DpqqbLk",
+    "title": "Sad Girl",
+    "lengthSeconds": "318"
+  },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "adaptiveFormats": [
+      {
+        "itag": 136,
+        "mimeType": "video/mp4; codecs=\"avc1.4D401F\"",
+        "bitrate": 80614,
+        "averageBitrate": 38144,
+        "contentLength": "1515088",
+        "approxDurationMs": "317760",
+        "quality": "hd720",
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=1793250839&itag=136&source=youtube&requiressl=yes&mime=video%2Fmp4&clen=1515088&dur=317.760&c=VISIONOS&sig=scrubbed"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 131137,
+        "averageBitrate": 129556,
+        "contentLength": "5145975",
+        "approxDurationMs": "317759",
+        "loudnessDb": 5.29,
+        "quality": "tiny",
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=1793250839&itag=140&source=youtube&requiressl=yes&mime=audio%2Fmp4&clen=5145975&dur=317.759&c=VISIONOS&sig=scrubbed"
+      },
+      {
+        "itag": 250,
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 69642,
+        "averageBitrate": 65074,
+        "contentLength": "2584913",
+        "approxDurationMs": "317781",
+        "loudnessDb": 5.29,
+        "quality": "tiny",
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=1793250839&itag=250&source=youtube&requiressl=yes&mime=audio%2Fwebm&clen=2584913&dur=317.781&c=VISIONOS&sig=scrubbed"
+      },
+      {
+        "itag": 251,
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 135567,
+        "averageBitrate": 128748,
+        "contentLength": "5114228",
+        "approxDurationMs": "317781",
+        "loudnessDb": 5.29,
+        "quality": "tiny",
+        "url": "https://rr1---sn-example.googlevideo.com/videoplayback?expire=1793250839&itag=251&source=youtube&requiressl=yes&mime=audio%2Fwebm&clen=5114228&dur=317.781&c=VISIONOS&sig=scrubbed"
+      }
+    ]
+  }
+}

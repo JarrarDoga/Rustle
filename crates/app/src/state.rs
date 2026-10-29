@@ -40,6 +40,9 @@ const NO_MAIN: &str = "Choose a main playlist first";
 const MAIN_LOADING: &str = "The main playlist is still loading";
 const LIKED_LOADING: &str = "Liked songs are still loading";
 const UNKNOWN_ENTRY: &str = "Cannot remove that song yet: refresh the main playlist and try again";
+/// The id of the user's liked songs as a playlist. YouTube Music edits it
+/// only by liking and unliking, never as a playlist.
+pub const LIKED_MUSIC: &str = "LM";
 
 #[derive(Debug, Clone, Default)]
 pub enum Loadable<T> {
@@ -172,12 +175,21 @@ pub struct State {
 /// An optimistic edit and what undoes it.
 #[derive(Debug, Clone)]
 pub(crate) enum Pending {
-    /// `inserted`: the track was put at the top of the liked list.
-    Like { track_id: TrackId, inserted: bool },
-    /// The track was taken out of the liked list at `at`.
+    /// `inserted`: the track was put at the top of the liked list;
+    /// `in_main`: also at the top of the main playlist, which is
+    /// [`LIKED_MUSIC`].
+    Like {
+        track_id: TrackId,
+        inserted: bool,
+        in_main: bool,
+    },
+    /// The track was taken out of the liked list at `at`, and out of the
+    /// main playlist (when it is [`LIKED_MUSIC`]) at `main`, with its entry
+    /// id.
     Unlike {
         track_id: TrackId,
-        at: usize,
+        at: Option<usize>,
+        main: Option<(usize, Option<String>)>,
         track: Arc<Track>,
     },
     /// Appended to the main playlist with no entry id yet.
@@ -252,6 +264,24 @@ pub struct PlaylistView {
 }
 
 impl PlaylistView {
+    fn insert(&mut self, at: usize, track: Arc<Track>, entry: Option<String>) {
+        let at = at.min(self.tracks.len());
+        Arc::make_mut(&mut self.tracks).insert(at, track);
+        Arc::make_mut(&mut self.entry_ids).insert(at, entry);
+        self.summary.track_count = Some(self.tracks.len() as u64);
+    }
+
+    fn remove(&mut self, at: usize) -> (Arc<Track>, Option<String>) {
+        let track = Arc::make_mut(&mut self.tracks).remove(at);
+        let entry = Arc::make_mut(&mut self.entry_ids).remove(at);
+        self.summary.track_count = Some(self.tracks.len() as u64);
+        (track, entry)
+    }
+
+    fn position(&self, id: &str) -> Option<usize> {
+        self.tracks.iter().position(|t| t.id == id)
+    }
+
     fn to_playlist(&self) -> Playlist {
         let mut summary = self.summary.clone();
         summary.track_count = Some(self.tracks.len() as u64);
@@ -826,7 +856,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             state.banner = None;
             Vec::new()
         }
-        Command::Like(id) => like(state, id),
+        Command::Like(id) => like(state, id, None),
         Command::Unlike(id) => unlike(state, id),
         Command::AddToMain(tracks) => add_to_main(state, tracks),
         Command::RemoveFromMain(ids) => remove_from_main(state, ids),
@@ -930,7 +960,8 @@ fn can_edit(state: &mut State) -> bool {
     false
 }
 
-fn like(state: &mut State, id: &TrackId) -> Vec<Effect> {
+/// `track` is the song when the caller has it; otherwise it is looked up.
+fn like(state: &mut State, id: &TrackId, track: Option<Arc<Track>>) -> Vec<Effect> {
     if !can_edit(state) {
         return Vec::new();
     }
@@ -943,13 +974,24 @@ fn like(state: &mut State, id: &TrackId) -> Vec<Effect> {
     if state.is_liked(id) {
         return Vec::new();
     }
-    let track = state.find_track(id);
+    let track = track.or_else(|| state.find_track(id));
     if let (Loadable::Ready(list), Some(track)) = (&mut state.liked, &track) {
         Arc::make_mut(list).insert(0, Arc::clone(track));
     }
+    // With Liked Music as the main playlist, the collection shows the same
+    // list, so it changes too.
+    let in_main = match (main_view_mut(state, LIKED_MUSIC), &track) {
+        (Some(view), Some(track)) if view.position(id).is_none() => {
+            view.insert(0, Arc::clone(track), None);
+            true
+        }
+        _ => false,
+    };
+    state.sync_page();
     state.pending.push(Pending::Like {
         track_id: id.clone(),
         inserted: track.is_some(),
+        in_main,
     });
     vec![Effect::Like(id.clone())]
 }
@@ -962,13 +1004,23 @@ fn unlike(state: &mut State, id: &TrackId) -> Vec<Effect> {
         state.banner = Some(LIKED_LOADING.to_owned());
         return Vec::new();
     };
-    let Some(at) = list.iter().position(|t| t.id == *id) else {
+    let at = list.iter().position(|t| t.id == *id);
+    let from_liked = at.map(|at| Arc::make_mut(list).remove(at));
+    // The main playlist, when it is Liked Music, may hold a song a stale
+    // liked list lacks; "Remove from" it still unlikes.
+    let from_main = main_view_mut(state, LIKED_MUSIC)
+        .and_then(|view| view.position(id).map(|i| (i, view.remove(i))));
+    state.sync_page();
+    let main = from_main
+        .as_ref()
+        .map(|(i, (_, entry))| (*i, entry.clone()));
+    let Some(track) = from_liked.or(from_main.map(|(_, (track, _))| track)) else {
         return Vec::new();
     };
-    let track = Arc::make_mut(list).remove(at);
     state.pending.push(Pending::Unlike {
         track_id: id.clone(),
         at,
+        main,
         track,
     });
     vec![Effect::Unlike(id.clone())]
@@ -1009,6 +1061,16 @@ fn add_to_main(state: &mut State, tracks: &[Arc<Track>]) -> Vec<Effect> {
     if new.is_empty() {
         return Vec::new();
     }
+    // YouTube rejects playlist edits on Liked Music: adding is liking.
+    if playlist_id == LIKED_MUSIC {
+        return new
+            .into_iter()
+            .flat_map(|t| {
+                let id = t.id.clone();
+                like(state, &id, Some(t))
+            })
+            .collect();
+    }
     let track_ids: Vec<TrackId> = new.iter().map(|t| t.id.clone()).collect();
     Arc::make_mut(&mut view.tracks).extend(new);
     Arc::make_mut(&mut view.entry_ids).extend(track_ids.iter().map(|_| None));
@@ -1031,6 +1093,11 @@ fn remove_from_main(state: &mut State, ids: &[TrackId]) -> Vec<Effect> {
     let Some((playlist_id, view)) = main_for_edit(state) else {
         return Vec::new();
     };
+    // Removing from Liked Music is unliking, by track id: it has no entry
+    // ids to send.
+    if playlist_id == LIKED_MUSIC {
+        return ids.iter().flat_map(|id| unlike(state, id)).collect();
+    }
     let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let mut entries = Vec::new();
     let mut removed = Vec::new();
@@ -1094,32 +1161,63 @@ fn on_like_result(
         _ => false,
     });
     let error = match result {
-        // The liked list never had the track: fetch it as YouTube has it.
-        Ok(())
+        Ok(()) => {
+            let mut effects = Vec::new();
+            // The liked list never had the track: fetch it as YouTube has it.
             if matches!(
                 pending,
                 Some(Pending::Like {
                     inserted: false,
                     ..
                 })
-            ) =>
-        {
-            return vec![Effect::FetchLiked];
+            ) {
+                effects.push(Effect::FetchLiked);
+            }
+            // The main playlist is the liked list: once the last like or
+            // unlike is in, fetch it for YouTube's positions. A fetch while
+            // others are in flight would drop their optimistic rows.
+            let settled = !state
+                .pending
+                .iter()
+                .any(|p| matches!(p, Pending::Like { .. } | Pending::Unlike { .. }));
+            if settled && main_is_liked(state) {
+                effects.push(Effect::FetchPlaylist(LIKED_MUSIC.to_owned()));
+            }
+            return effects;
         }
-        Ok(()) => return Vec::new(),
         Err(e) => e,
     };
-    // Undo by content: a refresh may have replaced the list meanwhile.
+    // Undo by content: a refresh may have replaced the lists meanwhile.
     if let Loadable::Ready(list) = &mut state.liked {
-        match pending {
+        match &pending {
             Some(Pending::Like { .. }) => Arc::make_mut(list).retain(|t| t.id != track_id),
-            Some(Pending::Unlike { at, track, .. }) if !list.iter().any(|t| t.id == track_id) => {
-                let at = at.min(list.len());
-                Arc::make_mut(list).insert(at, track);
+            Some(Pending::Unlike {
+                at: Some(at),
+                track,
+                ..
+            }) if !list.iter().any(|t| t.id == track_id) => {
+                let at = (*at).min(list.len());
+                Arc::make_mut(list).insert(at, Arc::clone(track));
             }
             _ => {}
         }
     }
+    if let Some(view) = main_view_mut(state, LIKED_MUSIC) {
+        match pending {
+            Some(Pending::Like { in_main: true, .. }) => {
+                if let Some(i) = view.position(&track_id) {
+                    view.remove(i);
+                }
+            }
+            Some(Pending::Unlike {
+                main: Some((at, entry)),
+                track,
+                ..
+            }) if view.position(&track_id).is_none() => view.insert(at, track, entry),
+            _ => {}
+        }
+    }
+    state.sync_page();
     let what = if liked {
         "Could not like that song"
     } else {
@@ -1127,6 +1225,11 @@ fn on_like_result(
     };
     edit_failed(state, what, &error);
     Vec::new()
+}
+
+/// The main playlist is Liked Music.
+fn main_is_liked(state: &State) -> bool {
+    state.main.as_ref().is_some_and(|(id, _)| id == LIKED_MUSIC)
 }
 
 /// The open main playlist's view, if `id` is the main playlist.
@@ -2260,6 +2363,152 @@ mod tests {
         );
         assert_eq!(s.banner.as_deref(), Some(SESSION_EXPIRED));
         assert!(s.needs_login());
+    }
+
+    /// Logged in, liked songs `liked`, main playlist Liked Music holding
+    /// `main` with no entry ids, as YouTube serves it.
+    fn with_liked_main(main: &[&str], liked: &[&str]) -> State {
+        let now = Instant::now();
+        let mut s = logged_in();
+        s.liked = Loadable::Ready(list(liked));
+        let mut p = playlist(LIKED_MUSIC, main);
+        p.entry_ids = vec![None; main.len()];
+        on_event(&mut s, Event::CachedMainPlaylist(LIKED_MUSIC.into()), now);
+        on_event(&mut s, Event::CachedPlaylist(p), now);
+        s
+    }
+
+    fn like_result(
+        s: &mut State,
+        id: &str,
+        liked: bool,
+        result: Result<(), BackendError>,
+    ) -> Vec<Effect> {
+        let event = Event::LikeResult {
+            track_id: id.into(),
+            liked,
+            result,
+        };
+        on_event(s, event, Instant::now())
+    }
+
+    fn refetch_liked_main() -> Effect {
+        Effect::FetchPlaylist(LIKED_MUSIC.into())
+    }
+
+    #[test]
+    fn liked_music_main_adds_by_liking_into_both_lists() {
+        let now = Instant::now();
+        let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
+        let fx = apply(
+            &mut s,
+            &Command::AddToMain(vec![track("c"), track("a"), track("d")]),
+            now,
+        );
+        assert_eq!(fx, [Effect::Like("c".into()), Effect::Like("d".into())]);
+        assert_eq!(liked_ids(&s), ["d", "c", "a", "b"]);
+        assert_eq!(main_ids(&s), ["d", "c", "a", "b"]);
+        assert_eq!(main_entries(&s), [None, None, None, None]);
+        assert_eq!(s.main_view().unwrap().summary.track_count, Some(4));
+
+        // One fetch for YouTube's positions, once the last like is in.
+        assert!(like_result(&mut s, "c", true, Ok(())).is_empty());
+        assert_eq!(
+            like_result(&mut s, "d", true, Ok(())),
+            [refetch_liked_main()]
+        );
+        assert!(s.pending.is_empty());
+        assert!(s.banner.is_none());
+    }
+
+    #[test]
+    fn liked_music_main_rolls_back_both_lists() {
+        let now = Instant::now();
+        let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
+        apply(&mut s, &Command::AddToMain(vec![track("c")]), now);
+        assert!(like_result(&mut s, "c", true, Err(net())).is_empty());
+        assert_eq!(liked_ids(&s), ["a", "b"]);
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert_eq!(s.main_view().unwrap().summary.track_count, Some(2));
+        let banner = s.banner.take().unwrap();
+        assert!(banner.starts_with("Could not like"), "{banner}");
+
+        let fx = apply(&mut s, &Command::RemoveFromMain(vec!["b".into()]), now);
+        assert_eq!(fx, [Effect::Unlike("b".into())]);
+        assert_eq!(liked_ids(&s), ["a"]);
+        assert_eq!(main_ids(&s), ["a"]);
+        assert!(like_result(&mut s, "b", false, Err(net())).is_empty());
+        assert_eq!(liked_ids(&s), ["a", "b"]);
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert!(s.banner.is_some());
+        assert!(s.pending.is_empty());
+    }
+
+    #[test]
+    fn liked_music_main_removes_by_unliking_without_entry_ids() {
+        let now = Instant::now();
+        // The liked list is stale and lacks "a"; removing it still unlikes.
+        let mut s = with_liked_main(&["a", "b", "c"], &["b", "c"]);
+        let fx = apply(
+            &mut s,
+            &Command::RemoveFromMain(vec!["a".into(), "c".into()]),
+            now,
+        );
+        assert_eq!(fx, [Effect::Unlike("a".into()), Effect::Unlike("c".into())]);
+        assert!(s.banner.is_none(), "{:?}", s.banner);
+        assert_eq!(liked_ids(&s), ["b"]);
+        assert_eq!(main_ids(&s), ["b"]);
+        assert!(like_result(&mut s, "a", false, Ok(())).is_empty());
+        // A failed unlike puts the song back where it was in each list.
+        assert!(like_result(&mut s, "c", false, Err(net())).is_empty());
+        assert_eq!(liked_ids(&s), ["b", "c"]);
+        assert_eq!(main_ids(&s), ["b", "c"]);
+    }
+
+    #[test]
+    fn hearts_change_liked_music_main_too() {
+        let now = Instant::now();
+        let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
+        s.search = Loadable::Ready(Arc::new(SearchView {
+            tracks: list(&["x"]),
+            results: SearchResults::default(),
+        }));
+        assert_eq!(
+            apply(&mut s, &Command::Like("x".into()), now),
+            [Effect::Like("x".into())]
+        );
+        assert_eq!(main_ids(&s), ["x", "a", "b"]);
+        assert_eq!(
+            like_result(&mut s, "x", true, Ok(())),
+            [refetch_liked_main()]
+        );
+
+        apply(&mut s, &Command::Unlike("a".into()), now);
+        assert_eq!(liked_ids(&s), ["x", "b"]);
+        assert_eq!(main_ids(&s), ["x", "b"]);
+        assert_eq!(
+            like_result(&mut s, "a", false, Ok(())),
+            [refetch_liked_main()]
+        );
+    }
+
+    #[test]
+    fn likes_leave_another_main_playlist_alone() {
+        let now = Instant::now();
+        let mut s = with_main(&["a", "b"], &["b"]);
+        apply(&mut s, &Command::Like("a".into()), now);
+        apply(&mut s, &Command::Unlike("b".into()), now);
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert!(like_result(&mut s, "a", true, Ok(())).is_empty());
+        assert!(like_result(&mut s, "b", false, Err(net())).is_empty());
+        assert_eq!(main_ids(&s), ["a", "b"]);
+        assert_eq!(
+            apply(&mut s, &Command::AddToMain(vec![track("c")]), now),
+            [Effect::AddToPlaylist {
+                playlist_id: "PLmain".into(),
+                track_ids: vec!["c".into()],
+            }]
+        );
     }
 
     #[test]

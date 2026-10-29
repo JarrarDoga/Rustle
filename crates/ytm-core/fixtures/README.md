@@ -5,6 +5,13 @@ Recorded with `spike record` (real responses, no cookies):
 their model mapping (`UPDATE_FIXTURES=1 cargo test -p ytm-core`).
 `ytdlp_251.json` is real yt-dlp output.
 
+`visionos_player.json`: the `player` response of the visionOS client for
+`jvm6DpqqbLk` (2026-10-28, no cookies), trimmed to `playabilityStatus`,
+`videoDetails` and four `adaptiveFormats` (Opus 251 and 250, AAC 140, and
+video 136 so the parser is seen skipping it). URLs are rewritten to an
+example host with only `expire`, `itag`, `mime`, `clen`, `dur` and `c`
+kept.
+
 Recorded with `spike record-pages fixtures UCRr1xG_2WIDs18a6cIiCxeA`
 (2026-10-27, no cookies): `rp_artist.json` is rustypipe's `MusicArtist` for
 Daft Punk (one page, without the albums behind "More"), and `rp_album.json`

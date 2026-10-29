@@ -15,6 +15,7 @@ use rustypipe::model as rp;
 
 use crate::innertube;
 use crate::stream_cache::StreamCache;
+use crate::visionos::{self, VisionOsError};
 use crate::ytdlp::{self, YtDlp, YtDlpError};
 use crate::{BackendError, MusicBackend, Result};
 
@@ -27,11 +28,14 @@ const RADIO_MIN: usize = 20;
 const BOTGUARD_BIN: &str = "rustypipe-botguard";
 
 /// Stream formats we accept, best first: Premium Opus, Opus, AAC.
-const ITAG_PREFERENCE: [u32; 3] = [774, 251, 140];
+pub(crate) const ITAG_PREFERENCE: [u32; 3] = [774, 251, 140];
 
 /// Which extractor produced a stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamOrigin {
+    /// The visionOS client (Opus 251): one plain `player` POST, no JS, no
+    /// PO token, no cookies. About 100 ms, so it runs first.
+    VisionOs,
     /// rustypipe's web clients (Opus, Premium 774 when logged in).
     Web,
     /// The `yt-dlp` CLI (Opus), used while rustypipe's web clients fail.
@@ -49,8 +53,9 @@ pub struct StreamInfo {
     pub cached: bool,
 }
 
-/// The real backend, built on rustypipe + rustypipe-botguard, with yt-dlp as
-/// the stream fallback.
+/// The real backend, built on rustypipe + rustypipe-botguard. Streams come
+/// from the visionOS client first, then rustypipe's web clients, then yt-dlp,
+/// then the iOS client.
 pub struct RustyPipeBackend {
     rp: RustyPipe,
     /// False when `rustypipe-botguard` was not found. Without its PO tokens,
@@ -168,6 +173,7 @@ impl RustyPipeBackend {
         let cookies = lock(&self.ytdlp_cookies).clone();
         resolve_in_order(
             track_id,
+            self.visionos_stream(track_id),
             self.web_stream(track_id),
             self.ytdlp_stream(track_id, cookies),
             self.ios_stream(track_id),
@@ -175,13 +181,32 @@ impl RustyPipeBackend {
         .await
     }
 
+    /// The visionOS client with rustypipe's cached visitor id. A bot check
+    /// means the id is burnt: it is dropped so the next call fetches a fresh
+    /// one.
+    async fn visionos_stream(
+        &self,
+        track_id: &str,
+    ) -> std::result::Result<StreamSource, VisionOsError> {
+        let q = self.rp.query();
+        let vd = q
+            .get_visitor_data(false)
+            .await
+            .map_err(|e| VisionOsError::Unusable(format!("visitor data: {e}")))?;
+        let res = visionos::stream(&vd, track_id).await;
+        if let Err(VisionOsError::BotCheck(_)) = &res {
+            q.remove_visitor_data(&vd);
+        }
+        res
+    }
+
     /// `Ok(None)` means "try the next extractor".
     async fn web_stream(&self, track_id: &str) -> Result<Option<StreamSource>> {
         // Web clients give Opus (and Premium itag 774 when logged in) but need
         // a PO token from botguard and URL deobfuscation. rustypipe 0.11.4's
         // deobfuscator fails on current player JS ("could not extract sig fn
-        // name"; it then retries once a day). Keep trying them first so a
-        // fixed rustypipe release makes yt-dlp unnecessary.
+        // name"; it then retries once a day). They stay ahead of yt-dlp so a
+        // fixed rustypipe release makes it unnecessary.
         if !self.botguard {
             return Ok(None);
         }
@@ -244,15 +269,22 @@ impl RustyPipeBackend {
     }
 }
 
-/// Tries web clients, then yt-dlp, then the iOS client. Web errors other
-/// than extraction failures (auth, not found, network) end the search;
-/// yt-dlp errors never do.
+/// Tries the visionOS client, then web clients, then yt-dlp, then the iOS
+/// client. A visionOS "not found" and web errors other than extraction
+/// failures (auth, not found, network) end the search; other visionOS
+/// errors and yt-dlp errors never do.
 async fn resolve_in_order(
     track_id: &str,
+    visionos: impl Future<Output = std::result::Result<StreamSource, VisionOsError>>,
     web: impl Future<Output = Result<Option<StreamSource>>>,
     ytdlp: impl Future<Output = std::result::Result<StreamSource, YtDlpError>>,
     ios: impl Future<Output = Result<StreamSource>>,
 ) -> Result<(StreamSource, StreamOrigin)> {
+    match visionos.await {
+        Ok(s) => return Ok((s, StreamOrigin::VisionOs)),
+        Err(VisionOsError::NotFound) => return Err(BackendError::NotFound(track_id.to_owned())),
+        Err(e) => tracing::warn!("visionOS client failed for {track_id} ({e}); trying web clients"),
+    }
     if let Some(s) = web.await? {
         return Ok((s, StreamOrigin::Web));
     }
@@ -1255,14 +1287,31 @@ mod tests {
         }
     }
 
-    /// Runs `resolve_in_order`; steps that are `None` panic if reached.
+    /// Runs `resolve_in_order` with the visionOS step failing; steps that
+    /// are `None` panic if reached.
     async fn resolve(
+        web: Option<Result<Option<StreamSource>>>,
+        ytdlp: Option<std::result::Result<StreamSource, YtDlpError>>,
+        ios: Option<Result<StreamSource>>,
+    ) -> Result<(String, StreamOrigin)> {
+        resolve_from(
+            Err(VisionOsError::Unusable("down".to_owned())),
+            web,
+            ytdlp,
+            ios,
+        )
+        .await
+    }
+
+    async fn resolve_from(
+        visionos: std::result::Result<StreamSource, VisionOsError>,
         web: Option<Result<Option<StreamSource>>>,
         ytdlp: Option<std::result::Result<StreamSource, YtDlpError>>,
         ios: Option<Result<StreamSource>>,
     ) -> Result<(String, StreamOrigin)> {
         let (s, origin) = resolve_in_order(
             "abcdefghijk",
+            async { visionos },
             async { web.expect("web not tried") },
             async { ytdlp.expect("yt-dlp reached") },
             async { ios.expect("ios reached") },
@@ -1273,7 +1322,21 @@ mod tests {
 
     #[tokio::test]
     async fn fallback_order() {
-        // Web works: nothing else runs.
+        // visionOS works: nothing else runs.
+        let r = resolve_from(Ok(source("visionos")), None, None, None).await;
+        assert_eq!(r.unwrap(), ("visionos".to_owned(), StreamOrigin::VisionOs));
+        // Any visionOS failure but "not found" moves on to the web clients.
+        for e in [
+            VisionOsError::Network("down".to_owned()),
+            VisionOsError::BotCheck("sign in".to_owned()),
+            VisionOsError::Unusable("no audio".to_owned()),
+        ] {
+            let r = resolve_from(Err(e), Some(Ok(Some(source("web")))), None, None).await;
+            assert_eq!(r.unwrap(), ("web".to_owned(), StreamOrigin::Web));
+        }
+        let r = resolve_from(Err(VisionOsError::NotFound), None, None, None).await;
+        assert!(matches!(r, Err(BackendError::NotFound(ref id)) if id == "abcdefghijk"));
+        // Web works: nothing after it runs.
         let r = resolve(Some(Ok(Some(source("web")))), None, None).await;
         assert_eq!(r.unwrap(), ("web".to_owned(), StreamOrigin::Web));
         // Web extraction fails (or no botguard): yt-dlp, and iOS never runs.
