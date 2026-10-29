@@ -12,7 +12,7 @@ use crate::media_keys::MediaKeys;
 use crate::playback::{self, SimulatedPlayback};
 use crate::state::{Command, Session, State, apply};
 use crate::views::{self, Action, Route, View};
-use crate::{theme, widgets};
+use crate::{fallback_fonts, theme, widgets};
 
 /// The same 10 minutes as the store's staleness rule.
 const FOCUS_REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
@@ -52,6 +52,7 @@ impl RustleApp {
         perf: bool,
     ) -> Self {
         theme::apply(&cc.egui_ctx);
+        fallback_fonts::install(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         let notify: backend::Notify = Box::new(move || ctx.request_repaint());
         let mut initial = State::default();

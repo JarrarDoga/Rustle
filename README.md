@@ -170,5 +170,7 @@ The rules every change follows (resource budgets, crate boundaries, secrets) are
 ## License
 
 GPL-3.0-or-later; see [`LICENSE`](LICENSE). Inter is under the SIL Open Font License and
-Phosphor icons under MIT (`crates/app/assets/fonts/`). Rustle is not affiliated with
-YouTube or Google.
+Phosphor icons under MIT (`crates/app/assets/fonts/`). Characters Inter lacks (Japanese,
+Chinese, Korean, symbols) are drawn with fonts already installed on the system, found with
+fontconfig; none are bundled. If such titles show as boxes, install a CJK font such as Noto
+Sans CJK. Rustle is not affiliated with YouTube or Google.
