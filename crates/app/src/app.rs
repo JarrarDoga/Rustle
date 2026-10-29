@@ -198,6 +198,7 @@ impl RustleApp {
         views::banners::show(ui, &self.state, &mut out);
         let state = &self.state;
         let view = &mut self.view;
+        view.follow_playback(state);
         views::collection::update(state, view);
         let first_run = views::first_run::wanted(state);
         let collection = view.route == Route::Collection && !first_run;

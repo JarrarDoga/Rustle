@@ -77,7 +77,14 @@ pub struct View {
     pub unmuted_volume: f32,
     /// Selected row: list id and the index into that table's `tracks`
     /// (not the display row), so a filter change keeps the same song.
+    /// Transient: set it with [`View::select`]; [`View::follow_playback`]
+    /// clears it when playback moves on, and Escape or Locate clear it.
     pub selected: Option<(egui::Id, usize)>,
+    /// The selected row's track id, so playback moving on can tell the
+    /// track the user just played from that row apart from any other.
+    pub selected_track: Option<String>,
+    /// The playing track's id as of the last [`View::follow_playback`].
+    pub playing: Option<String>,
     pub collection: CollectionView,
     pub browse_tab: BrowseTab,
 }
@@ -93,6 +100,8 @@ impl Default for View {
             seek_drag: None,
             unmuted_volume: 0.8,
             selected: None,
+            selected_track: None,
+            playing: None,
             collection: CollectionView::default(),
             browse_tab: BrowseTab::Artists,
         }
@@ -160,6 +169,35 @@ pub enum BrowseTab {
     Albums,
 }
 
+impl View {
+    /// Selects row `index` of table `list`, which shows `track`.
+    pub fn select(&mut self, list: egui::Id, index: usize, track: &str) {
+        self.selected = Some((list, index));
+        self.selected_track = Some(track.to_owned());
+    }
+
+    pub fn deselect(&mut self) {
+        self.selected = None;
+        self.selected_track = None;
+    }
+
+    /// Called once a frame before drawing. When the playing track changes to
+    /// anything but the selected row's track (the player advancing, next or
+    /// previous from a key, the media keys or the socket), the selection
+    /// goes: left in place it reads as a stale "now playing" marker. Playing
+    /// the selected row itself (double-click, Enter) keeps it.
+    pub fn follow_playback(&mut self, state: &crate::state::State) {
+        let now = state.current_track().map(|t| t.id.as_str());
+        if now == self.playing.as_deref() {
+            return;
+        }
+        self.playing = now.map(str::to_owned);
+        if self.selected_track.as_deref() != now {
+            self.deselect();
+        }
+    }
+}
+
 pub type Out = Vec<Action>;
 
 pub fn cmd(out: &mut Out, c: Command) {
@@ -192,6 +230,8 @@ pub fn locate(state: &crate::state::State, view: &mut View, out: &mut Out) {
         return;
     };
     out.push(Action::Go(Route::Collection));
+    // The playing row is the one to look at now, not a selection elsewhere.
+    view.deselect();
     let c = &mut view.collection;
     if !c.visible.contains(&pos) {
         c.filter_text.clear();
@@ -240,4 +280,113 @@ pub fn rows(ui: &mut Ui, salt: &str, height: f32, n: usize, mut row: impl FnMut(
                 row(ui, i);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use model::PlaylistSummary;
+
+    use super::*;
+    use crate::queue::tests::track;
+    use crate::state::{PlaylistView, State, apply};
+
+    const IDS: [&str; 4] = ["a", "b", "c", "d"];
+
+    fn list() -> egui::Id {
+        egui::Id::NULL.with("table")
+    }
+
+    /// Plays `IDS` from `start`, as a double-click on that row does.
+    fn play(s: &mut State, start: usize) {
+        let tracks = Arc::new(IDS.iter().map(|id| track(id)).collect());
+        let play = Command::PlayTracks {
+            tracks,
+            start,
+            seed: 1,
+        };
+        apply(s, &play, Instant::now());
+    }
+
+    fn step(s: &mut State, view: &mut View, command: Command) {
+        apply(s, &command, Instant::now());
+        view.follow_playback(s);
+    }
+
+    #[test]
+    fn double_click_play_keeps_the_row_until_playback_moves_on() {
+        let mut s = State::default();
+        let mut view = View::default();
+        view.follow_playback(&s);
+        view.select(list(), 1, "b");
+        play(&mut s, 1);
+        view.follow_playback(&s);
+        assert_eq!(view.selected, Some((list(), 1)), "the row just played");
+
+        step(&mut s, &mut view, Command::Next);
+        assert_eq!(view.selected, None);
+        assert_eq!(view.selected_track, None);
+
+        // It stays clear as playback keeps moving.
+        step(&mut s, &mut view, Command::Next);
+        step(&mut s, &mut view, Command::Previous);
+        assert_eq!(view.selected, None);
+    }
+
+    #[test]
+    fn a_selected_row_goes_when_another_track_starts() {
+        let mut s = State::default();
+        play(&mut s, 0);
+        let mut view = View::default();
+        view.follow_playback(&s);
+        view.select(list(), 3, "d");
+
+        // Pausing leaves the selection alone.
+        step(&mut s, &mut view, Command::TogglePlay);
+        assert_eq!(view.selected, Some((list(), 3)));
+
+        step(&mut s, &mut view, Command::Next);
+        assert_eq!(view.selected, None);
+    }
+
+    #[test]
+    fn playing_the_selected_row_with_enter_keeps_it() {
+        let mut s = State::default();
+        play(&mut s, 0);
+        let mut view = View::default();
+        view.follow_playback(&s);
+        view.select(list(), 2, "c");
+        play(&mut s, 2);
+        view.follow_playback(&s);
+        assert_eq!(view.selected, Some((list(), 2)));
+    }
+
+    #[test]
+    fn locate_clears_the_selection() {
+        let tracks: Vec<Arc<Track>> = IDS.iter().map(|id| track(id)).collect();
+        let main = PlaylistView {
+            summary: PlaylistSummary {
+                id: "main".to_owned(),
+                name: "Everything".to_owned(),
+                owner: None,
+                track_count: Some(tracks.len() as u64),
+                thumbnails: Vec::new(),
+            },
+            entry_ids: Arc::new(vec![None; tracks.len()]),
+            tracks: Arc::new(tracks),
+        };
+        let mut s = State {
+            main: Some(("main".to_owned(), Loadable::Ready(Arc::new(main)))),
+            ..State::default()
+        };
+        play(&mut s, 2);
+        let mut view = View::default();
+        view.follow_playback(&s);
+        view.select(list(), 0, "a");
+        let mut out = Vec::new();
+        locate(&s, &mut view, &mut out);
+        assert_eq!(view.collection.scroll_to, Some(2));
+        assert_eq!(view.selected, None);
+    }
 }

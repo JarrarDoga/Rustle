@@ -452,6 +452,10 @@ pub fn shortcuts(ctx: &egui::Context, state: &State, view: &mut View) -> Vec<Act
     if locate > 0 {
         views::locate(state, view, &mut out);
     }
+    // Not consumed: the spine clears its range on the same press.
+    if ctx.input(|i| i.key_pressed(Key::Escape)) {
+        view.deselect();
+    }
     // The route change and focus land on the next frame.
     if find > 0 || locate > 0 {
         ctx.request_repaint();
@@ -1030,6 +1034,23 @@ mod tests {
         );
         assert!(got.is_empty());
         assert_eq!(view.collection.scroll_to, None);
+    }
+
+    #[test]
+    fn escape_clears_the_selection() {
+        let ctx = egui::Context::default();
+        let state = State::default();
+        let mut view = View::default();
+        view.select(egui::Id::NULL.with("table"), 3, "d");
+        let got = frame(
+            &ctx,
+            vec![key(Key::Escape, Modifiers::NONE, false)],
+            &state,
+            &mut view,
+        );
+        assert!(got.is_empty());
+        assert_eq!(view.selected, None);
+        assert_eq!(view.selected_track, None);
     }
 
     #[test]
