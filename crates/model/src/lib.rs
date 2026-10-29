@@ -41,6 +41,17 @@ pub struct Track {
     pub thumbnails: Vec<Thumbnail>,
 }
 
+/// What YouTube Music calls a release. `Unknown` when YouTube does not say,
+/// and for data saved before the field existed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AlbumType {
+    Album,
+    Ep,
+    Single,
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlbumSummary {
     pub id: String,
@@ -48,6 +59,8 @@ pub struct AlbumSummary {
     pub artists: Vec<ArtistRef>,
     pub year: Option<u16>,
     pub thumbnails: Vec<Thumbnail>,
+    #[serde(default)]
+    pub album_type: AlbumType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

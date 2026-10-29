@@ -706,6 +706,7 @@ mod tests {
                 }],
                 year: Some(2025),
                 thumbnails: Vec::new(),
+                album_type: Default::default(),
             },
             tracks: vec![track("a", 1300), track("b", 1340)],
         };

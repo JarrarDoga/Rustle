@@ -1,7 +1,7 @@
 use std::sync::{Mutex, MutexGuard};
 
 use model::{
-    Album, AlbumSummary, Artist, ArtistSummary, AudioCodec, LyricLine, Lyrics, Playlist,
+    Album, AlbumSummary, AlbumType, Artist, ArtistSummary, AudioCodec, LyricLine, Lyrics, Playlist,
     PlaylistSummary, SearchResults, StreamSource, Track, TrackId,
 };
 
@@ -463,6 +463,7 @@ fn album_summary(t: &Track) -> Option<AlbumSummary> {
         artists: t.artists.clone(),
         year: None,
         thumbnails: t.thumbnails.clone(),
+        album_type: AlbumType::Unknown,
     })
 }
 

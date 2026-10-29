@@ -5,6 +5,13 @@ Recorded with `spike record` (real responses, no cookies):
 their model mapping (`UPDATE_FIXTURES=1 cargo test -p ytm-core`).
 `ytdlp_251.json` is real yt-dlp output.
 
+`rp_search_heaven_knows.json`: the songs and albums pages of the search
+"heaven knows", from `spike record-search fixtures heaven_knows heaven knows`
+(2026-10-28, no cookies). The album page is twenty "Heaven Knows" releases,
+mostly unknown singles, none by an artist of the songs page; the
+`heaven_knows_albums_rerank` test checks the re-rank against it. YouTube's
+album order changes between runs.
+
 `visionos_player.json`: the `player` response of the visionOS client for
 `jvm6DpqqbLk` (2026-10-28, no cookies), trimmed to `playabilityStatus`,
 `videoDetails` and four `adaptiveFormats` (Opus 251 and 250, AAC 140, and

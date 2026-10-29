@@ -97,7 +97,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
                     |ui, i| {
                         let a = &r.albums[i];
                         let by: Vec<&str> = a.artists.iter().map(|x| x.name.as_str()).collect();
-                        let mut sub = format!("Album · {}", by.join(", "));
+                        let mut sub = format!("{} · {}", type_label(a.album_type), by.join(", "));
                         let tail = card_subtitle(a.year, counts.albums[i], main_name);
                         if !tail.is_empty() {
                             sub = format!("{sub} · {tail}");
@@ -333,6 +333,15 @@ fn tabs(ui: &mut Ui, view: &mut View, data: Option<&SearchView>) {
     }
 }
 
+/// "Album", "EP" or "Single" for an album row; unknown types read "Album".
+fn type_label(t: model::AlbumType) -> &'static str {
+    match t {
+        model::AlbumType::Ep => "EP",
+        model::AlbumType::Single => "Single",
+        model::AlbumType::Album | model::AlbumType::Unknown => "Album",
+    }
+}
+
 fn count(d: &SearchView, tab: SearchTab) -> usize {
     match tab {
         SearchTab::Songs => d.tracks.len(),
@@ -367,5 +376,19 @@ fn in_main_counts(d: &SearchView, main: Option<&[Arc<model::Track>]>) -> Counts 
             .iter()
             .map(|a| songs_in_main(main, &a.id, &a.name))
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use model::AlbumType;
+
+    #[test]
+    fn album_type_labels() {
+        assert_eq!(type_label(AlbumType::Album), "Album");
+        assert_eq!(type_label(AlbumType::Ep), "EP");
+        assert_eq!(type_label(AlbumType::Single), "Single");
+        assert_eq!(type_label(AlbumType::Unknown), "Album");
     }
 }
