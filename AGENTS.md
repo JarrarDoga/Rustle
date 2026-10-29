@@ -52,7 +52,9 @@ satisfactory. Keep code portable, but do not test or fix other platforms yet.
 - Paginate library and playlist fetches. Store results in SQLite, render from
   SQLite.
 - Audio-only stream formats always. Never fetch a video stream for a song.
-  Preference: Premium Opus, then Opus itag 251, then AAC itag 140.
+  Preference: Opus itag 251, then AAC itag 140. Streams come from the
+  visionOS Innertube client only (#12); Premium Opus 774 needed the
+  signed-in web client and went with it.
 - tokio runtime: 2 worker threads max.
 - `mimalloc` is the global allocator.
 - No Electron, Tauri, webview, or browser engine in the main process.
@@ -98,3 +100,10 @@ branch, each owning one directory. Edit only the directory your task names.
 If you need a change in another crate or in `model`, stop and report it
 instead of making it. Commit your work on your branch; do not merge, rebase
 onto, or push other branches.
+
+Build into your worktree's own `target/` (the default), never a target dir
+shared with other worktrees: cargo names workspace-crate artifacts the same
+in every worktree and judges freshness by mtime, so two branches on
+different bases silently reuse each other's `model` or `ytm-core` builds.
+Run `scripts/perf-check.sh` only when your issue is about a resource
+budget, and at most once.

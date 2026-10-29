@@ -207,3 +207,12 @@ shuffle, add/remove) comes from Batch 3, so the UI batch runs after it.
 6. **Decided 2026-10-27: UI batch before Batch 4; no Discord presence;
    themes as dark and medium presets only.** A preset swaps the D neutrals;
    the accent still comes from album art.
+7. **Decided 2026-10-28: visionOS is the only stream path.** The rustypipe
+   web + botguard, yt-dlp and iOS fallbacks were removed in #12 after the
+   visionOS client (ed1e37a) took click-to-audio from about 6 s to about
+   0.2 s. `docs/design/stream-fallbacks.md` records what they were, their
+   timings and how to restore one. The RPM no longer needs `yt-dlp` or the
+   botguard helper. Same day, the QA batch (#2 to #9, #11) merged: loading
+   clock, system font fallback, toolbar at the minimum size, CLI flags,
+   serialised likes, transient selection, single-click play, swipe to
+   queue, album re-rank.

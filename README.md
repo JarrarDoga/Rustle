@@ -13,7 +13,7 @@
   <img alt="egui 0.37" src="https://img.shields.io/badge/UI-egui%200.37-C8643B">
   <img alt="Linux" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20Wayland-E0A04A">
   <img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-E8C26A">
-  <img alt="354 tests" src="https://img.shields.io/badge/tests-354%20passing-2ea44f">
+  <img alt="418 tests" src="https://img.shields.io/badge/tests-418%20passing-2ea44f">
 </p>
 
 <p align="center">
@@ -31,10 +31,10 @@ pipeline, and never starts a browser engine.
 
 | Measure | Result | Budget |
 | --- | --- | --- |
-| Release binary | **19.8 MB** | 25 MB |
-| Peak RAM, 33-song demo | **117.5 MB** | 150 MB |
-| Peak RAM, 1,535-song library with album art | **137.9 MB** | 150 MB |
-| Cold start to first frame | **76 ms** | 1 s |
+| Release binary | **19.9 MB** | 25 MB |
+| Peak RAM, 33-song demo | **117.7 MB** | 150 MB |
+| Peak RAM, 1,535-song library with album art | **138.1 MB** | 150 MB |
+| Cold start to first frame | **101 ms** | 1 s |
 | CPU while idle, window open | **0%** | ~0% |
 | `rustle next` from a shell | **≈3 ms** | |
 | Browser engines | **none** | none |
@@ -64,8 +64,12 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
 - **Synced lyrics** from YouTube Music's own timed lyrics, with a plain-text fallback. Click a
   line to seek there.
 - **Queue drawer** with drag to reorder, and **autoplay radio** when the queue runs out.
+- **Swipe to queue:** drag a row right to add it to the queue, left to take one copy out
+  again. A single click on a row's play button plays it; double-click anywhere on the row
+  does the same.
 - **Album-art accent:** the playing cover sets the accent color and tints the player bar.
-- **Audio-only streams always**, preferring Opus (Premium 774, then 251), then AAC 140.
+- **Audio-only streams always**, Opus 251 or AAC 140 as the visionOS client, about 0.2 s
+  from click to audio.
 
 <p align="center">
   <img src="docs/images/lyrics.png" width="900" alt="Synced lyrics drawer">
@@ -79,6 +83,9 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
 
 - Like, add to and remove from playlists, with optimistic updates and rollback on failure.
 - Search, album and artist pages, each showing whether a song is already "In Everything".
+  Album results are re-ranked by the artists of the matching songs and by exact title, with
+  singles and EPs labelled, so a generic title is not a wall of unknown singles.
+- **Liked Music as the main playlist** works too: adding and removing become likes.
 - **Offline start:** library, playlists and art render from a local SQLite cache before any
   network answer; refreshes when the window regains focus.
 - **13 themes**: Graphite plus Catppuccin, Tokyo Night, Rosé Pine, Kanagawa, GitHub Dark,
