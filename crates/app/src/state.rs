@@ -69,6 +69,11 @@ pub struct Playback {
     pub position: Duration,
     /// When `status` is `Playing`: the instant `position` was taken.
     pub anchor: Option<Instant>,
+    /// The player has not started the current track yet: its stream is
+    /// resolving or prebuffering. The clock stays at `position` until the
+    /// player reports the track playing or paused, and `status` is
+    /// `Buffering` while the user wants it to play.
+    pub loading: bool,
     /// 0.0 to 1.0.
     pub volume: f32,
     /// Backend side: when the player started buffering while `status` is
@@ -82,6 +87,7 @@ impl Default for Playback {
             status: PlaybackStatus::Stopped,
             position: Duration::ZERO,
             anchor: None,
+            loading: false,
             volume: 0.8,
             buffering_since: None,
         }
@@ -104,20 +110,23 @@ impl Playback {
         )
     }
 
-    fn start_track(&mut self, now: Instant, playing: bool) {
+    /// The player has nothing to say about a new track yet, so its clock
+    /// waits at 0:00 for the player (see [`sync_position`]).
+    fn start_track(&mut self, playing: bool) {
         self.position = Duration::ZERO;
+        self.anchor = None;
         self.buffering_since = None;
-        if playing {
-            self.status = PlaybackStatus::Playing;
-            self.anchor = Some(now);
+        self.loading = true;
+        self.status = if playing {
+            PlaybackStatus::Buffering
         } else {
-            self.status = PlaybackStatus::Paused;
-            self.anchor = None;
-        }
+            PlaybackStatus::Paused
+        };
     }
 
     fn stop(&mut self) {
         self.buffering_since = None;
+        self.loading = false;
         self.status = PlaybackStatus::Stopped;
         self.position = Duration::ZERO;
         self.anchor = None;
@@ -646,14 +655,14 @@ pub enum Event {
     CachedSettings(Settings),
 }
 
-fn load_current(state: &mut State, now: Instant, playing: bool) -> Vec<Effect> {
+fn load_current(state: &mut State, playing: bool) -> Vec<Effect> {
     match state.queue.current() {
         Some(e) => {
             let effect = Effect::Load {
                 uid: e.uid,
                 track_id: e.track.id.clone(),
             };
-            state.playback.start_track(now, playing);
+            state.playback.start_track(playing);
             state.play_serial += 1;
             state.resume_on_radio = false;
             let mut effects = vec![effect];
@@ -733,11 +742,11 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             seed,
         } => {
             state.queue.play_list(tracks, *start, *seed);
-            load_current(state, now, true)
+            load_current(state, true)
         }
         Command::PlayNow(track) => {
             state.queue.play_now(Arc::clone(track));
-            load_current(state, now, true)
+            load_current(state, true)
         }
         Command::PlayNext(track) => {
             state.queue.play_next(Arc::clone(track));
@@ -751,7 +760,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             if state.queue.jump(*index).is_none() {
                 return Vec::new();
             }
-            load_current(state, now, true)
+            load_current(state, true)
         }
         Command::MoveEntry { from, to } => {
             state.queue.move_entry(*from, *to);
@@ -763,7 +772,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             }
             if state.queue.current().is_some() && state.playback.status != PlaybackStatus::Stopped {
                 let playing = state.playback.is_playing();
-                load_current(state, now, playing)
+                load_current(state, playing)
             } else {
                 state.playback.stop();
                 vec![Effect::Stop]
@@ -778,22 +787,28 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
                 vec![Effect::Pause]
             }
             PlaybackStatus::Paused => {
-                pb.anchor = Some(now);
                 pb.buffering_since = None;
-                pb.status = PlaybackStatus::Playing;
+                if pb.loading {
+                    // Nothing plays yet; the clock starts with the player.
+                    pb.status = PlaybackStatus::Buffering;
+                } else {
+                    // Resuming a loaded track is instant.
+                    pb.anchor = Some(now);
+                    pb.status = PlaybackStatus::Playing;
+                }
                 vec![Effect::Play]
             }
             PlaybackStatus::Stopped => {
                 if state.queue.current().is_none() && state.queue.advance(false).is_none() {
                     return Vec::new();
                 }
-                load_current(state, now, true)
+                load_current(state, true)
             }
         },
         Command::Next => {
             let playing = pb.status != PlaybackStatus::Paused;
             if state.queue.advance(false).is_some() {
-                load_current(state, now, playing)
+                load_current(state, playing)
             } else {
                 state.playback.stop();
                 vec![Effect::Stop]
@@ -809,7 +824,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             if state.queue.back().is_none() {
                 return Vec::new();
             }
-            load_current(state, now, playing)
+            load_current(state, playing)
         }
         Command::Seek(to) => {
             if state.queue.current().is_none() {
@@ -887,7 +902,7 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             {
                 return Vec::new();
             }
-            load_current(state, now, true)
+            load_current(state, true)
         }
         Command::SetAutoplay(on) => {
             change_setting(state, &SettingChange::Autoplay(*on));
@@ -1331,7 +1346,6 @@ fn on_radio(
     state: &mut State,
     seed: TrackId,
     result: Result<Vec<Track>, BackendError>,
-    now: Instant,
 ) -> Vec<Effect> {
     if state.radio_for.as_ref() == Some(&seed) {
         state.radio_for = None;
@@ -1356,14 +1370,14 @@ fn on_radio(
         .queue
         .extend_radio(tracks.into_iter().map(Arc::new).collect());
     if std::mem::take(&mut state.resume_on_radio) && state.queue.advance(true).is_some() {
-        return load_current(state, now, true);
+        return load_current(state, true);
     }
     Vec::new()
 }
 
 fn restart(state: &mut State, now: Instant) -> Vec<Effect> {
     match state.playback.status {
-        PlaybackStatus::Stopped => load_current(state, now, true),
+        PlaybackStatus::Stopped => load_current(state, true),
         _ => apply_command(state, &Command::Seek(Duration::ZERO), now),
     }
 }
@@ -1569,7 +1583,7 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             // A short track can end before the next tick.
             let mut effects = tick(state, now);
             if state.queue.advance(true).is_some() {
-                effects.extend(load_current(state, now, true));
+                effects.extend(load_current(state, true));
                 return effects;
             }
             state.resume_on_radio = state.queue.needs_radio();
@@ -1640,7 +1654,7 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             entries,
             result,
         } => on_removed(state, playlist_id, entries, result),
-        Event::Radio { seed, result } => return on_radio(state, seed, result, now),
+        Event::Radio { seed, result } => return on_radio(state, seed, result),
         Event::ArtColors(colors) | Event::CachedArtColors(colors) => {
             Arc::make_mut(&mut state.art_colors).extend(colors);
         }
@@ -1753,7 +1767,8 @@ pub fn next_wake(state: &State, now: Instant) -> Option<Instant> {
 
 /// Backend side only: takes the player's position when it is playing the
 /// current track, so the shown position follows the real one. Buffering
-/// shows only once it has lasted [`BUFFERING_DELAY`].
+/// shows only once it has lasted [`BUFFERING_DELAY`]. A loading track's
+/// clock starts here, once the player reports it playing.
 pub fn sync_position(state: &mut State, player: &PlayerState, now: Instant) {
     let Some(track) = state.current_track() else {
         return;
@@ -1766,6 +1781,7 @@ pub fn sync_position(state: &mut State, player: &PlayerState, now: Instant) {
         (PlaybackStatus::Playing | PlaybackStatus::Buffering, PlaybackStatus::Playing) => {
             pb.status = PlaybackStatus::Playing;
             pb.buffering_since = None;
+            pb.loading = false;
             pb.position = player.position;
             pb.anchor = Some(now);
         }
@@ -1777,14 +1793,17 @@ pub fn sync_position(state: &mut State, player: &PlayerState, now: Instant) {
                 pb.anchor = None;
             }
         }
-        (PlaybackStatus::Buffering, PlaybackStatus::Buffering)
-        | (PlaybackStatus::Paused, PlaybackStatus::Paused) => pb.position = player.position,
+        (PlaybackStatus::Buffering, PlaybackStatus::Buffering) => pb.position = player.position,
+        (PlaybackStatus::Paused, PlaybackStatus::Paused) => {
+            pb.loading = false;
+            pb.position = player.position;
+        }
         _ => pb.buffering_since = None,
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::queue::tests::track;
 
@@ -1803,11 +1822,25 @@ mod tests {
             },
             now,
         );
+        started(&mut s, now);
         s
     }
 
     fn current(s: &State) -> &str {
         &s.current_track().unwrap().id
+    }
+
+    /// The player reports the current track playing from 0:00 at `now`, as
+    /// it does once its prebuffer is queued.
+    pub(crate) fn started(s: &mut State, now: Instant) {
+        let player = PlayerState {
+            status: PlaybackStatus::Playing,
+            track_id: Some(current(s).to_owned()),
+            position: Duration::ZERO,
+            duration: None,
+            volume: 1.0,
+        };
+        sync_position(s, &player, now);
     }
 
     #[test]
@@ -1824,7 +1857,7 @@ mod tests {
             now,
         );
         assert_eq!(current(&s), "b");
-        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.is_playing());
         let uid = s.queue.current().unwrap().uid;
         assert_eq!(
             fx,
@@ -1897,7 +1930,7 @@ mod tests {
             now,
         );
         assert_eq!(current(&s), "a");
-        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.is_playing());
     }
 
     #[test]
@@ -2779,7 +2812,7 @@ mod tests {
         assert!(matches!(&fx[..], [Effect::Load { track_id, .. }] if track_id == "t0"));
         assert_eq!(s.queue.playing_from(), Some("Everything \u{b7} 1,535"));
         assert_eq!(s.queue.len(), 1535);
-        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.is_playing());
 
         let filter = Scope::Filter {
             label: "Saint Juniper".into(),
@@ -2953,7 +2986,7 @@ mod tests {
             now,
         );
         assert!(matches!(&fx[..], [Effect::Load { track_id, .. }, ..] if track_id == "r1"));
-        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.is_playing());
     }
 
     #[test]
@@ -3135,6 +3168,119 @@ mod tests {
         assert_eq!(s.playback.status, PlaybackStatus::Playing);
     }
 
+    fn player_on(id: &str, status: PlaybackStatus, secs: u64) -> PlayerState {
+        PlayerState {
+            track_id: Some(id.into()),
+            ..player(status, secs)
+        }
+    }
+
+    #[test]
+    fn a_new_track_holds_its_clock_until_the_player_starts() {
+        let t0 = Instant::now();
+        let secs = |n| t0 + Duration::from_secs(n);
+        let mut s = State::default();
+        let play = Command::PlayTracks {
+            tracks: list(&["a"]),
+            start: 0,
+            seed: 1,
+        };
+        apply(&mut s, &play, t0);
+        assert!(s.playback.loading);
+        assert!(s.playback.is_playing(), "it is on its way");
+        assert_eq!(s.playback.status, PlaybackStatus::Buffering);
+        assert_eq!(s.playback.position_at(secs(6)), Duration::ZERO);
+        assert_eq!(next_wake(&s, secs(6)), None);
+        assert!(tick(&mut s, secs(60)).is_empty(), "nothing played yet");
+
+        // The player has the stream but is still prebuffering.
+        sync_position(&mut s, &player(PlaybackStatus::Buffering, 0), secs(5));
+        assert!(s.playback.loading);
+        assert_eq!(s.playback.position_at(secs(6)), Duration::ZERO);
+
+        sync_position(&mut s, &player(PlaybackStatus::Playing, 0), secs(6));
+        assert!(!s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert_eq!(s.playback.position_at(secs(7)), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn only_a_loaded_track_resumes_at_once() {
+        let t0 = Instant::now();
+        let secs = |n| t0 + Duration::from_secs(n);
+        let mut s = playing(&["a", "b"], 0, t0);
+        apply(&mut s, &Command::TogglePlay, secs(10));
+        apply(&mut s, &Command::Next, secs(10));
+        assert!(s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Paused);
+
+        // Play before the player has the track: wait for it.
+        assert_eq!(
+            apply(&mut s, &Command::TogglePlay, secs(11)),
+            [Effect::Play]
+        );
+        assert_eq!(s.playback.status, PlaybackStatus::Buffering);
+        assert_eq!(s.playback.position_at(secs(20)), Duration::ZERO);
+        assert_eq!(
+            apply(&mut s, &Command::TogglePlay, secs(12)),
+            [Effect::Pause]
+        );
+        assert_eq!(s.playback.position_at(secs(20)), Duration::ZERO);
+
+        // The player loaded it paused; from here a resume is instant.
+        sync_position(&mut s, &player_on("b", PlaybackStatus::Paused, 0), secs(13));
+        assert!(!s.playback.loading);
+        assert_eq!(
+            apply(&mut s, &Command::TogglePlay, secs(14)),
+            [Effect::Play]
+        );
+        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert_eq!(s.playback.position_at(secs(19)), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_seek_while_loading_holds_the_new_position() {
+        let t0 = Instant::now();
+        let secs = |n| t0 + Duration::from_secs(n);
+        let mut s = State::default();
+        let play = Command::PlayTracks {
+            tracks: list(&["a"]),
+            start: 0,
+            seed: 1,
+        };
+        apply(&mut s, &play, t0);
+        let to = Duration::from_secs(30);
+        assert_eq!(
+            apply(&mut s, &Command::Seek(to), secs(1)),
+            [Effect::Seek(to)]
+        );
+        assert!(s.playback.loading);
+        assert_eq!(s.playback.position_at(secs(5)), to);
+
+        sync_position(&mut s, &player(PlaybackStatus::Playing, 30), secs(5));
+        assert_eq!(s.playback.position_at(secs(7)), Duration::from_secs(32));
+    }
+
+    #[test]
+    fn a_failed_stream_ends_the_load() {
+        let now = Instant::now();
+        let mut s = State::default();
+        let play = Command::PlayTracks {
+            tracks: list(&["a"]),
+            start: 0,
+            seed: 1,
+        };
+        apply(&mut s, &play, now);
+        let uid = s.queue.current().unwrap().uid;
+        let failed = Event::StreamFailed {
+            uid,
+            error: BackendError::Network("offline".into()),
+        };
+        assert_eq!(on_event(&mut s, failed, now), [Effect::Stop]);
+        assert!(!s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Stopped);
+    }
+
     fn record_count(fx: &[Effect]) -> usize {
         fx.iter()
             .filter(|e| matches!(e, Effect::RecordPlay { .. }))
@@ -3172,6 +3318,7 @@ mod tests {
             ..Track::clone(&track("s"))
         });
         apply(&mut s, &Command::PlayNow(short), t0);
+        started(&mut s, t0);
         apply(&mut s, &Command::CycleRepeat, t0); // all
         apply(&mut s, &Command::CycleRepeat, t0); // one
         assert_eq!(record_count(&tick(&mut s, t0 + Duration::from_secs(10))), 1);
@@ -3185,6 +3332,7 @@ mod tests {
             end,
         );
         assert_eq!(current(&s), "s");
+        started(&mut s, end);
         assert_eq!(
             record_count(&tick(&mut s, end + Duration::from_secs(10))),
             1

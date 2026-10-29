@@ -16,7 +16,9 @@
 //! Protocol: one request per line (`play`, `pause`, `toggle`, `next`,
 //! `previous`, `status`, `raise`), one reply line per request: `ok`,
 //! `error <message>`, or for `status` one JSON object:
-//! `{"title":..,"artist":..,"position":<s>,"duration":<s or null>,"playing":<bool>}`.
+//! `{"title":..,"artist":..,"position":<s>,"duration":<s or null>,"playing":<bool>,"loading":<bool>}`.
+//! While the current track loads, `playing` is false, `loading` is true and
+//! `position` holds still until the audio starts.
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, Permissions};
@@ -114,7 +116,11 @@ impl Snapshot {
             _ => false,
         };
         let (a, b) = (&self.playback, &other.playback);
-        track && a.status == b.status && a.position == b.position && a.anchor == b.anchor
+        track
+            && a.status == b.status
+            && a.position == b.position
+            && a.anchor == b.anchor
+            && a.loading == b.loading
     }
 
     fn json(&self, now: Instant) -> String {
@@ -130,9 +136,10 @@ impl Snapshot {
         };
         let duration = duration.map_or("null".to_owned(), |d| format!("{:.1}", d.as_secs_f64()));
         format!(
-            r#"{{"title":{title},"artist":{artist},"position":{:.1},"duration":{duration},"playing":{}}}"#,
+            r#"{{"title":{title},"artist":{artist},"position":{:.1},"duration":{duration},"playing":{},"loading":{}}}"#,
             position.as_secs_f64(),
-            self.playback.is_playing(),
+            self.playback.is_playing() && !self.playback.loading,
+            self.playback.loading,
         )
     }
 }
@@ -566,6 +573,7 @@ mod tests {
     use super::*;
     use crate::queue::tests::track;
     use crate::state::apply;
+    use crate::state::tests::started;
     use egui::RawInput;
     use player::PlaybackStatus;
 
@@ -588,7 +596,9 @@ mod tests {
             start: 0,
             seed: 1,
         };
-        apply(&mut s, &play, Instant::now());
+        let now = Instant::now();
+        apply(&mut s, &play, now);
+        started(&mut s, now);
         s
     }
 
@@ -679,13 +689,13 @@ mod tests {
         let now = Instant::now();
         assert_eq!(
             Snapshot::default().json(now),
-            r#"{"title":null,"artist":null,"position":0.0,"duration":null,"playing":false}"#
+            r#"{"title":null,"artist":null,"position":0.0,"duration":null,"playing":false,"loading":false}"#
         );
         let mut s = playing(&["a"]);
         s.playback.anchor = Some(now - Duration::from_millis(12_340));
         assert_eq!(
             Snapshot::of(&s).json(now),
-            r#"{"title":"A","artist":"","position":12.3,"duration":100.0,"playing":true}"#
+            r#"{"title":"A","artist":"","position":12.3,"duration":100.0,"playing":true,"loading":false}"#
         );
         // Extrapolation never runs past the end of the track.
         s.playback.anchor = Some(now - Duration::from_secs(500));
@@ -695,7 +705,7 @@ mod tests {
         s.playback.position = Duration::from_secs(7);
         assert_eq!(
             Snapshot::of(&s).json(now),
-            r#"{"title":"A","artist":"","position":7.0,"duration":100.0,"playing":false}"#
+            r#"{"title":"A","artist":"","position":7.0,"duration":100.0,"playing":false,"loading":false}"#
         );
     }
 
@@ -726,7 +736,11 @@ mod tests {
         let replies = talk(&path, &["next", "previous", "status", "bogus"]);
         assert_eq!(replies[..2], ["ok", "ok"]);
         assert!(replies[2].starts_with(r#"{"title":"A","#), "{}", replies[2]);
-        assert!(replies[2].ends_with(r#""playing":true}"#), "{}", replies[2]);
+        assert!(
+            replies[2].ends_with(r#""playing":true,"loading":false}"#),
+            "{}",
+            replies[2]
+        );
         assert_eq!(replies[3], "error unknown command: bogus");
         assert!(matches!(
             poll_n(&mut control, 2)[..],

@@ -228,7 +228,8 @@ fn controls(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, now: Instan
         cmd(out, Command::CycleRepeat);
     }
 
-    // Elapsed (or "Buffering"), the seek track, the duration; 16 px apart.
+    // Elapsed (or "Loading" / "Buffering"), the seek track, the duration;
+    // 16 px apart.
     let duration = state.duration().unwrap_or_default();
     let shown = view.seek_drag.map_or_else(
         || state.playback.position_at(now).min(duration),
@@ -237,7 +238,9 @@ fn controls(ui: &mut Ui, rect: Rect, state: &State, view: &mut View, now: Instan
     let buffering = state.playback.status == PlaybackStatus::Buffering && view.seek_drag.is_none();
     let painter = ui.painter();
     let font = theme::caption();
-    let (label, label_color) = if buffering {
+    let (label, label_color) = if buffering && state.playback.loading {
+        ("Loading".to_owned(), p.text_1)
+    } else if buffering {
         ("Buffering".to_owned(), p.text_1)
     } else {
         (fmt_time(shown), p.text_2)
