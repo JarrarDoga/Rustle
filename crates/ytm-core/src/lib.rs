@@ -12,6 +12,7 @@ use model::{
 
 mod fixture;
 mod innertube;
+mod rank;
 mod rustypipe_backend;
 mod stream_cache;
 mod visionos;

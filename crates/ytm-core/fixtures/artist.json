@@ -231,7 +231,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_K8qWMWVqXGi",
@@ -269,7 +270,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_BQHrCwSBM37",
@@ -307,7 +309,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_O4RirBTUPxl",
@@ -345,7 +348,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_7ltM34kr0mH",
@@ -383,7 +387,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_DysYPhLwfgT",
@@ -421,7 +426,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_CtOaObihCXA",
@@ -459,7 +465,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_HsRdpN0CvLO",
@@ -497,7 +504,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_TP971moS91e",
@@ -535,7 +543,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     },
     {
       "id": "MPREb_ntrOBFh3Udz",
@@ -573,7 +582,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Album"
     }
   ],
   "singles": [
@@ -613,7 +623,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_7VGCTgAVWt7",
@@ -651,7 +662,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_AkAwWpvJOOS",
@@ -689,7 +701,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_msDPv5wFtf1",
@@ -727,7 +740,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_Wy0wUNYLgkL",
@@ -765,7 +779,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_NP5KiWDRCje",
@@ -803,7 +818,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_3vX2038FZkI",
@@ -841,7 +857,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_DYSzDJvUSDu",
@@ -879,7 +896,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_Arz8hqNc8Ns",
@@ -917,7 +935,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     },
     {
       "id": "MPREb_ACdoDdB5hLk",
@@ -955,7 +974,8 @@
           "width": 544,
           "height": 544
         }
-      ]
+      ],
+      "album_type": "Single"
     }
   ]
 }

@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use model::{
-    Album, AlbumRef, AlbumSummary, Artist, ArtistRef, ArtistSummary, AudioCodec, LyricLine, Lyrics,
-    Playlist, PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track, TrackId,
+    Album, AlbumRef, AlbumSummary, AlbumType, Artist, ArtistRef, ArtistSummary, AudioCodec,
+    LyricLine, Lyrics, Playlist, PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track,
+    TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
 use rustypipe::client::{ClientType, RustyPipe, RustyPipeQuery};
@@ -14,6 +15,7 @@ use rustypipe::error::{Error as RpError, ExtractionError};
 use rustypipe::model as rp;
 
 use crate::innertube;
+use crate::rank;
 use crate::stream_cache::StreamCache;
 use crate::visionos::{self, VisionOsError};
 use crate::ytdlp::{self, YtDlp, YtDlpError};
@@ -334,6 +336,7 @@ impl MusicBackend for RustyPipeBackend {
         )
         .map_err(map_error)?;
         Ok(map_search(
+            query,
             tracks.items.items,
             albums.items.items,
             artists.items.items,
@@ -789,6 +792,15 @@ fn map_track(t: rp::TrackItem) -> Track {
     }
 }
 
+fn map_album_type(t: rp::AlbumType) -> AlbumType {
+    match t {
+        rp::AlbumType::Album => AlbumType::Album,
+        rp::AlbumType::Ep => AlbumType::Ep,
+        rp::AlbumType::Single => AlbumType::Single,
+        _ => AlbumType::Unknown,
+    }
+}
+
 fn map_album(a: rp::AlbumItem) -> AlbumSummary {
     AlbumSummary {
         id: a.id,
@@ -796,6 +808,7 @@ fn map_album(a: rp::AlbumItem) -> AlbumSummary {
         artists: map_artists(a.artists),
         year: a.year,
         thumbnails: map_thumbnails(a.cover),
+        album_type: map_album_type(a.album_type),
     }
 }
 
@@ -872,15 +885,21 @@ fn map_playlist(mut p: rp::MusicPlaylist) -> Playlist {
     }
 }
 
+/// The four search pages, with albums re-ranked by the songs (see
+/// `rank::rank_albums`).
 fn map_search(
+    query: &str,
     tracks: Vec<rp::TrackItem>,
     albums: Vec<rp::AlbumItem>,
     artists: Vec<rp::ArtistItem>,
     playlists: Vec<rp::MusicPlaylistItem>,
 ) -> SearchResults {
+    let tracks: Vec<Track> = tracks.into_iter().map(map_track).collect();
+    let mut albums: Vec<AlbumSummary> = albums.into_iter().map(map_album).collect();
+    rank::rank_albums(&mut albums, &tracks, query);
     SearchResults {
-        tracks: tracks.into_iter().map(map_track).collect(),
-        albums: albums.into_iter().map(map_album).collect(),
+        tracks,
+        albums,
         artists: artists.into_iter().map(map_artist).collect(),
         playlists: playlists.into_iter().map(map_playlist_item).collect(),
     }
@@ -909,6 +928,7 @@ fn map_music_album(a: rp::MusicAlbum) -> Album {
         artists: map_artists(a.artists),
         year: a.year,
         thumbnails: map_thumbnails(a.cover),
+        album_type: map_album_type(a.album_type),
     };
     let tracks = a
         .tracks
@@ -1681,6 +1701,72 @@ mod tests {
         assert_eq!(artist.singles[10].id, "MPREb_epepepepepep");
     }
 
+    /// "heaven knows" (`rp_search_heaven_knows.json`): YouTube's album page
+    /// is twenty "Heaven Knows" releases, mostly unknown singles, and none by
+    /// the artists of the songs page.
+    #[test]
+    fn heaven_knows_albums_rerank() {
+        #[derive(serde::Deserialize)]
+        struct RecordedSearch {
+            query: String,
+            tracks: Vec<rp::TrackItem>,
+            albums: Vec<rp::AlbumItem>,
+        }
+        let s: RecordedSearch =
+            serde_json::from_str(include_str!("../fixtures/rp_search_heaven_knows.json")).unwrap();
+        let line = |a: &AlbumSummary| (a.artists[0].name.clone(), a.album_type);
+        let youtube: Vec<_> = s.albums.iter().cloned().map(map_album).collect();
+        assert_eq!(line(&youtube[5]), ("Warn Torn".into(), AlbumType::Single));
+
+        // Recorded as is: full albums named after the query first, then the
+        // EP, then the singles in YouTube's order, then other names.
+        let res = map_search(&s.query, s.tracks.clone(), s.albums.clone(), vec![], vec![]);
+        assert_eq!(res.albums.len(), youtube.len());
+        let top: Vec<_> = res.albums.iter().take(5).map(line).collect();
+        assert_eq!(
+            top,
+            [
+                ("PinkPantheress".into(), AlbumType::Album),
+                ("Hilux Vibez".into(), AlbumType::Album),
+                ("Jim Croegaert".into(), AlbumType::Album),
+                ("Jonathan Sim".into(), AlbumType::Ep),
+                ("Peaceful Rhythms".into(), AlbumType::Single),
+            ]
+        );
+        let singles: Vec<&str> = youtube
+            .iter()
+            .filter(|a| a.album_type == AlbumType::Single && a.name == "Heaven Knows")
+            .map(|a| a.id.as_str())
+            .collect();
+        let ranked: Vec<&str> = res.albums[4..].iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ranked[..singles.len()], singles);
+        assert!(
+            res.albums
+                .last()
+                .unwrap()
+                .name
+                .starts_with("Heaven Knows / ")
+        );
+
+        // Albums by the songs' artists come first, in song order, wherever
+        // YouTube put them: song #1 is Robert Plant, song #2 The Pretty
+        // Reckless.
+        assert_eq!(res.tracks[0].artists[0].name, "Robert Plant");
+        assert_eq!(res.tracks[1].artists[0].name, "The Pretty Reckless");
+        let by = |id: &str, track: usize| {
+            let mut a = s.albums[1].clone();
+            a.id = id.to_owned();
+            a.artists = s.tracks[track].artists.clone();
+            a
+        };
+        let mut albums = s.albums.clone();
+        albums.push(by("MPREb_reckless", 1));
+        albums.insert(3, by("MPREb_plant", 0));
+        let res = map_search(&s.query, s.tracks, albums, vec![], vec![]);
+        let ids: Vec<&str> = res.albums.iter().take(3).map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, ["MPREb_plant", "MPREb_reckless", &youtube[0].id]);
+    }
+
     /// The model JSON fixtures are the mapping of the recorded rustypipe
     /// responses. Run with `UPDATE_FIXTURES=1` after re-recording.
     #[test]
@@ -1697,7 +1783,7 @@ mod tests {
             serde_json::from_str(include_str!("../fixtures/rp_search.json")).unwrap();
         let playlist: rp::MusicPlaylist =
             serde_json::from_str(include_str!("../fixtures/rp_playlist.json")).unwrap();
-        let search = map_search(s.tracks, s.albums, s.artists, s.playlists);
+        let search = map_search("daft punk", s.tracks, s.albums, s.artists, s.playlists);
         let playlist = map_playlist(playlist);
 
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");

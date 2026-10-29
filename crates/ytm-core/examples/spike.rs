@@ -6,6 +6,7 @@
 //! cargo run -p ytm-core --example spike -- playlist <playlist_id> [--json]
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- library
 //! cargo run -p ytm-core --example spike -- record <fixtures_dir> [playlist_id]
+//! cargo run -p ytm-core --example spike -- record-search <fixtures_dir> <name> <query>
 //! cargo run -p ytm-core --example spike -- radio <video_id>
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- like <video_id>
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- unlike <video_id>
@@ -23,6 +24,8 @@
 //! `record` saves raw rustypipe responses (search "daft punk", one page per
 //! type, and one public playlist; no cookies) as `rp_*.json`. Then run
 //! `UPDATE_FIXTURES=1 cargo test -p ytm-core` to regenerate the model fixtures.
+//! `record-search` saves the songs and albums pages of another query as
+//! `rp_search_<name>.json`, no cookies.
 //!
 //! `record-owned` saves the first two raw `browse` pages of a playlist the
 //! account owns (trimmed to three rows each, without header or tracking data)
@@ -225,10 +228,14 @@ async fn main() -> AnyResult<()> {
             }
         }
         ["record", dir, rest @ ..] => record(Path::new(dir), rest.first().copied()).await?,
+        ["record-search", dir, name, query @ ..] if !query.is_empty() => {
+            record_search(Path::new(dir), name, &query.join(" ")).await?
+        }
         _ => {
             eprintln!(
                 "usage: spike search <query> [--json] | stream <id> | playlist <id> [--json] \
-                 | library | record <dir> [playlist_id] | radio <id> | like <id> | unlike <id> \
+                 | library | record <dir> [playlist_id] | record-search <dir> <name> <query> \
+                 | radio <id> | like <id> | unlike <id> \
                  | add <playlist_id> <id>... [--force] | remove <playlist_id> <id>... [--force] \
                  | record-owned <dir> <playlist_id> | record-radio <dir> <id> \
                  | album <id> [--json] | artist <id> [--json] \
@@ -479,6 +486,33 @@ async fn record(dir: &Path, playlist_id: Option<&str>) -> AnyResult<()> {
         "recorded search ({} tracks) and playlist {playlist_id} ({} tracks)",
         search["tracks"].as_array().map_or(0, Vec::len),
         playlist.tracks.items.len()
+    );
+    Ok(())
+}
+
+/// Saves the raw songs and albums pages of one search, no cookies.
+async fn record_search(dir: &Path, name: &str, query: &str) -> AnyResult<()> {
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let q = rp.query().unauthenticated();
+    let (tracks, albums) =
+        tokio::try_join!(q.music_search_tracks(query), q.music_search_albums(query),)?;
+    let search = serde_json::json!({
+        "query": query,
+        "tracks": tracks.items.items,
+        "albums": albums.items.items,
+    });
+    std::fs::write(
+        dir.join(format!("rp_search_{name}.json")),
+        serde_json::to_string_pretty(&search)? + "\n",
+    )?;
+    println!(
+        "recorded search {query:?} ({} tracks, {} albums)",
+        tracks.items.items.len(),
+        albums.items.items.len()
     );
     Ok(())
 }
