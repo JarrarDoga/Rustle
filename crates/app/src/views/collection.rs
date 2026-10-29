@@ -29,6 +29,10 @@ use crate::widgets::{ArtKind, art, seed, text_line, track_table};
 const NOT_HEARD_SECS: i64 = 90 * 86_400;
 const NOT_HEARD_LABEL: &str = "Not heard in 3 months";
 
+/// Narrowest the filter field gets before the quick filter and the sort
+/// menu give up text.
+const FIELD_MIN_W: f32 = 200.0;
+
 const SORTS: [(Sort, &str); 6] = [
     (Sort::PlaylistOrder, "Playlist order"),
     (Sort::Title, "Title"),
@@ -752,8 +756,9 @@ fn filter_row(ui: &mut Ui, main: &PlaylistView, c: &mut CollectionView) {
     let stats = memo_stats();
 
     // Right to left: sort menu, then the quick filter after the field.
-    let sort_rect = sort_menu(ui, right, cy, c);
-    let quick = Pill::new(ui, &group(stats.not_heard));
+    let count = group(stats.not_heard);
+    let (sort, quick) = fit_controls(ui, c, &count, right - left);
+    let sort_rect = sort.show(ui, right, cy, c);
     let field_w = 440.0f32
         .min(sort_rect.left() - theme::SPACE_8 - quick.width() - theme::SPACE_8 - left)
         .max(160.0);
@@ -768,11 +773,40 @@ fn filter_row(ui: &mut Ui, main: &PlaylistView, c: &mut CollectionView) {
         ),
         vec2(quick.width(), theme::ICON_BUTTON),
     );
-    if quick.show(ui, quick_rect, c.not_heard).clicked() {
+    if quick.show(ui, quick_rect, c.not_heard, &count).clicked() {
         c.not_heard = !c.not_heard;
     }
 
     filter_field(ui, field, n, c);
+}
+
+/// The sort menu and quick filter for a row `width` wide. When the field
+/// would get narrower than `FIELD_MIN_W` (the 780 px minimum window with
+/// the browse panel open), they give up text in this order: the quick
+/// filter's label, "Sort", the quick filter's count. Each stays named on
+/// hover.
+fn fit_controls(ui: &Ui, c: &CollectionView, count: &str, width: f32) -> (SortMenu, Pill) {
+    [
+        (true, true, true),
+        (false, true, true),
+        (false, false, true),
+    ]
+    .into_iter()
+    .map(|(label, sort_label, count_shown)| {
+        (
+            SortMenu::new(ui, c, sort_label),
+            Pill::new(ui, label, count, count_shown),
+        )
+    })
+    .find(|(sort, quick)| {
+        width - sort.width() - quick.width() - 2.0 * theme::SPACE_8 >= FIELD_MIN_W
+    })
+    .unwrap_or_else(|| {
+        (
+            SortMenu::new(ui, c, false),
+            Pill::new(ui, false, count, false),
+        )
+    })
 }
 
 fn filter_field(ui: &mut Ui, field: Rect, n: usize, c: &mut CollectionView) {
@@ -959,10 +993,11 @@ fn chip(ui: &mut Ui, at: Pos2, text: &str, max_w: f32, id: egui::Id) -> (f32, bo
     (w, resp.clicked())
 }
 
-/// The "Not heard in 3 months 412" toggle.
+/// The "Not heard in 3 months 412" toggle. In a narrow row it drops the
+/// label, then the count, down to the icon.
 struct Pill {
-    label: Arc<Galley>,
-    count: Arc<Galley>,
+    label: Option<Arc<Galley>>,
+    count: Option<Arc<Galley>>,
 }
 
 impl Pill {
@@ -970,31 +1005,37 @@ impl Pill {
     const GAP: f32 = 6.0;
     const ICON: f32 = 14.0;
 
-    fn new(ui: &Ui, count: &str) -> Self {
+    fn new(ui: &Ui, label: bool, count: &str, count_shown: bool) -> Self {
         let painter = ui.painter();
+        let layout = |text: &str| {
+            painter.layout_no_wrap(text.to_owned(), theme::secondary(), Color32::PLACEHOLDER)
+        };
         Self {
-            label: painter.layout_no_wrap(
-                NOT_HEARD_LABEL.to_owned(),
-                theme::secondary(),
-                Color32::PLACEHOLDER,
-            ),
-            count: painter.layout_no_wrap(
-                count.to_owned(),
-                theme::secondary(),
-                Color32::PLACEHOLDER,
-            ),
+            label: label.then(|| layout(NOT_HEARD_LABEL)),
+            count: count_shown.then(|| layout(count)),
         }
     }
 
     fn width(&self) -> f32 {
-        2.0 * Self::PAD + Self::ICON + 2.0 * Self::GAP + self.label.size().x + self.count.size().x
+        let text: f32 = [&self.label, &self.count]
+            .into_iter()
+            .flatten()
+            .map(|g| Self::GAP + g.size().x)
+            .sum();
+        2.0 * Self::PAD + Self::ICON + text
     }
 
-    fn show(self, ui: &mut Ui, rect: Rect, on: bool) -> Response {
+    fn show(self, ui: &mut Ui, rect: Rect, on: bool, count: &str) -> Response {
+        const HINT: &str = "Songs never played here, or last played over 90 days ago";
         let p = theme::pal();
+        let hover = if self.label.is_some() {
+            HINT.to_owned()
+        } else {
+            format!("{NOT_HEARD_LABEL} \u{b7} {count}\n{HINT}")
+        };
         let resp = ui
             .interact(rect, ui.scope_id().with("not-heard"), Sense::click())
-            .on_hover_text("Songs never played here, or last played over 90 days ago");
+            .on_hover_text(hover);
         let painter = ui.painter();
         let radius = CornerRadius::same(theme::RADIUS_CONTROL);
         let (fill, stroke) = match (on, resp.hovered()) {
@@ -1021,60 +1062,86 @@ impl Pill {
             if on { p.text_1 } else { p.text_2 },
         );
         x += Self::ICON + Self::GAP;
-        let label_w = self.label.size().x;
-        painter.galley(
-            Pos2::new(x, cy - self.label.size().y / 2.0),
-            self.label,
-            p.text_1,
-        );
-        x += label_w + Self::GAP;
-        painter.galley(
-            Pos2::new(x, cy - self.count.size().y / 2.0),
-            self.count,
-            p.text_3,
-        );
+        for (galley, color) in [(self.label, p.text_1), (self.count, p.text_3)] {
+            let Some(galley) = galley else { continue };
+            let size = galley.size();
+            painter.galley(Pos2::new(x, cy - size.y / 2.0), galley, color);
+            x += size.x + Self::GAP;
+        }
         resp
     }
 }
 
-/// "Sort  Playlist order ⌄", right-aligned at `right`. Returns its rect.
-fn sort_menu(ui: &mut Ui, right: f32, cy: f32, c: &mut CollectionView) -> Rect {
+/// "Sort  Playlist order ⌄"; in a narrow row, "Playlist order ⌄".
+struct SortMenu {
+    label: Option<Arc<Galley>>,
+    value: Arc<Galley>,
+    caret: Arc<Galley>,
+}
+
+impl SortMenu {
     const PAD: f32 = 8.0;
     const GAP: f32 = 6.0;
-    let p = theme::pal();
-    let current = SORTS
-        .iter()
-        .find(|(s, _)| *s == c.sort)
-        .map_or("Playlist order", |(_, name)| name);
-    let painter = ui.painter();
-    let label = painter.layout_no_wrap("Sort".to_owned(), theme::secondary(), p.text_2);
-    let value = painter.layout_no_wrap(current.to_owned(), theme::secondary(), p.text_1);
-    let caret = painter.layout_no_wrap(icons::CARET_DOWN.to_owned(), theme::icon(12.0), p.text_2);
-    let w = 2.0 * PAD + label.size().x + value.size().x + caret.size().x + 2.0 * GAP;
-    let rect = Rect::from_min_size(
-        Pos2::new(right - w, cy - theme::ICON_BUTTON / 2.0),
-        vec2(w, theme::ICON_BUTTON),
-    );
-    let resp = ui.interact(rect, ui.scope_id().with("sort"), Sense::click());
-    let painter = ui.painter();
-    if resp.hovered() || Popup::is_id_open(ui.ctx(), Popup::default_response_id(&resp)) {
-        painter.rect_filled(rect, CornerRadius::same(theme::RADIUS_CONTROL), p.surface_2);
-    }
-    let mut x = rect.left() + PAD;
-    for g in [label, value, caret] {
-        let size = g.size();
-        painter.galley(Pos2::new(x, cy - size.y / 2.0), g, p.text_1);
-        x += size.x + GAP;
-    }
-    Popup::menu(&resp).show(|ui| {
-        for (sort, name) in SORTS {
-            if ui.selectable_label(c.sort == sort, name).clicked() {
-                c.sort = sort;
-                ui.close();
-            }
+
+    fn new(ui: &Ui, c: &CollectionView, label: bool) -> Self {
+        let p = theme::pal();
+        let current = SORTS
+            .iter()
+            .find(|(s, _)| *s == c.sort)
+            .map_or("Playlist order", |(_, name)| name);
+        let painter = ui.painter();
+        Self {
+            label: label
+                .then(|| painter.layout_no_wrap("Sort".to_owned(), theme::secondary(), p.text_2)),
+            value: painter.layout_no_wrap(current.to_owned(), theme::secondary(), p.text_1),
+            caret: painter.layout_no_wrap(
+                icons::CARET_DOWN.to_owned(),
+                theme::icon(12.0),
+                p.text_2,
+            ),
         }
-    });
-    rect
+    }
+
+    fn width(&self) -> f32 {
+        let label = self.label.as_ref().map_or(0.0, |g| g.size().x + Self::GAP);
+        2.0 * Self::PAD + label + self.value.size().x + Self::GAP + self.caret.size().x
+    }
+
+    /// Right-aligned at `right`. Returns its rect.
+    fn show(self, ui: &mut Ui, right: f32, cy: f32, c: &mut CollectionView) -> Rect {
+        let p = theme::pal();
+        let w = self.width();
+        let rect = Rect::from_min_size(
+            Pos2::new(right - w, cy - theme::ICON_BUTTON / 2.0),
+            vec2(w, theme::ICON_BUTTON),
+        );
+        let mut resp = ui.interact(rect, ui.scope_id().with("sort"), Sense::click());
+        if self.label.is_none() {
+            resp = resp.on_hover_text("Sort");
+        }
+        let painter = ui.painter();
+        if resp.hovered() || Popup::is_id_open(ui.ctx(), Popup::default_response_id(&resp)) {
+            painter.rect_filled(rect, CornerRadius::same(theme::RADIUS_CONTROL), p.surface_2);
+        }
+        let mut x = rect.left() + Self::PAD;
+        for g in [self.label, Some(self.value), Some(self.caret)]
+            .into_iter()
+            .flatten()
+        {
+            let size = g.size();
+            painter.galley(Pos2::new(x, cy - size.y / 2.0), g, p.text_1);
+            x += size.x + Self::GAP;
+        }
+        Popup::menu(&resp).show(|ui| {
+            for (sort, name) in SORTS {
+                if ui.selectable_label(c.sort == sort, name).clicked() {
+                    c.sort = sort;
+                    ui.close();
+                }
+            }
+        });
+        rect
+    }
 }
 
 #[cfg(test)]
@@ -1460,5 +1527,38 @@ mod tests {
         eprintln!("collection filter, 1,535 tracks: worst {worst:?}");
         let limit = if cfg!(debug_assertions) { 40 } else { 2 };
         assert!(worst < Duration::from_millis(limit), "{worst:?}");
+    }
+
+    #[test]
+    fn toolbar_fits_the_minimum_window() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        // Fonts load on the first pass.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        // The filter row at the 780 px minimum: the rail, the browse panel,
+        // their separator lines and the row's side insets taken off.
+        let narrow = 780.0 - theme::RAIL_W - theme::FACET_PANEL_W - 2.0 - 2.0 * theme::SPACE_20;
+        let wide = 1200.0 - theme::RAIL_W - theme::FACET_PANEL_W - 2.0 - 2.0 * theme::SPACE_20;
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            for (sort, _) in SORTS {
+                let c = CollectionView {
+                    sort,
+                    ..CollectionView::default()
+                };
+                for count in ["33", "1,528", "15,000"] {
+                    let (s, q) = fit_controls(ui, &c, count, narrow);
+                    let field = narrow - s.width() - q.width() - 2.0 * theme::SPACE_8;
+                    assert!(field >= FIELD_MIN_W, "{sort:?} {count}: field {field}");
+                    // The count is the last thing to go.
+                    assert!(q.count.is_some(), "{sort:?} {count}");
+                    let (s, q) = fit_controls(ui, &c, count, wide);
+                    assert!(s.label.is_some() && q.label.is_some(), "{sort:?} {count}");
+                }
+            }
+        })
+        .textures_delta
+        .clear();
     }
 }
