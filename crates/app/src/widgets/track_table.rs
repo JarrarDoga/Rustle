@@ -15,10 +15,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::epaint::RectShape;
 use egui::{
-    Align2, Color32, CornerRadius, Key, Painter, Pos2, Rect, Response, ScrollArea, Sense, Stroke,
-    StrokeKind, Ui, UiBuilder, pos2, vec2,
+    Align2, Color32, CornerRadius, CursorIcon, Key, Painter, Pos2, Rect, Response, ScrollArea,
+    Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
 };
 use model::{Track, TrackId};
+use player::PlaybackStatus;
 
 use crate::icons;
 use crate::state::{Command, State};
@@ -31,7 +32,8 @@ use crate::widgets::{fmt_time, seed, text_line};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
     /// The row's number: playlist position or album track number. On hover
-    /// it becomes a play button; on the playing row, a speaker.
+    /// it becomes a play button that plays on a single click; on the
+    /// playing row, a speaker, and on hover a pause/play toggle.
     Index,
     /// Art (24 px) and title. The album set (no [`Column::Album`]) leaves
     /// the art out, since every row shares it.
@@ -324,11 +326,14 @@ struct RowCtx<'a> {
     /// Set when the table has an In Everything column and a main playlist
     /// is loaded.
     main: Option<&'a HashMap<TrackId, usize>>,
+    /// Plays the shown rows from the row showing `tracks[i]`, as a
+    /// double-click does.
+    play: &'a dyn Fn(&mut Out, usize),
 }
 
 /// Draws the header and the rows. Click selects; double-click (or Enter on
-/// the selected row) plays the shown rows from that row; right-click opens
-/// the song menu.
+/// the selected row, or a click on the hover play button) plays the shown
+/// rows from that row; right-click opens the song menu.
 pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: &mut Out) -> Shown {
     let Table {
         salt,
@@ -398,6 +403,11 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
             None
         };
         let current = state.current_track().map(|t| t.id.as_str());
+        let play = |out: &mut Out, i: usize| {
+            if let Some(k) = display_pos(i) {
+                play_from(out, k);
+            }
+        };
         let ctx = RowCtx {
             state,
             cells: &cells,
@@ -406,6 +416,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
             current,
             liked: &liked,
             main: main.as_deref(),
+            play: &play,
         };
 
         let mut area = ScrollArea::vertical()
@@ -508,12 +519,24 @@ fn row(
     let painter = ui.painter().clone();
     let cy = rect.center().y;
 
-    // The heart and Add sit on top of the row, so they take their own
-    // clicks. Interact first, paint after.
+    // The play button, heart and Add sit on top of the row, so they take
+    // their own clicks. Interact first, paint after.
+    // On the current row the play button toggles pause, like the player
+    // bar's; a stopped current track plays from this row again.
+    let toggles = is_current && ctx.state.playback.status != PlaybackStatus::Stopped;
+    let mut play = None;
     let mut like = None;
     let mut add = None;
     for cell in ctx.cells {
         match cell.slot {
+            Slot::Col(Index) if hover => {
+                // The whole number cell plus the row padding left of it.
+                let r = Rect::from_x_y_ranges(rect.left()..=cell.right(rect), rect.y_range());
+                play = Some(
+                    ui.interact(r, id.with("play"), Sense::click())
+                        .on_hover_cursor(CursorIcon::PointingHand),
+                );
+            }
             Slot::Like if hover || liked => {
                 let r = Rect::from_center_size(
                     pos2(cell.rect(rect).center().x, cy),
@@ -554,8 +577,14 @@ fn row(
         let right = cell.right(rect);
         match cell.slot {
             Slot::Col(Index) => {
-                let (text, font, color) = if hover {
-                    (icons::PLAY.to_owned(), theme::icon_fill(12.0), p.text_1)
+                let (text, font, color) = if let Some(resp) = &play {
+                    let glyph = if toggles && ctx.state.playback.is_playing() {
+                        icons::PAUSE
+                    } else {
+                        icons::PLAY
+                    };
+                    let color = if resp.hovered() { p.text_1 } else { p.text_2 };
+                    (glyph.to_owned(), theme::icon_fill(12.0), color)
                 } else if is_current {
                     (
                         icons::SPEAKER_HIGH.to_owned(),
@@ -702,6 +731,18 @@ fn row(
         }
     }
 
+    // The second press of a double-click on the button would play (or
+    // toggle) again; one double-click plays once, as on the rest of the row.
+    if play
+        .as_ref()
+        .is_some_and(|r| r.clicked() && !r.double_clicked() && !r.triple_clicked())
+    {
+        if toggles {
+            cmd(out, Command::TogglePlay);
+        } else {
+            (ctx.play)(out, index);
+        }
+    }
     if like.as_ref().is_some_and(Response::clicked) {
         let id = track.id.clone();
         cmd(
@@ -959,5 +1000,182 @@ mod tests {
     fn scroll_target_sits_a_third_down() {
         assert_eq!(scroll_offset(0, 600.0, 32.0), 0.0);
         assert_eq!(scroll_offset(100, 600.0, 32.0), 3200.0 - 200.0);
+    }
+
+    // ------------------------------------------------- hover play button
+
+    use std::time::Instant;
+
+    use crate::queue::tests::track;
+    use crate::views::Action;
+
+    /// Drives [`show`] headlessly with synthetic pointer input.
+    struct Harness {
+        ctx: egui::Context,
+        view: View,
+        out: Out,
+        /// The table's region, from the first frame.
+        full: Rect,
+        time: f64,
+    }
+
+    impl Harness {
+        fn new() -> Self {
+            let ctx = egui::Context::default();
+            theme::apply(&ctx);
+            Self {
+                ctx,
+                view: View::default(),
+                out: Out::new(),
+                full: Rect::NOTHING,
+                time: 0.0,
+            }
+        }
+
+        fn frame(
+            &mut self,
+            state: &State,
+            table: impl Fn() -> Table<'static>,
+            events: Vec<egui::Event>,
+        ) {
+            self.time += 0.05;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))),
+                time: Some(self.time),
+                events,
+                ..Default::default()
+            };
+            let (view, out, full) = (&mut self.view, &mut self.out, &mut self.full);
+            self.ctx
+                .run_ui(input, |ui| {
+                    *full = ui.available_rect_before_wrap();
+                    show(ui, state, view, table(), out);
+                })
+                .textures_delta
+                .clear();
+        }
+
+        /// The centre of display row `k`'s number cell, or `x` px into it.
+        fn at(&self, k: usize, x: f32) -> Pos2 {
+            let top = self.full.top() + theme::TABLE_HEADER_H + theme::SPACE_4;
+            pos2(
+                self.full.left() + INSET_L + x,
+                top + (k as f32 + 0.5) * theme::ROW_H,
+            )
+        }
+
+        fn click(&mut self, state: &State, table: impl Fn() -> Table<'static>, pos: Pos2) {
+            let button = |pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(state, &table, vec![button(true)]);
+            self.frame(state, &table, vec![button(false)]);
+        }
+
+        fn hover(&mut self, state: &State, table: impl Fn() -> Table<'static>, pos: Pos2) {
+            // Two frames: the row hovers, then the button it adds is hit.
+            self.frame(state, &table, vec![egui::Event::PointerMoved(pos)]);
+            self.frame(state, &table, vec![]);
+            self.frame(state, &table, vec![]);
+        }
+    }
+
+    fn tracks() -> &'static Arc<Vec<Arc<Track>>> {
+        static T: std::sync::OnceLock<Arc<Vec<Arc<Track>>>> = std::sync::OnceLock::new();
+        T.get_or_init(|| Arc::new(["a", "b", "c"].iter().map(|id| track(id)).collect()))
+    }
+
+    /// The tracks shown as c, a, b.
+    fn table() -> Table<'static> {
+        Table {
+            salt: "t",
+            tracks: tracks(),
+            rows: Some(&[2, 0, 1]),
+            columns: ALBUM,
+            scroll_to: None,
+        }
+    }
+
+    fn commands(out: &Out) -> Vec<&Command> {
+        out.iter()
+            .filter_map(|a| match a {
+                Action::Cmd(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn played_from(out: &Out) -> Vec<(Vec<String>, usize)> {
+        commands(out)
+            .into_iter()
+            .filter_map(|c| match c {
+                Command::PlayTracks { tracks, start, .. } => {
+                    Some((tracks.iter().map(|t| t.id.to_string()).collect(), *start))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hover_play_button_plays_on_one_click_without_selecting() {
+        let state = State::default();
+        let mut h = Harness::new();
+        h.frame(&state, table, vec![]);
+        let pos = h.at(1, 20.0);
+        h.hover(&state, table, pos);
+        h.click(&state, table, pos);
+        let shown = ["c", "a", "b"].map(String::from).to_vec();
+        assert_eq!(played_from(&h.out), [(shown, 1)]);
+        assert_eq!(commands(&h.out).len(), 1);
+        assert_eq!(h.view.selected, None);
+    }
+
+    #[test]
+    fn a_click_on_the_rest_of_the_row_only_selects() {
+        let state = State::default();
+        let mut h = Harness::new();
+        h.frame(&state, table, vec![]);
+        let pos = h.at(1, 200.0);
+        h.hover(&state, table, pos);
+        h.click(&state, table, pos);
+        assert!(commands(&h.out).is_empty());
+        assert!(matches!(h.view.selected, Some((_, 0))));
+    }
+
+    #[test]
+    fn double_clicking_the_play_button_plays_once() {
+        let state = State::default();
+        let mut h = Harness::new();
+        h.frame(&state, table, vec![]);
+        let pos = h.at(2, 20.0);
+        h.hover(&state, table, pos);
+        h.click(&state, table, pos);
+        h.click(&state, table, pos);
+        assert_eq!(played_from(&h.out).len(), 1);
+        assert_eq!(commands(&h.out).len(), 1);
+        assert_eq!(h.view.selected, None);
+    }
+
+    #[test]
+    fn play_button_on_the_current_row_toggles_pause() {
+        let mut state = State::default();
+        let play = Command::PlayTracks {
+            tracks: Arc::clone(tracks()),
+            start: 0,
+            seed: 1,
+        };
+        crate::state::apply(&mut state, &play, Instant::now());
+        assert!(state.playback.is_playing());
+        let mut h = Harness::new();
+        h.frame(&state, table, vec![]);
+        // "a" is display row 1.
+        let pos = h.at(1, 20.0);
+        h.hover(&state, table, pos);
+        h.click(&state, table, pos);
+        assert!(matches!(commands(&h.out)[..], [Command::TogglePlay]));
     }
 }
