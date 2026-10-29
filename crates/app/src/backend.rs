@@ -267,9 +267,9 @@ fn read_cache(store: &Store, tx: &Inputs) {
         log("queue", e);
         (Vec::new(), None)
     });
-    let (label, radio) = store.queue_extras().unwrap_or_else(|e| {
+    let (label, radio, queued) = store.queue_extras().unwrap_or_else(|e| {
         log("queue extras", e);
-        (None, Vec::new())
+        (None, Vec::new(), Vec::new())
     });
     send_event(
         tx,
@@ -278,6 +278,7 @@ fn read_cache(store: &Store, tx: &Inputs) {
             current,
             label,
             radio,
+            queued,
         },
     );
 }
@@ -746,6 +747,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
         let current = state.queue.current_index();
         let label = state.queue.playing_from().map(str::to_owned);
         let radio: Vec<bool> = state.queue.entries().iter().map(|e| e.radio).collect();
+        let queued: Vec<bool> = state.queue.entries().iter().map(|e| e.queued).collect();
         self.store.run(move |store| {
             // `load_queue` skips ids without cached metadata, so cache the
             // tracks first; search results are not cached anywhere else.
@@ -753,7 +755,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
             let r = store
                 .upsert_tracks(&tracks)
                 .and_then(|()| store.save_queue(&ids, current))
-                .and_then(|()| store.save_queue_extras(label.as_deref(), &radio));
+                .and_then(|()| store.save_queue_extras(label.as_deref(), &radio, &queued));
             log_store_error("queue", r);
         });
     }

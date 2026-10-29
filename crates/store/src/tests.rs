@@ -687,18 +687,23 @@ fn version_1_database_upgrades() {
 #[test]
 fn queue_extras_round_trip() {
     let s = store();
-    assert_eq!(s.queue_extras().unwrap(), (None, vec![]));
+    assert_eq!(s.queue_extras().unwrap(), (None, vec![], vec![]));
 
     let ts = tracks(0..4);
     s.upsert_tracks(&ts).unwrap();
     s.save_queue(&ids(&ts), Some(1)).unwrap();
-    s.save_queue_extras(Some("Everything \u{b7} 2"), &[false, false, true, true])
-        .unwrap();
+    s.save_queue_extras(
+        Some("Everything \u{b7} 2"),
+        &[false, false, true, true],
+        &[false, false, false, false],
+    )
+    .unwrap();
     assert_eq!(
         s.queue_extras().unwrap(),
         (
             Some("Everything \u{b7} 2".into()),
-            vec![false, false, true, true]
+            vec![false, false, true, true],
+            vec![false; 4]
         )
     );
     // The queue itself is unchanged.
@@ -707,22 +712,60 @@ fn queue_extras_round_trip() {
     // A new queue starts unmarked; extras replace the old ones.
     s.save_queue(&ids(&ts[..3]), Some(0)).unwrap();
     assert_eq!(s.queue_extras().unwrap().1, vec![false; 3]);
-    s.save_queue_extras(None, &[true, false]).unwrap();
-    assert_eq!(s.queue_extras().unwrap(), (None, vec![true, false, false]));
+    s.save_queue_extras(None, &[true, false], &[]).unwrap();
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (None, vec![true, false, false], vec![false; 3])
+    );
 
     // Flags past the end are dropped.
-    s.save_queue_extras(Some("x"), &[false, false, true, true, true])
+    s.save_queue_extras(Some("x"), &[false, false, true, true, true], &[])
         .unwrap();
     assert_eq!(
         s.queue_extras().unwrap(),
-        (Some("x".into()), vec![false, false, true])
+        (Some("x".into()), vec![false, false, true], vec![false; 3])
     );
 
     // Extras before any save_queue keep the label.
     let s = store();
-    s.save_queue_extras(Some("y"), &[true]).unwrap();
-    assert_eq!(s.queue_extras().unwrap(), (Some("y".into()), vec![]));
+    s.save_queue_extras(Some("y"), &[true], &[true]).unwrap();
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (Some("y".into()), vec![], vec![])
+    );
     assert_eq!(s.load_queue().unwrap(), (vec![], None));
+}
+
+#[test]
+fn queued_flags_round_trip_and_replace() {
+    let s = store();
+    let ts = tracks(0..5);
+    s.upsert_tracks(&ts).unwrap();
+    s.save_queue(&ids(&ts), Some(1)).unwrap();
+    // Current at 1, two queued next, then the context, then one radio.
+    s.save_queue_extras(
+        Some("Liked Music \u{b7} 3"),
+        &[false, false, false, false, true],
+        &[false, false, true, true, false],
+    )
+    .unwrap();
+    let (label, radio, queued) = s.queue_extras().unwrap();
+    assert_eq!(label.as_deref(), Some("Liked Music \u{b7} 3"));
+    assert_eq!(radio, [false, false, false, false, true]);
+    assert_eq!(queued, [false, false, true, true, false]);
+
+    // The next save replaces both kinds of mark.
+    s.save_queue_extras(None, &[], &[false, true, false, false, false])
+        .unwrap();
+    let (_, radio, queued) = s.queue_extras().unwrap();
+    assert_eq!(radio, [false; 5]);
+    assert_eq!(queued, [false, true, false, false, false]);
+
+    // Flags past the end are dropped.
+    s.save_queue(&ids(&ts[..2]), Some(0)).unwrap();
+    s.save_queue_extras(None, &[], &[false, true, true])
+        .unwrap();
+    assert_eq!(s.queue_extras().unwrap().2, [false, true]);
 }
 
 #[test]
@@ -737,12 +780,17 @@ fn queue_extras_skip_entries_load_queue_skips() {
         ts[2].id.clone(),
     ];
     s.save_queue(&q, Some(0)).unwrap();
-    s.save_queue_extras(Some("l"), &[false, true, false, true])
-        .unwrap();
+    s.save_queue_extras(
+        Some("l"),
+        &[false, true, false, true],
+        &[false, true, true, false],
+    )
+    .unwrap();
     let (loaded, _) = s.load_queue().unwrap();
-    let (_, radio) = s.queue_extras().unwrap();
+    let (_, radio, queued) = s.queue_extras().unwrap();
     assert_eq!(radio.len(), loaded.len());
     assert_eq!(radio, vec![false, false, true]);
+    assert_eq!(queued, vec![false, true, false]);
 }
 
 #[test]
@@ -753,17 +801,22 @@ fn queue_extras_survive_reopen() {
     {
         let s = Store::open(&path).unwrap();
         s.upsert_tracks(&ts).unwrap();
-        s.save_queue(&ids(&ts), Some(2)).unwrap();
-        s.save_queue_extras(Some("Saint Juniper \u{b7} 2"), &[false, false, true])
-            .unwrap();
+        s.save_queue(&ids(&ts), Some(0)).unwrap();
+        s.save_queue_extras(
+            Some("Saint Juniper \u{b7} 2"),
+            &[false, false, true],
+            &[false, true, false],
+        )
+        .unwrap();
     }
     let s = Store::open(&path).unwrap();
-    assert_eq!(s.load_queue().unwrap(), (ts, Some(2)));
+    assert_eq!(s.load_queue().unwrap(), (ts, Some(0)));
     assert_eq!(
         s.queue_extras().unwrap(),
         (
             Some("Saint Juniper \u{b7} 2".into()),
-            vec![false, false, true]
+            vec![false, false, true],
+            vec![false, true, false]
         )
     );
 }
@@ -791,23 +844,71 @@ fn version_2_database_upgrades() {
         .conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, super::MIGRATIONS.len() as i64);
     // Old rows survive: the queue, its current index, and settings.
     let (q, current) = s.load_queue().unwrap();
     assert_eq!(ids(&q), vec!["t1", "t2"]);
     assert_eq!(current, Some(1));
     assert_eq!(s.setting("autoplay").unwrap().as_deref(), Some("false"));
     // Old rows read as unmarked with no label.
-    assert_eq!(s.queue_extras().unwrap(), (None, vec![false, false]));
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (None, vec![false, false], vec![false, false])
+    );
 
-    s.save_queue_extras(Some("Two"), &[false, true]).unwrap();
+    s.save_queue_extras(Some("Two"), &[false, true], &[])
+        .unwrap();
     drop(s);
     let s = Store::open(&path).unwrap();
     assert_eq!(
         s.queue_extras().unwrap(),
-        (Some("Two".into()), vec![false, true])
+        (Some("Two".into()), vec![false, true], vec![false, false])
     );
     assert_eq!(s.load_queue().unwrap().1, Some(1));
+}
+
+#[test]
+fn version_3_database_upgrades() {
+    let dir = TempDir::new();
+    let path = dir.0.join("cache.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        for sql in &super::MIGRATIONS[..3] {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 3).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, title, artists, thumbnails)
+                 VALUES ('t1', 'One', '[]', '[]'), ('t2', 'Two', '[]', '[]'),
+                        ('t3', 'Three', '[]', '[]');
+             INSERT INTO queue (position, track_id, radio)
+                 VALUES (0, 't1', 0), (1, 't2', 0), (2, 't3', 1);
+             INSERT INTO queue_state (id, current, label) VALUES (0, 0, 'Mix');",
+        )
+        .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    let version: i64 = s
+        .conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 4);
+    // The radio marks and label survive; nothing reads as queued.
+    assert_eq!(
+        s.queue_extras().unwrap(),
+        (
+            Some("Mix".into()),
+            vec![false, false, true],
+            vec![false, false, false]
+        )
+    );
+    assert_eq!(s.load_queue().unwrap().1, Some(0));
+
+    s.save_queue_extras(Some("Mix"), &[false, false, true], &[false, true, false])
+        .unwrap();
+    drop(s);
+    let s = Store::open(&path).unwrap();
+    assert_eq!(s.queue_extras().unwrap().2, vec![false, true, false]);
 }
 
 #[test]
