@@ -163,12 +163,15 @@ statically), `alsa-lib-devel`, `dbus-devel`. `packaging/build-rpm.sh` builds the
 Rustle signs in with a `Cookie` header from music.youtube.com and stores it in your system
 keyring, never in a file. For a login that lasts:
 
-1. Open a private browser window and sign in to music.youtube.com.
+1. Open a **Firefox** private window and sign in to music.youtube.com.
 2. Copy the `Cookie` request header (F12, Network, any music.youtube.com request).
 3. Close the window **without** signing out, and paste the header into Rustle.
 
-A cookie copied from a browser you keep using is rotated by that browser and stops working
-within days.
+Use Firefox, not Chrome: a cookie copied from Chrome, even from incognito, was ended by
+Google after about 5 hours, most likely by Chrome's device-bound session protection. A
+cookie copied from a browser you keep using is rotated by that browser and stops working
+within days. The details, and what the cookie is used for, are in
+[`docs/cookies.md`](docs/cookies.md).
 
 ## Development
 
