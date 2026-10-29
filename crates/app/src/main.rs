@@ -9,6 +9,7 @@ mod art_color;
 mod auth;
 mod backend;
 mod control;
+mod fallback_fonts;
 mod icons;
 mod media_keys;
 mod playback;
@@ -53,6 +54,8 @@ fn main() -> ExitCode {
             // bar icon on Windows and macOS. On Linux the icon comes from
             // the desktop file (`with_app_id`); an empty one sets nothing.
             .with_icon(std::sync::Arc::new(egui::IconData::default())),
+        // Its stand-in only logs; `fallback_fonts` finds the system fonts.
+        system_font_fallback: false,
         ..Default::default()
     };
     let handle = rt.handle().clone();

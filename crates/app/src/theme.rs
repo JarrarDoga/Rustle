@@ -433,6 +433,17 @@ fn family(name: &str) -> FontFamily {
     FontFamily::Name(Arc::from(name))
 }
 
+/// The weight of a text family, for a variable fallback font to match it.
+/// `None` for the icon families.
+pub fn text_weight(f: &FontFamily) -> Option<f32> {
+    match f {
+        FontFamily::Proportional | FontFamily::Monospace => Some(400.0),
+        FontFamily::Name(n) if &**n == INTER_500 => Some(500.0),
+        FontFamily::Name(n) if &**n == INTER_600 => Some(600.0),
+        FontFamily::Name(_) => None,
+    }
+}
+
 /// 22 / 600: page title.
 pub fn page_title() -> FontId {
     FontId::new(22.0, family(INTER_600))
@@ -577,7 +588,8 @@ fn fonts(ctx: &egui::Context) {
         defs.font_data.insert(name.to_owned(), font(bytes));
     }
     // Each text family falls back to Phosphor, so an icon glyph inside a
-    // label renders without switching fonts.
+    // label renders without switching fonts. System fonts for CJK and
+    // symbols come after both (`fallback_fonts`).
     let chain = |first: &str| vec![first.to_owned(), PHOSPHOR.to_owned()];
     defs.families
         .insert(FontFamily::Proportional, chain("inter-400"));
