@@ -57,7 +57,7 @@ enum Input {
     /// cover.
     Execute(Effect),
     /// The player's status changed; publish so the state follows it.
-    PlayerStatus,
+    PlayerStatus(PlaybackStatus),
     /// A timer is due: the queue save, a play to record, or the buffering
     /// delay.
     Tick,
@@ -423,6 +423,11 @@ struct Ctx<B, P> {
     /// The track the player was last told to load, and when (Unix
     /// seconds): the start time of a recorded play.
     play_start: Option<(TrackId, i64)>,
+    /// The player still held a track when the last load stopped it. Its
+    /// commands land asynchronously, so until it is seen stopped its state
+    /// can be the old track's, which has the same id when a track is
+    /// replayed, and would start the new track's clock early.
+    stale_player: bool,
 }
 
 /// [`Setup`] with the store already started.
@@ -483,6 +488,7 @@ async fn run<B, P, F>(
         save_at: None,
         wake_at: None,
         play_start: None,
+        stale_player: false,
     };
 
     let mut effects = Vec::new();
@@ -520,6 +526,12 @@ async fn run<B, P, F>(
                     if state.queue.current().map(|e| e.uid) == Some(uid) {
                         ctx.remember_stream(&source);
                         ctx.playback.load(source);
+                        // A seek made while the stream resolved found no
+                        // track in the player; the state kept it.
+                        let at = state.playback.position;
+                        if state.playback.loading && !at.is_zero() {
+                            ctx.playback.seek(at);
+                        }
                         if !state.playback.is_playing() {
                             ctx.playback.pause();
                         }
@@ -549,7 +561,12 @@ async fn run<B, P, F>(
                     Vec::new()
                 }
                 Input::Execute(effect) => vec![effect],
-                Input::PlayerStatus => Vec::new(),
+                Input::PlayerStatus(status) => {
+                    if status == PlaybackStatus::Stopped {
+                        ctx.stale_player = false;
+                    }
+                    Vec::new()
+                }
                 Input::Tick => {
                     if ctx
                         .save_at
@@ -584,8 +601,8 @@ fn forward_player_events(events: std_mpsc::Receiver<PlayerEvent>, tx: Inputs) {
                 let event = match event {
                     PlayerEvent::TrackEnded { track_id } => Event::TrackEnded { track_id },
                     PlayerEvent::Error(message) => Event::PlayerError(message),
-                    PlayerEvent::StatusChanged(_) => {
-                        if tx.send(Input::PlayerStatus).is_err() {
+                    PlayerEvent::StatusChanged(status) => {
+                        if tx.send(Input::PlayerStatus(status)).is_err() {
                             return;
                         }
                         continue;
@@ -652,7 +669,13 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
         notify: &Notify,
     ) {
         let now = Instant::now();
-        sync_position(state, &self.playback.state(), now);
+        let player = self.playback.state();
+        if player.status == PlaybackStatus::Stopped {
+            self.stale_player = false;
+        }
+        if !self.stale_player {
+            sync_position(state, &player, now);
+        }
         self.wake_at = next_wake(state, now).map(tokio::time::Instant::from_std);
         self.after_batch(state);
         snapshots.send_replace(Arc::new(state.clone()));
@@ -887,6 +910,7 @@ impl<B: MusicBackend, P: Playback> Ctx<B, P> {
             Effect::Load { uid, track_id } => {
                 self.play_start = Some((track_id.clone(), unix_now()));
                 // Silence the old track now; the new one starts once resolved.
+                self.stale_player = self.playback.state().status != PlaybackStatus::Stopped;
                 self.playback.stop();
                 if let Some(source) = self.fresh_stream(&track_id) {
                     send_event(
@@ -1073,6 +1097,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use model::{PlaylistSummary, SearchResults};
+    use player::PlayerState;
     use ytm_core::FixtureBackend;
 
     use super::*;
@@ -1350,10 +1375,16 @@ mod tests {
             )
         }
 
-        fn build<B, F>(make: F, initial: State, store: OpenStore, keyring: Option<Keyring>) -> Self
+        fn build<B, P, F>(
+            make: F,
+            initial: State,
+            store: OpenStore,
+            keyring: Option<Keyring>,
+        ) -> Self
         where
             B: MusicBackend,
-            F: FnOnce() -> Result<(B, SimulatedPlayback), String> + Send + 'static,
+            P: Playback,
+            F: FnOnce() -> Result<(B, P), String> + Send + 'static,
         {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
@@ -1446,19 +1477,167 @@ mod tests {
                 seed: 1,
             },
         );
-        let s = h.wait_for("playing", |s| s.acked == 2);
-        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        let s = h.wait_for("loading", |s| s.acked == 2);
         assert_eq!(s.current_track().unwrap().id, liked[0].id);
+        // The clock waits for the player, which starts once the stream
+        // resolves.
+        let s = h.wait_for("playing", |s| !s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Playing);
 
-        // Let the stream resolve, then jump to just before the end.
-        std::thread::sleep(Duration::from_millis(500));
+        // Jump to just before the end.
         let end = liked[0].duration.unwrap();
         h.client
             .send(3, Command::Seek(end - Duration::from_millis(50)));
         let s = h.wait_for("next track", |s| {
-            s.current_track().map(|t| &t.id) == Some(&liked[1].id)
+            s.current_track().map(|t| &t.id) == Some(&liked[1].id) && !s.playback.loading
         });
         assert_eq!(s.playback.status, PlaybackStatus::Playing);
+    }
+
+    #[test]
+    fn a_seek_while_the_stream_resolves_is_kept() {
+        let mut h = Harness::new();
+        h.client.send(1, Command::Refresh);
+        let s = h.wait_for("liked", |s| s.acked == 1 && s.liked.ready().is_some());
+        let liked = Arc::clone(s.liked.ready().unwrap());
+        h.client.send(
+            2,
+            Command::PlayTracks {
+                tracks: liked,
+                start: 0,
+                seed: 1,
+            },
+        );
+        let to = Duration::from_secs(30);
+        h.client.send(3, Command::Seek(to));
+        let s = h.wait_for("playing", |s| s.acked == 3 && !s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.position >= to, "{:?}", s.playback.position);
+    }
+
+    /// A player whose `stop` lands late, as the real engine's commands do:
+    /// once armed, the next `stop` leaves `state` showing the track from
+    /// before it until [`LateStop::release`].
+    struct LateStop {
+        inner: SimulatedPlayback,
+        armed: Arc<AtomicBool>,
+        held: Arc<StdMutex<Option<PlayerState>>>,
+        events: StdMutex<Option<std_mpsc::Receiver<PlayerEvent>>>,
+    }
+
+    /// The test's side of a [`LateStop`].
+    struct LateStopHandle {
+        armed: Arc<AtomicBool>,
+        held: Arc<StdMutex<Option<PlayerState>>>,
+        events: std_mpsc::Sender<PlayerEvent>,
+    }
+
+    impl LateStop {
+        fn new() -> (Self, LateStopHandle) {
+            let inner = SimulatedPlayback::new();
+            let (tx, rx) = std_mpsc::channel();
+            let from_inner = inner.events();
+            let forward = tx.clone();
+            std::thread::spawn(move || {
+                while let Ok(event) = from_inner.recv() {
+                    if forward.send(event).is_err() {
+                        return;
+                    }
+                }
+            });
+            let armed = Arc::new(AtomicBool::new(false));
+            let held = Arc::new(StdMutex::new(None));
+            let handle = LateStopHandle {
+                armed: Arc::clone(&armed),
+                held: Arc::clone(&held),
+                events: tx,
+            };
+            let player = Self {
+                inner,
+                armed,
+                held,
+                events: StdMutex::new(Some(rx)),
+            };
+            (player, handle)
+        }
+    }
+
+    impl LateStopHandle {
+        /// The stop lands: the player reports it, as the engine does.
+        fn release(&self) {
+            *self.held.lock().unwrap() = None;
+            let _ = self
+                .events
+                .send(PlayerEvent::StatusChanged(PlaybackStatus::Stopped));
+        }
+    }
+
+    impl Playback for LateStop {
+        fn load(&self, source: StreamSource) {
+            self.inner.load(source);
+        }
+        fn play(&self) {
+            self.inner.play();
+        }
+        fn pause(&self) {
+            self.inner.pause();
+        }
+        fn stop(&self) {
+            if self.armed.swap(false, Ordering::SeqCst) {
+                *self.held.lock().unwrap() = Some(self.inner.state());
+            }
+            self.inner.stop();
+        }
+        fn seek(&self, to: Duration) {
+            self.inner.seek(to);
+        }
+        fn set_volume(&self, volume: f32) {
+            self.inner.set_volume(volume);
+        }
+        fn state(&self) -> PlayerState {
+            let held = self.held.lock().unwrap().clone();
+            held.unwrap_or_else(|| self.inner.state())
+        }
+        fn events(&self) -> std_mpsc::Receiver<PlayerEvent> {
+            self.events
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or_else(|| std_mpsc::channel().1)
+        }
+    }
+
+    #[test]
+    fn a_replayed_track_waits_for_the_player_to_drop_the_old_one() {
+        let (player, late) = LateStop::new();
+        let make = move || Ok((FixtureBackend::new(), player));
+        let mut h = Harness::build(make, logged_in(), memory_store(), None);
+        h.client.send(1, Command::Refresh);
+        let s = h.wait_for("liked", |s| s.acked == 1 && s.liked.ready().is_some());
+        let liked = Arc::clone(s.liked.ready().unwrap());
+        let play = Command::PlayTracks {
+            tracks: liked,
+            start: 0,
+            seed: 1,
+        };
+        h.client.send(2, play.clone());
+        h.wait_for("playing", |s| s.acked == 2 && !s.playback.loading);
+        let into = Duration::from_secs(60);
+        h.client.send(3, Command::Seek(into));
+        h.wait_for("seeked", |s| s.acked == 3 && s.playback.position >= into);
+
+        // Play the same track again. Its stream is cached, so the player
+        // gets it at once, but still reports the old play at 1:00.
+        late.armed.store(true, Ordering::SeqCst);
+        h.client.send(4, play);
+        let s = h.wait_for("replay", |s| s.acked == 4);
+        assert!(s.playback.loading, "{:?}", s.playback);
+        assert_eq!(s.playback.position_at(Instant::now()), Duration::ZERO);
+
+        late.release();
+        let s = h.wait_for("restarted", |s| !s.playback.loading);
+        assert_eq!(s.playback.status, PlaybackStatus::Playing);
+        assert!(s.playback.position < into, "{:?}", s.playback.position);
     }
 
     #[test]

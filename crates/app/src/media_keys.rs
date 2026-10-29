@@ -242,9 +242,12 @@ fn metadata(state: &State) -> Metadata {
     }
 }
 
-/// MPRIS knows no buffering; it counts as playing.
-fn mpris_status(status: PlaybackStatus) -> PlaybackStatus {
-    match status {
+/// MPRIS knows no buffering; it counts as playing. A track that is still
+/// loading counts as paused: MPRIS clients run their own clock while
+/// playing, and it would start before the audio does.
+fn mpris_status(pb: &Playback) -> PlaybackStatus {
+    match pb.status {
+        PlaybackStatus::Buffering if pb.loading => PlaybackStatus::Paused,
         PlaybackStatus::Buffering => PlaybackStatus::Playing,
         s => s,
     }
@@ -252,7 +255,7 @@ fn mpris_status(status: PlaybackStatus) -> PlaybackStatus {
 
 fn playback(pb: &Playback, now: Instant) -> MediaPlayback {
     let progress = Some(MediaPosition(pb.position_at(now)));
-    match mpris_status(pb.status) {
+    match mpris_status(pb) {
         PlaybackStatus::Playing => MediaPlayback::Playing { progress },
         PlaybackStatus::Paused => MediaPlayback::Paused { progress },
         _ => MediaPlayback::Stopped,
@@ -281,7 +284,7 @@ impl Tracker {
         let pb = &state.playback;
         let playback_changed = track_changed
             || self.playback.as_ref().is_none_or(|old| {
-                mpris_status(old.status) != mpris_status(pb.status)
+                mpris_status(old) != mpris_status(pb)
                     || old.position_at(now).abs_diff(pb.position_at(now)) > JUMP_TOLERANCE
             });
         if playback_changed {
@@ -302,6 +305,7 @@ mod tests {
     use super::*;
     use crate::queue::tests::track;
     use crate::state::apply;
+    use crate::state::tests::started;
     use std::sync::Arc;
 
     fn playing(ids: &[&str], now: Instant) -> State {
@@ -316,6 +320,7 @@ mod tests {
             },
             now,
         );
+        started(&mut s, now);
         s
     }
 
@@ -385,6 +390,31 @@ mod tests {
         let mut t = primed(&s, t0);
         s.playback.status = PlaybackStatus::Buffering;
         assert!(t.diff(&s, t0).is_empty());
+    }
+
+    #[test]
+    fn a_loading_track_counts_as_paused_until_it_starts() {
+        let t0 = Instant::now();
+        let mut s = playing(&["a", "b"], t0);
+        let mut t = primed(&s, t0);
+        let t1 = t0 + Duration::from_secs(10);
+        apply(&mut s, &Command::Next, t1);
+        let at_start = Some(MediaPosition(Duration::ZERO));
+        let out = t.diff(&s, t1);
+        assert_eq!(
+            out[1],
+            Update::Playback(MediaPlayback::Paused { progress: at_start })
+        );
+        // MPRIS clients get no clock to run while the stream loads.
+        let t2 = t1 + Duration::from_secs(2);
+        assert!(t.diff(&s, t2).is_empty());
+        started(&mut s, t2);
+        assert_eq!(
+            t.diff(&s, t2),
+            [Update::Playback(MediaPlayback::Playing {
+                progress: at_start
+            })]
+        );
     }
 
     #[test]
