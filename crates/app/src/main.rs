@@ -15,6 +15,7 @@ mod media_keys;
 mod playback;
 mod queue;
 mod settings;
+mod shortcuts;
 mod state;
 mod theme;
 mod thumbs;

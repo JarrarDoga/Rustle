@@ -431,7 +431,7 @@ impl State {
     }
 }
 
-/// Saved user settings (the settings popover). The store keeps one key per
+/// Saved user settings (the settings page). The store keeps one key per
 /// field as plain text (`settings::load` / `settings::save`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
@@ -440,9 +440,40 @@ pub struct Settings {
     /// Take the accent from the playing art; off means the palette's
     /// fallback accent, as with nothing playing.
     pub accent_from_art: bool,
-    /// The palette's name (`theme::PALETTES`); unknown names fall back to
-    /// the default.
+    /// The palette's name: a preset (`theme::PALETTES`) or one of
+    /// `custom_themes`. Unknown names fall back to the default.
     pub theme: String,
+    /// Themes made in the theme builder.
+    pub custom_themes: Vec<CustomTheme>,
+    /// The accent's share of the player bar, in percent (0 to 24).
+    pub player_tint: u8,
+    /// Body text size in px (10 to 18); every text style scales from 13.
+    pub text_size: u8,
+    /// Track table row height in px: 26, 32 or 40.
+    pub row_height: u8,
+    /// egui zoom factor in percent (80 to 130).
+    pub ui_scale: u8,
+    /// Album art in track rows.
+    pub row_art: bool,
+    /// The Album column in the main playlist.
+    pub album_column: bool,
+    /// The spine along the main playlist's right edge.
+    pub spine: bool,
+    /// egui's fades and slides; off makes every change instant.
+    pub animations: bool,
+    /// Volume step for the keyboard, in percent: 2, 5 or 10.
+    pub volume_step: u8,
+    /// Lyrics text size in px (12 to 28).
+    pub lyrics_size: u8,
+    /// Lyrics lines centered instead of left-aligned.
+    pub lyrics_center: bool,
+    /// The current lyrics line in the accent; off: bold text-1.
+    pub lyrics_accent: bool,
+    /// "Not heard in" filter window, in months: 1, 3, 6 or 12.
+    pub not_heard_months: u8,
+    /// Coming back to the window refreshes the library if it is stale.
+    pub refresh_on_focus: bool,
+    pub keys: crate::shortcuts::Keys,
 }
 
 impl Default for Settings {
@@ -451,16 +482,39 @@ impl Default for Settings {
             autoplay: true,
             accent_from_art: true,
             theme: "Graphite".to_owned(),
+            custom_themes: Vec::new(),
+            player_tint: 14,
+            text_size: 13,
+            row_height: 32,
+            ui_scale: 100,
+            row_art: true,
+            album_column: true,
+            spine: true,
+            animations: true,
+            volume_step: 5,
+            lyrics_size: 13,
+            lyrics_center: false,
+            lyrics_accent: false,
+            not_heard_months: 3,
+            refresh_on_focus: true,
+            keys: crate::shortcuts::Keys::default(),
         }
     }
 }
 
-/// One settings change.
+/// A theme made in the settings page's theme builder: a name and the 11
+/// colors of `theme::colors`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SettingChange {
-    Autoplay(bool),
-    AccentFromArt(bool),
-    Theme(String),
+pub struct CustomTheme {
+    pub name: String,
+    pub colors: [[u8; 3]; 11],
+}
+
+impl Settings {
+    /// The custom theme `theme` names, if it names one.
+    pub fn custom_theme(&self) -> Option<&CustomTheme> {
+        self.custom_themes.iter().find(|t| t.name == self.theme)
+    }
 }
 
 /// What the track table currently shows, and what Shuffle / Play in order
@@ -558,8 +612,12 @@ pub enum Command {
     /// Open or close the lyrics drawer. Opening fetches the current track's
     /// lyrics; a track change while open fetches again.
     ShowLyrics(bool),
-    /// Change one saved setting.
-    SetSetting(SettingChange),
+    /// Replace the settings. `save: false` while a slider is dragged: the
+    /// change shows at once and is saved when the drag ends.
+    SetSettings {
+        settings: Box<Settings>,
+        save: bool,
+    },
 }
 
 /// Work the backend does after a reducer step. The UI ignores these.
@@ -752,18 +810,6 @@ fn fetch_lyrics(state: &mut State) -> Option<Effect> {
     }
     state.lyrics = Some((id.clone(), Loadable::Loading));
     Some(Effect::FetchLyrics(id))
-}
-
-/// Applies one settings change to the state; the caller saves.
-fn change_setting(state: &mut State, change: &SettingChange) {
-    match change {
-        SettingChange::Autoplay(on) => {
-            state.settings.autoplay = *on;
-            state.queue.set_autoplay(*on);
-        }
-        SettingChange::AccentFromArt(on) => state.settings.accent_from_art = *on,
-        SettingChange::Theme(name) => state.settings.theme.clone_from(name),
-    }
 }
 
 pub fn apply(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> {
@@ -974,12 +1020,18 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
             load_current(state, true)
         }
         Command::SetAutoplay(on) => {
-            change_setting(state, &SettingChange::Autoplay(*on));
+            state.settings.autoplay = *on;
+            state.queue.set_autoplay(*on);
             vec![Effect::SaveSettings(state.settings.clone())]
         }
-        Command::SetSetting(change) => {
-            change_setting(state, change);
-            vec![Effect::SaveSettings(state.settings.clone())]
+        Command::SetSettings { settings, save } => {
+            state.queue.set_autoplay(settings.autoplay);
+            state.settings = Settings::clone(settings);
+            if *save {
+                vec![Effect::SaveSettings(state.settings.clone())]
+            } else {
+                Vec::new()
+            }
         }
         Command::ShowLyrics(open) => {
             state.lyrics_open = *open;
@@ -3715,5 +3767,37 @@ pub(crate) mod tests {
         // Paused or stopped tracks set no timer.
         apply(&mut s, &Command::TogglePlay, t0);
         assert_eq!(next_wake(&s, t0), None);
+    }
+
+    #[test]
+    fn set_settings_saves_only_when_asked() {
+        let now = Instant::now();
+        let mut s = State::default();
+        let mut next = Settings {
+            text_size: 15,
+            autoplay: false,
+            ..Settings::default()
+        };
+        let fx = apply(
+            &mut s,
+            &Command::SetSettings {
+                settings: Box::new(next.clone()),
+                save: false,
+            },
+            now,
+        );
+        assert!(fx.is_empty());
+        assert_eq!(s.settings.text_size, 15);
+        assert!(!s.queue.autoplay());
+        next.text_size = 16;
+        let fx = apply(
+            &mut s,
+            &Command::SetSettings {
+                settings: Box::new(next.clone()),
+                save: true,
+            },
+            now,
+        );
+        assert_eq!(fx, [Effect::SaveSettings(next)]);
     }
 }

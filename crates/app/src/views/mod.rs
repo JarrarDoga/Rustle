@@ -29,7 +29,6 @@ pub mod queue;
 pub mod rail;
 pub mod search;
 pub mod settings;
-pub mod theme_picker;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Route {
@@ -43,6 +42,7 @@ pub enum Route {
     Playlist(String),
     Album(String),
     Artist(String),
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -87,6 +87,7 @@ pub struct View {
     pub playing: Option<String>,
     pub collection: CollectionView,
     pub browse_tab: BrowseTab,
+    pub settings: settings::SettingsView,
 }
 
 impl Default for View {
@@ -104,6 +105,7 @@ impl Default for View {
             playing: None,
             collection: CollectionView::default(),
             browse_tab: BrowseTab::Artists,
+            settings: settings::SettingsView::default(),
         }
     }
 }
@@ -259,6 +261,7 @@ pub fn page(ui: &mut Ui, state: &crate::state::State, view: &mut View, out: &mut
         Route::Playlist(id) => playlist::show(ui, state, view, &id, out),
         Route::Album(id) => album::show(ui, state, view, &id, out),
         Route::Artist(id) => artist::show(ui, state, view, &id, out),
+        Route::Settings => settings::show(ui, state, view, out),
     }
 }
 

@@ -90,8 +90,9 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, id: &str, out: &mut Out
             .show(ui, |ui| {
                 if !d.top.is_empty() {
                     section(ui, "Top songs");
-                    let h =
-                        theme::TABLE_HEADER_H + theme::SPACE_4 + d.top.len() as f32 * theme::ROW_H;
+                    let h = theme::TABLE_HEADER_H
+                        + theme::SPACE_4
+                        + d.top.len() as f32 * theme::row_h();
                     let (rect, _) =
                         ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
                     ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {

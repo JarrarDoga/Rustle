@@ -124,10 +124,49 @@ pub fn tint(accent: [u8; 3]) -> [u8; 3] {
 /// The player bar background: `accent` at 14% over `bg`, blended in sRGB
 /// like the design board.
 pub fn tint_over(accent: [u8; 3], bg: [u8; 3]) -> [u8; 3] {
+    tint_over_by(accent, bg, TINT)
+}
+
+/// [`tint_over`] with the accent's share set by the "Player bar tint"
+/// setting (`share` 0 to 1).
+pub fn tint_over_by(accent: [u8; 3], bg: [u8; 3], share: f64) -> [u8; 3] {
     std::array::from_fn(|i| {
         let (a, b) = (f64::from(accent[i]), f64::from(bg[i]));
-        to_u8(b + (a - b) * TINT)
+        to_u8(b + (a - b) * share)
     })
+}
+
+/// OKLab lightness of an sRGB color.
+pub fn lightness(rgb: [u8; 3]) -> f64 {
+    srgb_to_oklab(rgb)[0]
+}
+
+/// OKLCH lightness, chroma and hue (degrees) of an sRGB color.
+pub fn to_oklch(rgb: [u8; 3]) -> (f64, f64, f64) {
+    let lab = srgb_to_oklab(rgb);
+    let (c, h) = chroma_hue(lab);
+    (lab[0], c, h.to_degrees().rem_euclid(360.0))
+}
+
+/// The sRGB color at OKLCH `l`, `c`, `h` (degrees), with chroma reduced
+/// until it fits in sRGB, as [`with_lightness`] does.
+pub fn from_oklch(l: f64, c: f64, h: f64) -> [u8; 3] {
+    let h = h.to_radians();
+    let lab_at = |c: f64| [l, c * h.cos(), c * h.sin()];
+    let mut c = c.max(0.0);
+    if !in_gamut(oklab_to_linear(lab_at(c))) {
+        let (mut lo, mut hi) = (0.0, c);
+        for _ in 0..24 {
+            let mid = (lo + hi) / 2.0;
+            if in_gamut(oklab_to_linear(lab_at(mid))) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        c = lo;
+    }
+    oklab_to_srgb(lab_at(c))
 }
 
 /// Opaque pixels sampled as the means of a `GRID`×`GRID` grid of cells.

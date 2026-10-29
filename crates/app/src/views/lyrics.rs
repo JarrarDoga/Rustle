@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 
 use egui::style::ScrollAnimation;
 use egui::{
-    Align, Align2, CornerRadius, Frame, Label, Margin, Pos2, Rect, RichText, ScrollArea, Sense, Ui,
-    UiBuilder, vec2,
+    Align, Align2, Color32, CornerRadius, FontFamily, FontId, Frame, Label, Layout, Margin, Pos2,
+    Rect, RichText, ScrollArea, Sense, Ui, UiBuilder, vec2,
 };
 use model::{LyricLine, Lyrics};
 
-use crate::state::{Command, Loadable, State};
+use crate::state::{Command, Loadable, Settings, State};
 use crate::views::{Out, cmd};
 use crate::widgets::text_line;
 use crate::{icons, theme};
@@ -150,30 +150,81 @@ pub fn show(ui: &mut Ui, state: &State, now: Instant, out: &mut Out) {
                     .inner_margin(Margin::symmetric(PAD_X as i8, theme::SPACE_16 as i8))
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        lines(ui, lyrics, current, scroll, out);
+                        lines(ui, lyrics, current, scroll, &state.settings, out);
                     });
             });
     });
 }
 
-/// The lyric lines, wrapped to the drawer's width.
-fn lines(ui: &mut Ui, lyrics: &Lyrics, current: Option<usize>, scroll: bool, out: &mut Out) {
+/// The lyric lines, wrapped to the drawer's width, at the "Lyrics" size
+/// and alignment settings.
+fn lines(
+    ui: &mut Ui,
+    lyrics: &Lyrics,
+    current: Option<usize>,
+    scroll: bool,
+    settings: &Settings,
+    out: &mut Out,
+) {
     let p = theme::pal();
-    ui.spacing_mut().item_spacing.y = LINE_GAP;
-    for (i, line) in lyrics.lines.iter().enumerate() {
-        let is_current = current == Some(i);
+    let size = f32::from(settings.lyrics_size);
+    let strong = FontId::new(size, FontFamily::Name(theme::INTER_600.into()));
+    let regular = FontId::new(size, FontFamily::Proportional);
+    let current_color = if settings.lyrics_accent {
+        theme::accent()
+    } else {
+        p.text_1
+    };
+    let align = if settings.lyrics_center {
+        Align::Center
+    } else {
+        Align::Min
+    };
+    ui.spacing_mut().item_spacing.y = LINE_GAP * size / 13.0;
+    ui.with_layout(Layout::top_down(align), |ui| {
+        for (i, line) in lyrics.lines.iter().enumerate() {
+            line_label(
+                ui,
+                lyrics,
+                line,
+                current == Some(i),
+                scroll,
+                (&strong, &regular),
+                current_color,
+                align,
+                out,
+            );
+        }
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn line_label(
+    ui: &mut Ui,
+    lyrics: &Lyrics,
+    line: &LyricLine,
+    is_current: bool,
+    scroll: bool,
+    (strong, regular): (&FontId, &FontId),
+    current_color: Color32,
+    align: Align,
+    out: &mut Out,
+) {
+    let p = theme::pal();
+    {
         let text = if is_current {
             RichText::new(&line.text)
-                .font(theme::row_strong())
-                .color(p.text_1)
+                .font(strong.clone())
+                .color(current_color)
         } else {
             RichText::new(&line.text)
-                .font(theme::body())
+                .font(regular.clone())
                 .color(p.text_3)
         };
         let seek_to = line.start.filter(|_| lyrics.synced);
         let label = Label::new(text)
             .wrap()
+            .halign(align)
             .selectable(false)
             .sense(if seek_to.is_some() {
                 Sense::click()

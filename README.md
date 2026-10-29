@@ -13,7 +13,7 @@
   <img alt="egui 0.37" src="https://img.shields.io/badge/UI-egui%200.37-C8643B">
   <img alt="Linux" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20Wayland-E0A04A">
   <img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-E8C26A">
-  <img alt="418 tests" src="https://img.shields.io/badge/tests-418%20passing-2ea44f">
+  <img alt="445 tests" src="https://img.shields.io/badge/tests-445%20passing-2ea44f">
 </p>
 
 <p align="center">
@@ -90,6 +90,12 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
   network answer; refreshes when the window regains focus.
 - **13 themes**: Graphite plus Catppuccin, Tokyo Night, Rosé Pine, Kanagawa, GitHub Dark,
   Nord, Dracula and Gruvbox, all checked by contrast tests.
+- **A settings page** (the gear on the rail, or Ctrl+,) with search: a theme gallery, a
+  **custom theme builder** that restyles the whole app as you drag (six quick sliders, or
+  every color by hand, with import and export as text), and the same 12 contrast checks
+  the presets pass before a theme can be saved. Also text size, row density, interface
+  scale, which columns song lists show, the player bar tint, lyrics size and alignment,
+  the "Not heard in" window, and rebindable shortcuts.
 
 <p align="center">
   <img src="docs/images/themes.png" width="900" alt="Graphite, Catppuccin Mocha, Tokyo Night, Rosé Pine, Kanagawa Wave and GitHub Dark">
@@ -98,7 +104,9 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
 **Desktop integration**
 
 - MPRIS: media keys and KDE's media applet.
-- Keyboard: Space, Ctrl+Left/Right, Ctrl+Up/Down for volume, Ctrl+F, Ctrl+L, Ctrl+Q.
+- Keyboard: Space, Ctrl+Left/Right, Ctrl+Up/Down for volume, Ctrl+F, Ctrl+L, Ctrl+Y
+  (lyrics), Ctrl+U (queue), Ctrl+, (settings), Ctrl+Q; all of them can be changed in
+  Settings > Shortcuts.
 - A control socket and CLI: `rustle play | pause | toggle | next | previous | status`
   (status prints JSON), handy for global shortcuts in KDE. `rustle --help` lists the
   commands and options; anything else prints usage and exits 2.

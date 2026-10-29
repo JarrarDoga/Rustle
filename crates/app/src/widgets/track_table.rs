@@ -5,7 +5,7 @@
 //!
 //! Geometry follows the boards' CSS: the table sits 12 px in from the left
 //! and 8 px in from the right of the region it is given, rows have 8 px
-//! padding and 12 px column gaps, and rows are exactly [`theme::ROW_H`]
+//! padding and 12 px column gaps, and rows are exactly [`theme::row_h()`]
 //! apart so the spine's viewport box lines up.
 
 use std::cell::RefCell;
@@ -168,9 +168,15 @@ fn fraction(slot: Slot, album_set: bool) -> f32 {
 /// the region around it). Album goes first when the title would get too
 /// narrow, then Artist.
 fn layout(columns: &[Column], width: f32) -> Vec<Cell> {
+    layout_without(columns, width, None)
+}
+
+/// [`layout`] with `hide` left out (the "Album column" setting), keeping
+/// the widths of the full set.
+fn layout_without(columns: &[Column], width: f32, hide: Option<Column>) -> Vec<Cell> {
     let album_set = is_album_set(columns);
     let mut slots: Vec<Slot> = Vec::with_capacity(columns.len() + 1);
-    for &c in columns {
+    for &c in columns.iter().filter(|&&c| Some(c) != hide) {
         if c == Time {
             slots.push(Slot::Like);
         }
@@ -364,7 +370,9 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
 
     let full = ui.available_rect_before_wrap();
     let row_w = (full.width() - INSET_L - INSET_R).max(0.0);
-    let cells = layout(columns, row_w);
+    let sizes = theme::layout();
+    let hide = (!sizes.album_column).then_some(Album);
+    let cells = layout_without(columns, row_w, hide);
     let p = theme::pal();
     let mut shown = Shown::default();
 
@@ -412,7 +420,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
         let ctx = RowCtx {
             state,
             cells: &cells,
-            art: !is_album_set(columns),
+            art: !is_album_set(columns) && sizes.row_art,
             now: unix_now(),
             current,
             liked: &liked,
@@ -424,13 +432,16 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
             .id_salt(salt)
             .auto_shrink([false, false]);
         if let Some(k) = scroll_to.and_then(display_pos) {
-            area =
-                area.vertical_scroll_offset(scroll_offset(k, ui.available_height(), theme::ROW_H));
+            area = area.vertical_scroll_offset(scroll_offset(
+                k,
+                ui.available_height(),
+                theme::row_h(),
+            ));
         }
         area.show_viewport(ui, |ui, viewport| {
-            ui.set_height(theme::ROW_H * n as f32);
+            ui.set_height(theme::row_h() * n as f32);
             let Some((first, last)) =
-                rows_on_screen(viewport.min.y, viewport.max.y, theme::ROW_H, n)
+                rows_on_screen(viewport.min.y, viewport.max.y, theme::row_h(), n)
             else {
                 return;
             };
@@ -441,8 +452,8 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
                 let i = at(k);
                 let track = &tracks[i];
                 let rect = Rect::from_min_size(
-                    pos2(left, top + k as f32 * theme::ROW_H),
-                    vec2(row_w, theme::ROW_H),
+                    pos2(left, top + k as f32 * theme::row_h()),
+                    vec2(row_w, theme::row_h()),
                 );
                 let selected = view.selected == Some((list_id, i));
                 let resp = row(
@@ -611,8 +622,8 @@ fn row(
                 let mut x = left;
                 if ctx.art {
                     let art = Rect::from_min_size(
-                        pos2(x, cy - theme::ROW_ART / 2.0),
-                        vec2(theme::ROW_ART, theme::ROW_ART),
+                        pos2(x, cy - theme::row_art() / 2.0),
+                        vec2(theme::row_art(), theme::row_art()),
                     );
                     row_art(&painter, art, track);
                     x = art.right() + ART_GAP;
@@ -1066,8 +1077,8 @@ pub fn skeleton(ui: &mut Ui, rows: usize) {
     let top = head.bottom() + theme::SPACE_4;
     for r in 0..rows {
         let rect = Rect::from_min_size(
-            pos2(head.left(), top + r as f32 * theme::ROW_H),
-            vec2(row_w, theme::ROW_H),
+            pos2(head.left(), top + r as f32 * theme::row_h()),
+            vec2(row_w, theme::row_h()),
         );
         if rect.top() > full.bottom() {
             break;
@@ -1080,8 +1091,8 @@ pub fn skeleton(ui: &mut Ui, rows: usize) {
                 Slot::Col(Index) => bar(rt - 18.0, 18.0, cy),
                 Slot::Col(Title) => {
                     let art = Rect::from_min_size(
-                        pos2(l, cy - theme::ROW_ART / 2.0),
-                        vec2(theme::ROW_ART, theme::ROW_ART),
+                        pos2(l, cy - theme::row_art() / 2.0),
+                        vec2(theme::row_art(), theme::row_art()),
                     );
                     painter.rect_filled(art, radius, p.surface_2);
                     let x = art.right() + ART_GAP;
@@ -1096,7 +1107,7 @@ pub fn skeleton(ui: &mut Ui, rows: usize) {
             painter.rect_filled(shape, radius, p.surface_2);
         }
     }
-    let used = (top - full.top() + rows as f32 * theme::ROW_H).min(full.height());
+    let used = (top - full.top() + rows as f32 * theme::row_h()).min(full.height());
     ui.allocate_rect(
         Rect::from_min_size(full.min, vec2(full.width(), used)),
         Sense::hover(),
@@ -1318,7 +1329,7 @@ mod tests {
                 let top = self.full.top() + theme::TABLE_HEADER_H + theme::SPACE_4;
                 pos2(
                     self.full.left() + INSET_L + x,
-                    top + (k as f32 + 0.5) * theme::ROW_H,
+                    top + (k as f32 + 0.5) * theme::row_h(),
                 )
             }
 
@@ -1500,7 +1511,7 @@ mod tests {
             let top = self.full.top() + theme::TABLE_HEADER_H + theme::SPACE_4;
             pos2(
                 self.full.left() + INSET_L + x,
-                top + (k as f32 + 0.5) * theme::ROW_H,
+                top + (k as f32 + 0.5) * theme::row_h(),
             )
         }
 

@@ -37,6 +37,7 @@ use egui::{Event, InputState, Key, Modifiers, ViewportCommand};
 use model::Track;
 use tokio::runtime::Handle;
 
+use crate::shortcuts::Action as Shortcut;
 use crate::state::{Command, Playback, State};
 use crate::views::{self, Action, Route, View};
 
@@ -48,8 +49,6 @@ const MAX_LINE: u64 = 256;
 /// The CLI waits this long for a reply. The server answers without waiting
 /// for the UI, so this only trips on a hung instance.
 const CLI_TIMEOUT: Duration = Duration::from_secs(2);
-/// Volume steps per 1.0: Ctrl+Up and Ctrl+Down move 5%.
-const VOLUME_STEPS: f32 = 20.0;
 const USAGE: &str = "usage: rustle [--demo [--first-run]]
        rustle play | pause | toggle | next | previous | status
        rustle --help | --version";
@@ -433,37 +432,55 @@ fn respond(
 
 /// In-window shortcuts for this frame. Keys are ignored while a widget has
 /// keyboard focus (a text field, or a button egui fires on Space itself),
-/// except Ctrl+Q.
+/// except Quit.
 pub fn shortcuts(ctx: &egui::Context, state: &State, view: &mut View) -> Vec<Action> {
     let mut out = Vec::new();
-    // egui's own quit shortcut (`Options::quit_shortcuts`) is also Ctrl+Q;
-    // consuming it here means one Close, from either place.
-    if ctx.input_mut(|i| presses(i, Modifiers::COMMAND, Key::Q, false)) > 0 {
+    let keys = &state.settings.keys;
+    let count = |ctx: &egui::Context, a: Shortcut| {
+        let b = keys.get(a);
+        ctx.input_mut(|i| presses(i, b.modifiers(), b.key, a.repeats()))
+    };
+    // egui's own quit shortcut is turned off (`theme::apply`), so the
+    // Quit binding is the only one.
+    if count(ctx, Shortcut::Quit) > 0 {
         ctx.send_viewport_cmd(ViewportCommand::Close);
     }
     if ctx.egui_wants_keyboard_input() {
         return out;
     }
-    let cmd = Modifiers::COMMAND;
-    let [toggle, next, previous, up, down, find, locate] = ctx.input_mut(|i| {
-        [
-            presses(i, Modifiers::NONE, Key::Space, false),
-            presses(i, cmd, Key::ArrowRight, false),
-            presses(i, cmd, Key::ArrowLeft, false),
-            presses(i, cmd, Key::ArrowUp, true),
-            presses(i, cmd, Key::ArrowDown, true),
-            presses(i, cmd, Key::F, false),
-            presses(i, cmd, Key::L, false),
-        ]
-    });
+    let [
+        toggle,
+        next,
+        previous,
+        up,
+        down,
+        find,
+        locate,
+        lyrics,
+        queue,
+        settings,
+    ] = [
+        Shortcut::TogglePlay,
+        Shortcut::Next,
+        Shortcut::Previous,
+        Shortcut::VolumeUp,
+        Shortcut::VolumeDown,
+        Shortcut::Filter,
+        Shortcut::Locate,
+        Shortcut::Lyrics,
+        Shortcut::Queue,
+        Shortcut::Settings,
+    ]
+    .map(|a| count(ctx, a));
     let repeat = |n: usize, command: Command| (0..n).map(move |_| Action::Cmd(command.clone()));
     out.extend(repeat(toggle, Command::TogglePlay));
     out.extend(repeat(next, Command::Next));
     out.extend(repeat(previous, Command::Previous));
     if up != down {
-        // Snap to the 5% grid so steps stay round after a slider drag.
+        // Snap to the step's grid so steps stay round after a slider drag.
+        let per = 100.0 / f32::from(state.settings.volume_step.max(1));
         let steps = up as f32 - down as f32;
-        let volume = ((state.playback.volume * VOLUME_STEPS).round() + steps) / VOLUME_STEPS;
+        let volume = ((state.playback.volume * per).round() + steps) / per;
         out.push(Action::Cmd(Command::SetVolume(volume.clamp(0.0, 1.0))));
     }
     if find > 0 {
@@ -473,12 +490,21 @@ pub fn shortcuts(ctx: &egui::Context, state: &State, view: &mut View) -> Vec<Act
     if locate > 0 {
         views::locate(state, view, &mut out);
     }
+    if lyrics % 2 == 1 {
+        out.push(Action::Cmd(Command::ShowLyrics(!state.lyrics_open)));
+    }
+    if queue % 2 == 1 {
+        view.show_queue = !view.show_queue;
+    }
+    if settings > 0 {
+        out.push(Action::Go(Route::Settings));
+    }
     // Not consumed: the spine clears its range on the same press.
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         view.deselect();
     }
     // The route change and focus land on the next frame.
-    if find > 0 || locate > 0 {
+    if find > 0 || locate > 0 || queue > 0 || settings > 0 {
         ctx.request_repaint();
     }
     out

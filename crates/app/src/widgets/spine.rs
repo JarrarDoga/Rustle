@@ -50,7 +50,7 @@ const ALPHA_FILTER: f32 = 0.18;
 /// `theme::SPINE_W` wide or wider).
 pub fn show(ui: &mut Ui, state: &State, view: &mut View, _out: &mut Out) {
     let rect = ui.max_rect();
-    let p = *theme::pal();
+    let p = theme::pal();
     let strip = strip_rect(rect);
     let column = Rect::from_x_y_ranges(rect.x_range(), strip.top() - PAD..=rect.bottom());
     let id = Id::unique("spine");
