@@ -4,9 +4,10 @@
 //! its URLs serve whole files: checked 2026-10-28, Range requests at the
 //! start, middle and end of a track all answered 206, where the iOS client
 //! stops at 1 MiB. One `player` POST takes about 100 ms against 2 s for
-//! yt-dlp (and 6 s for the full chain), so it runs first. The client fields
-//! follow yt-dlp's `INNERTUBE_CLIENTS['visionos']`; when YouTube changes the
-//! client, yt-dlp (next in the chain) keeps playing while this is updated.
+//! yt-dlp. It is the only stream path: the fallbacks it replaced are in
+//! `docs/design/stream-fallbacks.md`. The client fields follow yt-dlp's
+//! `INNERTUBE_CLIENTS['visionos']`; when YouTube changes the client, start
+//! there.
 //!
 //! The one thing YouTube does check is a visitor id: without
 //! `X-Goog-Visitor-Id` the endpoint answers `LOGIN_REQUIRED` ("Sign in to
@@ -20,7 +21,7 @@ use serde_json::json;
 
 use crate::innertube;
 use crate::rustypipe_backend::ITAG_PREFERENCE;
-use crate::ytdlp::url_param;
+use crate::stream_cache::url_param;
 
 const PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const CLIENT_NAME: &str = "VISIONOS";
@@ -29,18 +30,18 @@ const CLIENT_VERSION: &str = "1.02";
 const CLIENT_ID: &str = "101";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 \
                           (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
-/// Well above the ~100 ms a reply takes; yt-dlp follows on a timeout.
+/// Well above the ~100 ms a reply takes.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum VisionOsError {
     #[error("network error: {0}")]
     Network(String),
-    /// YouTube says the video does not exist: no other client will find it.
+    /// YouTube says the video does not exist.
     #[error("video not found")]
     NotFound,
     /// `LOGIN_REQUIRED`: YouTube wants a sign-in for this visitor id, which
-    /// usually means the id is burnt. The caller drops it.
+    /// usually means the id is burnt. The caller drops it and retries once.
     #[error("bot check: {0}")]
     BotCheck(String),
     /// Anything else: unplayable, no direct URL, no audio format we take.

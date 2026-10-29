@@ -56,10 +56,11 @@ satisfactory. Keep code portable, but do not test or fix other platforms yet.
 - tokio runtime: 2 worker threads max.
 - `mimalloc` is the global allocator.
 - No Electron, Tauri, webview, or browser engine in the main process.
-  `rustypipe-botguard` runs as a separate helper binary.
 - Exception: rustypipe's QuickJS interpreter (`rquickjs`) is allowed
-  in-process. It only runs YouTube's URL-decoding function, has no file or
-  network access, and costs about 1 to 2 MB. Do not add any other JS runtime.
+  in-process. rustypipe 0.11 depends on it unconditionally (no feature turns
+  it off); Rustle's own stream path, the visionOS client, never runs it. It
+  has no file or network access and costs about 1 to 2 MB. Do not add any
+  other JS runtime.
 
 ## Dependencies
 

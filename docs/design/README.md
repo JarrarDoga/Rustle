@@ -8,6 +8,9 @@ session.
   a browser to inspect exact markup and CSS values.
 - `png/*.png`: the same boards rendered at 1280x800 (D-Tokens 1040x920,
   D-States 1280x1080). Compare screenshots of Rustle against these.
+- `stream-fallbacks.md`: not UI. The three stream paths removed in #12
+  (rustypipe web + botguard, yt-dlp, iOS), what they cost, and how to put
+  one back.
 
 | Board | Shows |
 | --- | --- |

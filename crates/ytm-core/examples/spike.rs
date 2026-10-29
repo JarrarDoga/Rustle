@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cargo run -p ytm-core --example spike -- search <query> [--json]
-//! cargo run -p ytm-core --example spike -- stream <video_id>   # resolves twice: path, then cache
+//! cargo run -p ytm-core --example spike -- stream <video_id>   # resolves twice: visionOS, then cache
 //! cargo run -p ytm-core --example spike -- playlist <playlist_id> [--json]
 //! RUSTLE_COOKIES_FILE=cookies.txt cargo run -p ytm-core --example spike -- library
 //! cargo run -p ytm-core --example spike -- record <fixtures_dir> [playlist_id]
@@ -47,7 +47,7 @@ use std::time::Instant;
 use ytm_core::model::{
     Album, AlbumSummary, Artist, Playlist, PlaylistSummary, SearchResults, Track,
 };
-use ytm_core::{MusicBackend, RustyPipeBackend, StreamOrigin};
+use ytm_core::{MusicBackend, RustyPipeBackend};
 
 type AnyResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -78,20 +78,14 @@ async fn main() -> AnyResult<()> {
         }
         ["stream", id] => {
             let backend = RustyPipeBackend::new()?;
-            // The second call shows the URL cache: no extractor runs.
+            // The second call shows the URL cache: no request is sent.
             for call in ["first", "second"] {
                 let start = Instant::now();
                 let info = backend.stream_info(id).await?;
-                let path = match info.origin {
-                    StreamOrigin::VisionOs => "visionos",
-                    StreamOrigin::Web => "web",
-                    StreamOrigin::YtDlp => "yt-dlp",
-                    StreamOrigin::Ios => "ios",
-                };
                 let s = &info.source;
                 println!(
-                    "{call} call: path {path}{}, {:.2} s",
-                    if info.cached { " (cached)" } else { "" },
+                    "{call} call: {}, {:.2} s",
+                    if info.cached { "cached" } else { "visionos" },
                     start.elapsed().as_secs_f64()
                 );
                 if call == "second" {
