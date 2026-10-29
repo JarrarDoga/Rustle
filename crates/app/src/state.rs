@@ -432,6 +432,10 @@ pub enum Command {
     PlayNow(Arc<Track>),
     PlayNext(Arc<Track>),
     AddToQueue(Arc<Track>),
+    /// Remove the first upcoming queue entry (after the current one) that
+    /// plays this track. The undo of one `AddToQueue`; does nothing when
+    /// the track is not upcoming.
+    RemoveFromQueue(TrackId),
     /// Play the queue entry at this index.
     JumpTo(usize),
     MoveEntry {
@@ -745,6 +749,11 @@ fn apply_command(state: &mut State, cmd: &Command, now: Instant) -> Vec<Effect> 
         }
         Command::AddToQueue(track) => {
             state.queue.add(Arc::clone(track));
+            Vec::new()
+        }
+        Command::RemoveFromQueue(id) => {
+            // Never the current entry, so playback is untouched.
+            state.queue.remove_upcoming_track(id);
             Vec::new()
         }
         Command::JumpTo(index) => {
@@ -1948,6 +1957,34 @@ mod tests {
         let fx = apply(&mut s, &Command::RemoveEntry(0), now);
         assert_eq!(fx, [Effect::Stop]);
         assert!(s.queue.is_empty());
+    }
+
+    #[test]
+    fn remove_from_queue_takes_one_upcoming_copy() {
+        let now = Instant::now();
+        let mut s = playing(&["a", "b"], 0, now);
+        for _ in 0..3 {
+            assert!(apply(&mut s, &Command::AddToQueue(track("x")), now).is_empty());
+        }
+        assert_eq!(queue_ids(&s), ["a", "b", "x", "x", "x"]);
+        let fx = apply(&mut s, &Command::RemoveFromQueue("x".into()), now);
+        assert!(fx.is_empty());
+        assert_eq!(queue_ids(&s), ["a", "b", "x", "x"]);
+        assert_eq!(current(&s), "a");
+    }
+
+    #[test]
+    fn remove_from_queue_leaves_current_and_unqueued_alone() {
+        let now = Instant::now();
+        let mut s = playing(&["a", "b", "c"], 1, now);
+        let before = s.playback.status;
+        for id in ["a", "b", "nope"] {
+            let fx = apply(&mut s, &Command::RemoveFromQueue(id.into()), now);
+            assert!(fx.is_empty());
+        }
+        assert_eq!(queue_ids(&s), ["a", "b", "c"]);
+        assert_eq!(current(&s), "b");
+        assert_eq!(s.playback.status, before);
     }
 
     #[test]

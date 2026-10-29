@@ -192,6 +192,28 @@ impl Queue {
         true
     }
 
+    /// Index of the first upcoming entry (after the current one) playing
+    /// `track_id`. History and the current entry never match.
+    pub fn upcoming_position(&self, track_id: &str) -> Option<usize> {
+        let start = self.upcoming_start();
+        self.entries
+            .get(start..)?
+            .iter()
+            .position(|e| e.track.id == track_id)
+            .map(|i| start + i)
+    }
+
+    /// Removes the first upcoming entry playing `track_id`. Returns false
+    /// (and changes nothing) when no upcoming entry plays it.
+    pub fn remove_upcoming_track(&mut self, track_id: &str) -> bool {
+        let Some(index) = self.upcoming_position(track_id) else {
+            return false;
+        };
+        // Upcoming, so never the current entry: `remove` keeps `current`.
+        self.remove(index);
+        true
+    }
+
     /// Makes the entry at `index` current.
     pub fn jump(&mut self, index: usize) -> Option<&Entry> {
         let uid = self.entries.get(index)?.uid;
@@ -776,6 +798,73 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(tail, [("r1", true), ("r2", true)]);
         assert!(q.entries()[..q.len() - 2].iter().all(|e| !e.radio));
+    }
+
+    #[test]
+    fn remove_upcoming_track_takes_the_first_queued_copy() {
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a", "b", "c"]), 1, 0);
+        q.add(track("x"));
+        q.add(track("c"));
+        q.add(track("x"));
+        let uids: Vec<u64> = q.entries().iter().map(|e| e.uid).collect();
+        assert!(q.remove_upcoming_track("x"));
+        assert_eq!(ids(&q), ["a", "b", "c", "c", "x"]);
+        // The later copy stayed, not a fresh entry.
+        assert_eq!(q.entries()[4].uid, uids[5]);
+        assert!(q.remove_upcoming_track("c"));
+        assert_eq!(ids(&q), ["a", "b", "c", "x"]);
+        assert_eq!(current_id(&q).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn remove_upcoming_track_never_touches_history_or_current() {
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a", "b", "c"]), 1, 0);
+        assert!(!q.remove_upcoming_track("a"));
+        assert!(!q.remove_upcoming_track("b"));
+        assert!(!q.remove_upcoming_track("zzz"));
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+        assert_eq!(current_id(&q).as_deref(), Some("b"));
+        // The current track queued again: the queued copy goes, not the
+        // one playing.
+        q.add(track("b"));
+        assert_eq!(q.upcoming_position("b"), Some(3));
+        assert!(q.remove_upcoming_track("b"));
+        assert_eq!(ids(&q), ["a", "b", "c"]);
+        assert_eq!(current_id(&q).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn add_and_remove_upcoming_track_count_copies() {
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a"]), 0, 0);
+        for _ in 0..3 {
+            q.add(track("x"));
+        }
+        assert_eq!(ids(&q), ["a", "x", "x", "x"]);
+        assert!(q.remove_upcoming_track("x"));
+        assert_eq!(ids(&q), ["a", "x", "x"]);
+    }
+
+    #[test]
+    fn remove_upcoming_track_with_nothing_current_or_shuffled() {
+        // Nothing current: every entry is upcoming.
+        let mut q = Queue::default();
+        q.add(track("a"));
+        q.add(track("b"));
+        assert_eq!(q.upcoming_start(), 0);
+        assert!(q.remove_upcoming_track("a"));
+        assert_eq!(ids(&q), ["b"]);
+
+        // While shuffled, the removed entry is also gone from the
+        // unshuffled order.
+        let mut q = Queue::default();
+        q.play_list(&tracks(&["a", "b", "c", "d"]), 0, 0);
+        q.set_shuffle(true, 7);
+        assert!(q.remove_upcoming_track("c"));
+        q.set_shuffle(false, 0);
+        assert_eq!(ids(&q), ["a", "b", "d"]);
     }
 
     #[test]
