@@ -455,7 +455,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
                     out,
                 );
                 if resp.clicked() || resp.secondary_clicked() {
-                    view.selected = Some((list_id, i));
+                    view.select(list_id, i, &track.id);
                 }
                 if resp.double_clicked() {
                     play_from(out, k);
