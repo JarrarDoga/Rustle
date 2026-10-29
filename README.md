@@ -104,7 +104,7 @@ the large-library figure is the llvmpipe GL driver, so a real GPU driver changes
 | --- | --- |
 | Language | Rust 2024 edition |
 | UI | [egui](https://github.com/emilk/egui) / eframe 0.37 on glow (OpenGL), Inter and Phosphor icons |
-| YouTube Music | [rustypipe](https://codeberg.org/ThetaDev/rustypipe) 0.11, plus a small Innertube client for streams (as the visionOS client, about 100 ms per track), writes and timed lyrics; `yt-dlp` as the stream fallback |
+| YouTube Music | [rustypipe](https://codeberg.org/ThetaDev/rustypipe) 0.11, plus a small Innertube client for streams (as the visionOS client, about 100 ms per track), writes and timed lyrics |
 | Audio | symphonia (WebM/MP4 demux, AAC), libopus, cpal, a lock-free ring buffer (rtrb) |
 | Storage | SQLite through rusqlite (WAL, versioned migrations) |
 | Runtime | tokio with 2 worker threads; mimalloc as the global allocator |
@@ -131,9 +131,6 @@ redraws from immutable state snapshots, and it repaints only on input or state c
 ```sh
 sudo dnf install ./rustle-0.1.0-1.x86_64.rpm
 ```
-
-It needs `yt-dlp` (pulled in as a dependency) and installs a small `rustypipe-botguard`
-helper to `/usr/libexec/rustle`.
 
 **From source:**
 

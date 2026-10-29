@@ -104,7 +104,7 @@ pub struct Setup<F> {
     /// The UI starts from the same state, so the first frame matches.
     pub initial: State,
     /// Builds the music backend and the playback. Runs on the blocking pool:
-    /// the real backend reads files and runs `rustypipe-botguard`.
+    /// the real backend reads its cache file.
     pub make: F,
     /// Opens the local store. Runs on the store thread.
     pub store: OpenStore,

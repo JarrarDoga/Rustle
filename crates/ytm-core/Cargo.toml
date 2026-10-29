@@ -9,14 +9,14 @@ publish = false
 model = { version = "0.1.0", path = "../model" }
 rustypipe = { version = "0.11.4", default-features = false, features = ["userdata", "rustls-tls-webpki-roots"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "process", "time"] }
-# Already in the tree via rustypipe; strips cookies from its cache file and loads fixtures.
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# Already in the tree via rustypipe; strips cookies from its cache file, builds the visionOS request and loads fixtures.
 serde_json = "1.0.138"
-# Already in the tree via rustypipe; deserializes yt-dlp's JSON output.
+# Already in the tree via rustypipe; deserializes the visionOS player response.
 serde = { version = "1.0.229", features = ["derive"] }
-# Already in the tree via rustypipe; logs why a stream fell back to another path.
+# Already in the tree via rustypipe; logs stream retries and lyrics fallbacks.
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
-# Already in the tree via rustypipe; sends the ANDROID_MUSIC timed-lyrics request its ClientType lacks.
+# Already in the tree via rustypipe; sends the visionOS player and ANDROID_MUSIC timed-lyrics requests its ClientType lacks.
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls-webpki-roots"] }
 
 [dev-dependencies]

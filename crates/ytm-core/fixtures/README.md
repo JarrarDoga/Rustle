@@ -3,7 +3,6 @@
 Recorded with `spike record` (real responses, no cookies):
 `rp_search.json`, `rp_playlist.json`. `search.json` and `playlist.json` are
 their model mapping (`UPDATE_FIXTURES=1 cargo test -p ytm-core`).
-`ytdlp_251.json` is real yt-dlp output.
 
 `rp_search_heaven_knows.json`: the songs and albums pages of the search
 "heaven knows", from `spike record-search fixtures heaven_knows heaven knows`

@@ -5,9 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use model::{
-    Album, AlbumRef, AlbumSummary, AlbumType, Artist, ArtistRef, ArtistSummary, AudioCodec,
-    LyricLine, Lyrics, Playlist, PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track,
-    TrackId,
+    Album, AlbumRef, AlbumSummary, AlbumType, Artist, ArtistRef, ArtistSummary, LyricLine, Lyrics,
+    Playlist, PlaylistSummary, SearchResults, StreamSource, Thumbnail, Track, TrackId,
 };
 use rustypipe::cache::{CacheStorage, FileStorage};
 use rustypipe::client::{ClientType, RustyPipe, RustyPipeQuery};
@@ -18,7 +17,6 @@ use crate::innertube;
 use crate::rank;
 use crate::stream_cache::StreamCache;
 use crate::visionos::{self, VisionOsError};
-use crate::ytdlp::{self, YtDlp, YtDlpError};
 use crate::{BackendError, MusicBackend, Result};
 
 /// Upper bound on items fetched when following a paginator to the end.
@@ -27,50 +25,25 @@ const MAX_ITEMS: usize = 5_000;
 /// Radio tracks to return when YouTube has that many.
 const RADIO_MIN: usize = 20;
 
-const BOTGUARD_BIN: &str = "rustypipe-botguard";
-
 /// Stream formats we accept, best first: Premium Opus, Opus, AAC.
 pub(crate) const ITAG_PREFERENCE: [u32; 3] = [774, 251, 140];
 
-/// Which extractor produced a stream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StreamOrigin {
-    /// The visionOS client (Opus 251): one plain `player` POST, no JS, no
-    /// PO token, no cookies. About 100 ms, so it runs first.
-    VisionOs,
-    /// rustypipe's web clients (Opus, Premium 774 when logged in).
-    Web,
-    /// The `yt-dlp` CLI (Opus), used while rustypipe's web clients fail.
-    YtDlp,
-    /// rustypipe's iOS client (AAC 140 only), the last resort.
-    Ios,
-}
-
-/// A stream plus where it came from, for diagnostics.
+/// A stream plus whether it came from the URL cache, for diagnostics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamInfo {
     pub source: StreamSource,
-    pub origin: StreamOrigin,
     /// True when served from the in-memory URL cache.
     pub cached: bool,
 }
 
-/// The real backend, built on rustypipe + rustypipe-botguard. Streams come
-/// from the visionOS client first, then rustypipe's web clients, then yt-dlp,
-/// then the iOS client.
+/// The real backend, built on rustypipe. Streams come from the visionOS
+/// client only; the fallbacks it used to have are described in
+/// `docs/design/stream-fallbacks.md`.
 pub struct RustyPipeBackend {
     rp: RustyPipe,
-    /// False when `rustypipe-botguard` was not found. Without its PO tokens,
-    /// YouTube answers web-client stream URLs with 403.
-    botguard: bool,
-    /// `None` when yt-dlp was not found at startup.
-    ytdlp: Option<YtDlp>,
-    /// The accepted login as a Netscape cookies.txt body, for yt-dlp. Memory
-    /// only, like rustypipe's own copy.
-    ytdlp_cookies: Mutex<Option<String>>,
     streams: Mutex<StreamCache>,
     /// One lock per track id being resolved, so a play request that arrives
-    /// during the prefetch waits for it instead of running yt-dlp again.
+    /// during the prefetch waits for it instead of resolving again.
     resolving: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -86,31 +59,22 @@ impl RustyPipeBackend {
         std::fs::create_dir_all(dir)
             .map_err(|e| BackendError::Extraction(format!("create {}: {e}", dir.display())))?;
 
-        let mut builder = RustyPipe::builder()
+        let rp = RustyPipe::builder()
             .storage_dir(dir)
             .storage(Box::new(NoSecretsStorage(FileStorage::new(
                 dir.join("rustypipe_cache.json"),
             ))))
             // Error reports dump raw responses to disk, including ones made
             // with the user's cookies.
-            .no_reporter();
-
-        // Pass the binary explicitly: rustypipe's own probe only searches PATH
-        // and silently falls back to clients that YouTube now blocks. A desktop
-        // launcher's PATH often lacks ~/.local/bin.
-        let botguard = find_bin(BOTGUARD_BIN);
-        builder = match &botguard {
-            // Reuse session-bound PO tokens instead of running botguard for
-            // every track.
-            Some(bin) => builder.botguard_bin(bin).po_token_cache(),
-            None => builder.no_botguard(),
-        };
-        let rp = builder.build().map_err(map_error)?;
+            .no_reporter()
+            // PO tokens are only for rustypipe's own player requests, which
+            // Rustle no longer makes. Without this, rustypipe runs any
+            // `rustypipe-botguard` on PATH at startup to probe it.
+            .no_botguard()
+            .build()
+            .map_err(map_error)?;
         Ok(Self {
             rp,
-            botguard: botguard.is_some(),
-            ytdlp: YtDlp::find(),
-            ytdlp_cookies: Mutex::new(None),
             streams: Mutex::new(StreamCache::default()),
             resolving: Mutex::new(HashMap::new()),
         })
@@ -130,8 +94,8 @@ impl RustyPipeBackend {
         }
     }
 
-    /// [`MusicBackend::stream`], plus which extractor produced the stream and
-    /// whether it came from the URL cache.
+    /// [`MusicBackend::stream`], plus whether the stream came from the URL
+    /// cache.
     pub async fn stream_info(&self, track_id: &str) -> Result<StreamInfo> {
         if let Some(hit) = self.cached_stream(track_id) {
             return Ok(hit);
@@ -144,11 +108,10 @@ impl RustyPipeBackend {
             let _resolving = id_lock.lock().await;
             match self.cached_stream(track_id) {
                 Some(hit) => Ok(hit),
-                None => self.resolve_stream(track_id).await.map(|(source, origin)| {
-                    lock(&self.streams).insert(&source, origin, SystemTime::now());
+                None => self.resolve_stream(track_id).await.map(|source| {
+                    lock(&self.streams).insert(&source, SystemTime::now());
                     StreamInfo {
                         source,
-                        origin,
                         cached: false,
                     }
                 }),
@@ -163,141 +126,70 @@ impl RustyPipeBackend {
     }
 
     fn cached_stream(&self, track_id: &str) -> Option<StreamInfo> {
-        let (source, origin) = lock(&self.streams).get(track_id, SystemTime::now())?;
+        let source = lock(&self.streams).get(track_id, SystemTime::now())?;
         Some(StreamInfo {
             source,
-            origin,
             cached: true,
         })
     }
 
-    async fn resolve_stream(&self, track_id: &str) -> Result<(StreamSource, StreamOrigin)> {
-        let cookies = lock(&self.ytdlp_cookies).clone();
-        resolve_in_order(
+    /// The visionOS client with rustypipe's cached visitor id.
+    async fn resolve_stream(&self, track_id: &str) -> Result<StreamSource> {
+        let q = self.rp.query();
+        resolve_visionos(
             track_id,
-            self.visionos_stream(track_id),
-            self.web_stream(track_id),
-            self.ytdlp_stream(track_id, cookies),
-            self.ios_stream(track_id),
+            |fresh| q.get_visitor_data(fresh),
+            |vd| q.remove_visitor_data(vd),
+            |vd| async move { visionos::stream(&vd, track_id).await },
         )
         .await
     }
-
-    /// The visionOS client with rustypipe's cached visitor id. A bot check
-    /// means the id is burnt: it is dropped so the next call fetches a fresh
-    /// one.
-    async fn visionos_stream(
-        &self,
-        track_id: &str,
-    ) -> std::result::Result<StreamSource, VisionOsError> {
-        let q = self.rp.query();
-        let vd = q
-            .get_visitor_data(false)
-            .await
-            .map_err(|e| VisionOsError::Unusable(format!("visitor data: {e}")))?;
-        let res = visionos::stream(&vd, track_id).await;
-        if let Err(VisionOsError::BotCheck(_)) = &res {
-            q.remove_visitor_data(&vd);
-        }
-        res
-    }
-
-    /// `Ok(None)` means "try the next extractor".
-    async fn web_stream(&self, track_id: &str) -> Result<Option<StreamSource>> {
-        // Web clients give Opus (and Premium itag 774 when logged in) but need
-        // a PO token from botguard and URL deobfuscation. rustypipe 0.11.4's
-        // deobfuscator fails on current player JS ("could not extract sig fn
-        // name"; it then retries once a day). They stay ahead of yt-dlp so a
-        // fixed rustypipe release makes it unnecessary.
-        if !self.botguard {
-            return Ok(None);
-        }
-        let q = self.rp.query();
-        let web = if self.logged_in() {
-            q.authenticated()
-                .player_from_clients(track_id, &[ClientType::DesktopMusic, ClientType::Desktop])
-                .await
-        } else {
-            q.player_from_client(track_id, ClientType::Desktop).await
-        };
-        match web {
-            Ok(player) => match map_stream(track_id, player) {
-                Ok(s) => Ok(Some(s)),
-                Err(e) => {
-                    tracing::warn!("web client stream for {track_id}: {e}");
-                    Ok(None)
-                }
-            },
-            Err(RpError::Auth(_)) => Err(BackendError::Auth),
-            Err(RpError::Extraction(ExtractionError::NotFound { id, .. })) => {
-                Err(BackendError::NotFound(id))
-            }
-            Err(RpError::Extraction(e)) => {
-                tracing::debug!("web clients failed for {track_id}: {e}");
-                Ok(None)
-            }
-            Err(e) => Err(map_error(e)),
-        }
-    }
-
-    async fn ytdlp_stream(
-        &self,
-        track_id: &str,
-        cookies: Option<String>,
-    ) -> std::result::Result<StreamSource, YtDlpError> {
-        let y = self.ytdlp.as_ref().ok_or(YtDlpError::Missing)?;
-        match y.stream(track_id, cookies.as_deref()).await {
-            // With cookies, yt-dlp switches to clients that need a JS runtime
-            // (deno) for YouTube's challenges. Without one they can fail where
-            // the anonymous client still returns Opus 251.
-            Err(e @ YtDlpError::Failed { .. }) if cookies.is_some() => {
-                tracing::warn!("yt-dlp with cookies failed for {track_id} ({e}); retrying without");
-                y.stream(track_id, None).await
-            }
-            r => r,
-        }
-    }
-
-    /// The iOS client needs neither PO tokens nor deobfuscation. Its AAC URLs
-    /// work; its Opus URLs return 403.
-    async fn ios_stream(&self, track_id: &str) -> Result<StreamSource> {
-        let player = self
-            .rp
-            .query()
-            .player_from_client(track_id, ClientType::Ios)
-            .await
-            .map_err(map_error)?;
-        map_stream(track_id, player)
-    }
 }
 
-/// Tries the visionOS client, then web clients, then yt-dlp, then the iOS
-/// client. A visionOS "not found" and web errors other than extraction
-/// failures (auth, not found, network) end the search; other visionOS
-/// errors and yt-dlp errors never do.
-async fn resolve_in_order(
+/// Resolves `track_id` through the visionOS client, the only stream path.
+///
+/// `visitor_id(fresh)` hands out a visitor id, a new one when `fresh`;
+/// `drop_id` forgets a burnt one; `player` sends the request with an id. A
+/// bot check (`LOGIN_REQUIRED`) means YouTube stopped trusting the id, so it
+/// is dropped and the request retried once with a fresh id. A second bot
+/// check, or any other failure, is returned for the UI to show.
+///
+/// Plain closures returning futures rather than async closures: the
+/// `MusicBackend` futures must be `Send`, and rustc cannot yet prove that for
+/// an `AsyncFnMut` call.
+async fn resolve_visionos<V, P>(
     track_id: &str,
-    visionos: impl Future<Output = std::result::Result<StreamSource, VisionOsError>>,
-    web: impl Future<Output = Result<Option<StreamSource>>>,
-    ytdlp: impl Future<Output = std::result::Result<StreamSource, YtDlpError>>,
-    ios: impl Future<Output = Result<StreamSource>>,
-) -> Result<(StreamSource, StreamOrigin)> {
-    match visionos.await {
-        Ok(s) => return Ok((s, StreamOrigin::VisionOs)),
-        Err(VisionOsError::NotFound) => return Err(BackendError::NotFound(track_id.to_owned())),
-        Err(e) => tracing::warn!("visionOS client failed for {track_id} ({e}); trying web clients"),
-    }
-    if let Some(s) = web.await? {
-        return Ok((s, StreamOrigin::Web));
-    }
-    match ytdlp.await {
-        Ok(s) => return Ok((s, StreamOrigin::YtDlp)),
-        Err(YtDlpError::Missing) => {
-            tracing::warn!("yt-dlp not installed; using iOS AAC for {track_id}");
+    mut visitor_id: impl FnMut(bool) -> V,
+    mut drop_id: impl FnMut(&str),
+    mut player: impl FnMut(String) -> P,
+) -> Result<StreamSource>
+where
+    V: Future<Output = std::result::Result<String, RpError>>,
+    P: Future<Output = std::result::Result<StreamSource, VisionOsError>>,
+{
+    let vd = visitor_id(false).await.map_err(map_error)?;
+    let mut res = player(vd.clone()).await;
+    if let Err(VisionOsError::BotCheck(reason)) = &res {
+        tracing::warn!(
+            "visionOS bot check for {track_id} ({reason}); retrying with a fresh visitor id"
+        );
+        drop_id(&vd);
+        let vd = visitor_id(true).await.map_err(map_error)?;
+        res = player(vd.clone()).await;
+        if let Err(VisionOsError::BotCheck(_)) = &res {
+            drop_id(&vd);
         }
-        Err(e) => tracing::warn!("{e}; using iOS AAC for {track_id}"),
     }
-    Ok((ios.await?, StreamOrigin::Ios))
+    res.map_err(|e| match e {
+        VisionOsError::NotFound => BackendError::NotFound(track_id.to_owned()),
+        VisionOsError::Network(m) => BackendError::Network(m),
+        // Not `Auth`: the login is fine, YouTube distrusts the anonymous
+        // visitor id, and `Auth` would log the user out.
+        VisionOsError::BotCheck(reason) => BackendError::Extraction(format!(
+            "YouTube asked to confirm this is not a bot, also with a fresh visitor id ({reason})"
+        )),
+        VisionOsError::Unusable(m) => BackendError::Extraction(m),
+    })
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -317,9 +209,6 @@ impl MusicBackend for RustyPipeBackend {
             BackendError::Network(m) => BackendError::Network(m),
             _ => BackendError::Auth,
         })?;
-        *lock(&self.ytdlp_cookies) = Some(ytdlp::to_netscape(cookies, SystemTime::now()));
-        // Cached anonymous URLs would hide Premium itag 774 for hours.
-        lock(&self.streams).clear();
         Ok(())
     }
 
@@ -469,10 +358,6 @@ impl MusicBackend for RustyPipeBackend {
             Ok(()) | Err(RpError::Auth(_)) => {}
             Err(e) => return Err(map_error(e)),
         }
-        *lock(&self.ytdlp_cookies) = None;
-        // URLs resolved with the cookies (Premium itag 774) must not outlive
-        // the login.
-        lock(&self.streams).clear();
         Ok(())
     }
 
@@ -553,32 +438,6 @@ fn config_dir() -> Option<PathBuf> {
         .filter(|p| p.is_absolute())
         .or_else(|| home_dir().map(|h| h.join(".config")))?;
     Some(base.join("rustle"))
-}
-
-/// Where the RPM installs its helper binaries (`rustypipe-botguard`).
-const LIBEXEC_DIR: &str = "/usr/libexec/rustle";
-
-/// Finds `name` on PATH, then in `~/.local/bin`, then in [`LIBEXEC_DIR`].
-pub(crate) fn find_bin(name: &str) -> Option<PathBuf> {
-    find_in(name, bin_dirs())
-}
-
-/// The directories [`find_bin`] searches, in order.
-fn bin_dirs() -> Vec<PathBuf> {
-    let path_dirs = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let local_bin = home_dir().map(|h| h.join(".local/bin"));
-    path_dirs
-        .into_iter()
-        .chain(local_bin)
-        .chain([PathBuf::from(LIBEXEC_DIR)])
-        .collect()
-}
-
-/// The first `dir/name` that is a file, in `dirs` order.
-fn find_in(name: &str, dirs: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
-    dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -989,66 +848,6 @@ fn map_radio(seed: &str, items: Vec<rp::TrackItem>) -> Vec<Track> {
         .collect()
 }
 
-/// Picks the best audio-only stream. Skips DRM tracks and, for videos with
-/// several audio languages, prefers YouTube's default track.
-fn pick_audio(client: ClientType, streams: &[rp::AudioStream]) -> Option<&rp::AudioStream> {
-    // iOS-client Opus URLs return 403 (checked 2026-10-26, with and without
-    // PO tokens); its AAC URLs work.
-    let ios = client == ClientType::Ios;
-    let clear = |s: &&rp::AudioStream| {
-        s.drm_track_type.is_none() && !(ios && s.codec == rp::AudioCodec::Opus)
-    };
-    let default_track = |s: &&rp::AudioStream| s.track.as_ref().is_none_or(|t| t.is_default);
-    let best = |only_default: bool| {
-        ITAG_PREFERENCE.iter().find_map(|&itag| {
-            streams
-                .iter()
-                .filter(clear)
-                .filter(|s| !only_default || default_track(s))
-                .find(|s| s.itag == itag)
-        })
-    };
-    best(true).or_else(|| best(false))
-}
-
-fn map_stream(track_id: &str, player: rp::VideoPlayer) -> Result<StreamSource> {
-    let s = pick_audio(player.client_type, &player.audio_streams).ok_or_else(|| {
-        BackendError::Extraction(format!(
-            "no usable audio stream for {track_id} from {:?} client (got itags {:?})",
-            player.client_type,
-            player
-                .audio_streams
-                .iter()
-                .map(|s| s.itag)
-                .collect::<Vec<_>>()
-        ))
-    })?;
-    let codec = match s.codec {
-        rp::AudioCodec::Mp4a => AudioCodec::Aac,
-        _ => AudioCodec::Opus,
-    };
-    let duration = match s.duration_ms {
-        Some(ms) => Some(Duration::from_millis(ms.into())),
-        None if player.details.duration > 0 => {
-            Some(Duration::from_secs(player.details.duration.into()))
-        }
-        None => None,
-    };
-    Ok(StreamSource {
-        track_id: track_id.to_owned(),
-        url: s.url.clone(),
-        codec,
-        bitrate_bps: if s.average_bitrate > 0 {
-            s.average_bitrate
-        } else {
-            s.bitrate
-        },
-        content_length: s.size,
-        duration,
-        loudness_db: s.loudness_db,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use rustypipe::error::{AuthError, UnavailabilityReason};
@@ -1202,192 +1001,119 @@ mod tests {
         assert_eq!(strip_secrets("not json"), None);
     }
 
-    fn audio(itag: u32, codec: &str, extra: serde_json::Value) -> rp::AudioStream {
-        let mut v = json!({
-            "url": format!("https://example.invalid/{itag}"),
-            "itag": itag,
-            "bitrate": 160_000,
-            "average_bitrate": 130_000,
-            "size": 4_000_000,
-            "duration_ms": 240_000,
-            "mime": "audio/webm",
-            "format": if codec == "opus" { "webm" } else { "m4a" },
-            "codec": codec,
-            "loudness_db": 5.5,
-            "drm_systems": [],
-        });
-        v.as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
-        serde_json::from_value(v).unwrap()
+    const VISIONOS_PLAYER: &str = include_str!("../fixtures/visionos_player.json");
+
+    fn player_status(status: &str, reason: &str) -> String {
+        json!({ "playabilityStatus": { "status": status, "reason": reason } }).to_string()
     }
 
-    #[test]
-    fn stream_preference_order() {
-        let aac = audio(140, "mp4a", json!({}));
-        let opus = audio(251, "opus", json!({}));
-        let premium = audio(774, "opus", json!({}));
-        let low_opus = audio(250, "opus", json!({}));
-
-        let web = ClientType::Desktop;
-        let all = [aac.clone(), low_opus.clone(), opus.clone(), premium.clone()];
-        assert_eq!(pick_audio(web, &all).unwrap().itag, 774);
-        let no_premium = [aac.clone(), opus.clone(), low_opus.clone()];
-        assert_eq!(pick_audio(web, &no_premium).unwrap().itag, 251);
-        assert_eq!(pick_audio(web, &[low_opus.clone(), aac]).unwrap().itag, 140);
-        assert!(pick_audio(web, &[low_opus]).is_none());
+    fn bot_check() -> String {
+        player_status("LOGIN_REQUIRED", "Sign in to confirm you’re not a bot")
     }
 
-    #[test]
-    fn ios_client_never_picks_opus() {
-        let streams = [audio(251, "opus", json!({})), audio(140, "mp4a", json!({}))];
-        assert_eq!(pick_audio(ClientType::Ios, &streams).unwrap().itag, 140);
-        assert!(pick_audio(ClientType::Ios, &streams[..1]).is_none());
+    /// What one `resolve_visionos` run did.
+    struct Run {
+        result: Result<StreamSource>,
+        /// Visitor ids asked for, `true` for a fresh one.
+        asked: Vec<bool>,
+        dropped: Vec<String>,
+        /// The visitor id each `player` request carried.
+        sent: Vec<String>,
     }
 
-    #[test]
-    fn stream_skips_drm_and_dubbed_tracks() {
-        let drm = audio(774, "opus", json!({"drm_track_type": "audio"}));
-        let dubbed = audio(
-            251,
-            "opus",
-            json!({"url": "https://example.invalid/dub",
-                   "track": {"id": "de.3", "lang_name": "German", "is_default": false}}),
-        );
-        let original = audio(
-            251,
-            "opus",
-            json!({"url": "https://example.invalid/orig",
-                   "track": {"id": "en.4", "lang_name": "English", "is_default": true}}),
-        );
-        let streams = [drm, dubbed, original];
-        let picked = pick_audio(ClientType::Desktop, &streams).unwrap();
-        assert_eq!(picked.url, "https://example.invalid/orig");
-    }
-
-    #[test]
-    fn stream_source_fields() {
-        let player: rp::VideoPlayer = serde_json::from_value(json!({
-            "details": {
-                "id": "abcdefghijk", "duration": 241, "thumbnail": [],
-                "channel_id": "UC1", "keywords": [], "is_live": false,
-                "is_live_content": false,
+    /// Runs `resolve_visionos` with the recorded `player` bodies, one per
+    /// request; visitor ids are `vd1`, `vd2`, ... in the order asked.
+    async fn resolve_with(bodies: Vec<String>) -> Run {
+        let (mut asked, mut dropped, mut sent) = (Vec::new(), Vec::new(), Vec::new());
+        let mut bodies = bodies.into_iter();
+        let result = resolve_visionos(
+            "jvm6DpqqbLk",
+            |fresh| {
+                asked.push(fresh);
+                std::future::ready(Ok(format!("vd{}", asked.len())))
             },
-            "video_streams": [], "video_only_streams": [],
-            "audio_streams": [audio(140, "mp4a", json!({}))],
-            "subtitles": [], "expires_in_seconds": 21540,
-            "valid_until": "2026-10-26T12:00:00Z", "preview_frames": [],
-            "client_type": "desktop", "visitor_data": null,
-        }))
-        .unwrap();
-        let s = map_stream("abcdefghijk", player).unwrap();
-        assert_eq!(
-            s,
-            StreamSource {
-                track_id: "abcdefghijk".to_owned(),
-                url: "https://example.invalid/140".to_owned(),
-                codec: AudioCodec::Aac,
-                bitrate_bps: 130_000,
-                content_length: 4_000_000,
-                duration: Some(Duration::from_secs(240)),
-                loudness_db: Some(5.5),
-            }
-        );
-    }
-
-    fn source(url: &str) -> StreamSource {
-        StreamSource {
-            track_id: "abcdefghijk".to_owned(),
-            url: url.to_owned(),
-            codec: AudioCodec::Opus,
-            bitrate_bps: 130_000,
-            content_length: 1,
-            duration: None,
-            loudness_db: None,
+            |vd| dropped.push(vd.to_owned()),
+            |vd| {
+                sent.push(vd);
+                let body = bodies.next().expect("one request too many");
+                std::future::ready(visionos::parse_player("jvm6DpqqbLk", &body))
+            },
+        )
+        .await;
+        Run {
+            result,
+            asked,
+            dropped,
+            sent,
         }
-    }
-
-    /// Runs `resolve_in_order` with the visionOS step failing; steps that
-    /// are `None` panic if reached.
-    async fn resolve(
-        web: Option<Result<Option<StreamSource>>>,
-        ytdlp: Option<std::result::Result<StreamSource, YtDlpError>>,
-        ios: Option<Result<StreamSource>>,
-    ) -> Result<(String, StreamOrigin)> {
-        resolve_from(
-            Err(VisionOsError::Unusable("down".to_owned())),
-            web,
-            ytdlp,
-            ios,
-        )
-        .await
-    }
-
-    async fn resolve_from(
-        visionos: std::result::Result<StreamSource, VisionOsError>,
-        web: Option<Result<Option<StreamSource>>>,
-        ytdlp: Option<std::result::Result<StreamSource, YtDlpError>>,
-        ios: Option<Result<StreamSource>>,
-    ) -> Result<(String, StreamOrigin)> {
-        let (s, origin) = resolve_in_order(
-            "abcdefghijk",
-            async { visionos },
-            async { web.expect("web not tried") },
-            async { ytdlp.expect("yt-dlp reached") },
-            async { ios.expect("ios reached") },
-        )
-        .await?;
-        Ok((s.url, origin))
     }
 
     #[tokio::test]
-    async fn fallback_order() {
-        // visionOS works: nothing else runs.
-        let r = resolve_from(Ok(source("visionos")), None, None, None).await;
-        assert_eq!(r.unwrap(), ("visionos".to_owned(), StreamOrigin::VisionOs));
-        // Any visionOS failure but "not found" moves on to the web clients.
-        for e in [
-            VisionOsError::Network("down".to_owned()),
-            VisionOsError::BotCheck("sign in".to_owned()),
-            VisionOsError::Unusable("no audio".to_owned()),
-        ] {
-            let r = resolve_from(Err(e), Some(Ok(Some(source("web")))), None, None).await;
-            assert_eq!(r.unwrap(), ("web".to_owned(), StreamOrigin::Web));
+    async fn visionos_resolves_with_the_cached_visitor_id() {
+        let run = resolve_with(vec![VISIONOS_PLAYER.to_owned()]).await;
+        let s = run.result.unwrap();
+        assert_eq!(s.codec, model::AudioCodec::Opus);
+        assert!(s.url.contains("itag=251"), "{}", s.url);
+        assert_eq!(run.asked, [false]);
+        assert!(run.dropped.is_empty());
+        assert_eq!(run.sent, ["vd1"]);
+    }
+
+    #[tokio::test]
+    async fn visionos_bot_check_retries_once_with_a_fresh_visitor_id() {
+        let run = resolve_with(vec![bot_check(), VISIONOS_PLAYER.to_owned()]).await;
+        assert!(run.result.unwrap().url.contains("itag=251"));
+        assert_eq!(run.asked, [false, true]);
+        assert_eq!(run.dropped, ["vd1"]);
+        assert_eq!(run.sent, ["vd1", "vd2"]);
+    }
+
+    #[tokio::test]
+    async fn visionos_second_bot_check_is_a_clear_error() {
+        let run = resolve_with(vec![bot_check(), bot_check()]).await;
+        // Not `Auth`, which would log the user out.
+        match run.result {
+            Err(BackendError::Extraction(m)) => {
+                assert!(
+                    m.contains("not a bot") && m.contains("fresh visitor id"),
+                    "{m}"
+                );
+            }
+            other => panic!("got {other:?}"),
         }
-        let r = resolve_from(Err(VisionOsError::NotFound), None, None, None).await;
-        assert!(matches!(r, Err(BackendError::NotFound(ref id)) if id == "abcdefghijk"));
-        // Web works: nothing after it runs.
-        let r = resolve(Some(Ok(Some(source("web")))), None, None).await;
-        assert_eq!(r.unwrap(), ("web".to_owned(), StreamOrigin::Web));
-        // Web extraction fails (or no botguard): yt-dlp, and iOS never runs.
-        let r = resolve(Some(Ok(None)), Some(Ok(source("ytdlp"))), None).await;
-        assert_eq!(r.unwrap(), ("ytdlp".to_owned(), StreamOrigin::YtDlp));
-        // yt-dlp missing, failing, or timing out: iOS.
-        for e in [
-            YtDlpError::Missing,
-            YtDlpError::Timeout(ytdlp::TIMEOUT),
-            YtDlpError::Failed {
-                status: "exit status: 1".to_owned(),
-                stderr: "ERROR".to_owned(),
+        // Both ids are burnt; no third request.
+        assert_eq!(run.asked, [false, true]);
+        assert_eq!(run.dropped, ["vd1", "vd2"]);
+        assert_eq!(run.sent.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn visionos_other_failures_do_not_retry() {
+        let run = resolve_with(vec![player_status("ERROR", "Video unavailable")]).await;
+        assert!(matches!(run.result, Err(BackendError::NotFound(ref id)) if id == "jvm6DpqqbLk"));
+        assert_eq!(run.asked, [false]);
+        let run = resolve_with(vec![player_status("UNPLAYABLE", "This video is private")]).await;
+        assert!(
+            matches!(run.result, Err(BackendError::Extraction(ref m)) if m.contains("private"))
+        );
+        assert!(run.dropped.is_empty());
+
+        let r = resolve_visionos(
+            "jvm6DpqqbLk",
+            |_| std::future::ready(Ok("vd1".to_owned())),
+            |_| panic!("nothing to drop"),
+            |_| std::future::ready(Err(VisionOsError::Network("timed out".to_owned()))),
+        )
+        .await;
+        assert!(matches!(r, Err(BackendError::Network(_))));
+        // No visitor id, no request.
+        let r = resolve_visionos(
+            "jvm6DpqqbLk",
+            |_| std::future::ready(Err(RpError::Http("connection reset".into()))),
+            |_| panic!("nothing to drop"),
+            |_: String| -> std::future::Ready<std::result::Result<StreamSource, VisionOsError>> {
+                panic!("request sent without a visitor id")
             },
-            YtDlpError::Parse("bad".to_owned()),
-        ] {
-            let r = resolve(Some(Ok(None)), Some(Err(e)), Some(Ok(source("ios")))).await;
-            assert_eq!(r.unwrap(), ("ios".to_owned(), StreamOrigin::Ios));
-        }
-        // Auth and not-found from the web clients stop the search.
-        let r = resolve(Some(Err(BackendError::Auth)), None, None).await;
-        assert!(matches!(r, Err(BackendError::Auth)));
-        let nf = Err(BackendError::NotFound("abcdefghijk".to_owned()));
-        assert!(matches!(
-            resolve(Some(nf), None, None).await,
-            Err(BackendError::NotFound(_))
-        ));
-        // The iOS error is what the caller sees when everything fails.
-        let r = resolve(
-            Some(Ok(None)),
-            Some(Err(YtDlpError::Missing)),
-            Some(Err(BackendError::Network("down".to_owned()))),
         )
         .await;
         assert!(matches!(r, Err(BackendError::Network(_))));
@@ -1500,33 +1226,6 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), n);
-    }
-
-    #[test]
-    fn bin_dirs_end_with_libexec() {
-        assert_eq!(bin_dirs().last(), Some(&PathBuf::from(LIBEXEC_DIR)));
-    }
-
-    #[test]
-    fn find_in_takes_the_first_dir_holding_the_file() {
-        let root = std::env::temp_dir().join(format!("rustle-find-bin-{}", std::process::id()));
-        let (path, local, libexec) = (root.join("path"), root.join("local"), root.join("libexec"));
-        for d in [&path, &local, &libexec] {
-            std::fs::create_dir_all(d).unwrap();
-        }
-        let dirs = || [path.clone(), local.clone(), libexec.clone()];
-        assert_eq!(find_in("tool", dirs()), None);
-
-        std::fs::write(libexec.join("tool"), "").unwrap();
-        assert_eq!(find_in("tool", dirs()), Some(libexec.join("tool")));
-
-        std::fs::write(local.join("tool"), "").unwrap();
-        assert_eq!(find_in("tool", dirs()), Some(local.join("tool")));
-
-        // A directory with the binary's name is not the binary.
-        std::fs::create_dir_all(path.join("tool")).unwrap();
-        assert_eq!(find_in("tool", dirs()), Some(local.join("tool")));
-        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[tokio::test]

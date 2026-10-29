@@ -16,10 +16,9 @@ mod rank;
 mod rustypipe_backend;
 mod stream_cache;
 mod visionos;
-mod ytdlp;
 
 pub use fixture::{DEMO_MAIN, FixtureBackend, LARGE_ART_SIZES};
-pub use rustypipe_backend::{RustyPipeBackend, StreamInfo, StreamOrigin};
+pub use rustypipe_backend::{RustyPipeBackend, StreamInfo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
