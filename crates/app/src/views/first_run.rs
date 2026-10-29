@@ -5,7 +5,7 @@
 use egui::{Align2, Id, Rect, RichText, ScrollArea, Sense, Stroke, StrokeKind, Ui, vec2};
 use model::PlaylistSummary;
 
-use crate::state::{Command, Session, State};
+use crate::state::{Command, LIKED_MUSIC, Session, State};
 use crate::theme;
 use crate::views::{Out, cmd};
 use crate::widgets::{self, ArtKind};
@@ -216,7 +216,7 @@ fn row(ui: &mut Ui, rect: Rect, i: usize, pl: &PlaylistSummary, lit: bool) -> bo
 
 /// "Playlist · 1,535 songs". Liked music is YouTube's auto playlist.
 fn subtitle(pl: &PlaylistSummary) -> String {
-    let kind = if pl.id == "LM" {
+    let kind = if pl.id == LIKED_MUSIC {
         "Auto playlist"
     } else {
         "Playlist"
