@@ -2081,7 +2081,7 @@ dependencies = [
 
 [[package]]
 name = "model"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
@@ -2755,7 +2755,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "model",
@@ -3271,7 +3271,7 @@ dependencies = [
 
 [[package]]
 name = "rustle"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dbus",
  "eframe",
@@ -3717,7 +3717,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "model",
  "rusqlite",
@@ -5183,7 +5183,7 @@ dependencies = [
 
 [[package]]
 name = "ytm-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "model",
  "reqwest",
