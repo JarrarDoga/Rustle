@@ -9,11 +9,16 @@
 </p>
 
 <p align="center">
-  <img alt="Rust 2024" src="https://img.shields.io/badge/Rust-2024-B7410E?logo=rust&logoColor=white">
-  <img alt="egui 0.37" src="https://img.shields.io/badge/UI-egui%200.37-C8643B">
-  <img alt="Linux" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20Wayland-E0A04A">
-  <img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-E8C26A">
-  <img alt="445 tests" src="https://img.shields.io/badge/tests-445%20passing-2ea44f">
+  <a href="https://github.com/JarrarDoga/Rustle/releases/latest"><strong>Download</strong></a> ·
+  <a href="#install">Install</a> ·
+  <a href="#signing-in">Signing in</a> ·
+  <a href="#development">Development</a>
+</p>
+
+<p align="center">
+  <img alt="Built with Rust" src="https://img.shields.io/badge/Built%20with-Rust-C8643B">
+  <img alt="Linux · Wayland" src="https://img.shields.io/badge/Linux%20%C2%B7%20Wayland-555">
+  <img alt="License GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-C8643B">
 </p>
 
 <p align="center">
