@@ -9,6 +9,7 @@ mod art_color;
 mod auth;
 mod backend;
 mod control;
+mod credits;
 mod fallback_fonts;
 mod icons;
 mod media_keys;

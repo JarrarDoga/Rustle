@@ -16,6 +16,7 @@ use egui::{
 };
 use model::Track;
 
+use crate::credits;
 use crate::icons;
 use crate::state::State;
 use crate::theme;
@@ -122,10 +123,11 @@ fn panel_ui(ui: &mut Ui, panel: Rect, state: &State, view: &mut View, out: &mut 
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let playing: Vec<&str> = match (state.current_track(), tab) {
-        (Some(t), BrowseTab::Artists) => t.artists.iter().map(|a| a.name.as_str()).collect(),
-        (Some(t), BrowseTab::Albums) => t.album.iter().map(|a| a.name.as_str()).collect(),
-        (None, _) => Vec::new(),
+    let current = state.current_track();
+    let playing = |label: &str| match (current, tab) {
+        (Some(t), BrowseTab::Artists) => credits::credits(t, label),
+        (Some(t), BrowseTab::Albums) => t.album.as_ref().is_some_and(|a| a.name == label),
+        (None, _) => false,
     };
 
     let list_rect = Rect::from_min_max(
@@ -159,7 +161,7 @@ fn panel_ui(ui: &mut Ui, panel: Rect, state: &State, view: &mut View, out: &mut 
                         } else {
                             selected.iter().any(|s| s == label)
                         },
-                        playing: i > 0 && playing.contains(&label),
+                        playing: i > 0 && playing(label),
                     };
                     if facet_row(ui, &row) {
                         // Shift adds or removes this row only; it never
@@ -288,16 +290,25 @@ fn facets(ctx: &egui::Context, tracks: &Arc<Vec<Arc<Track>>>) -> Arc<Facets> {
     f
 }
 
-/// Songs per artist. A track credited to several artists counts once for
-/// each of them.
+/// Songs per artist, counting every artist a song credits (see
+/// [`credits`]): its artist list and the names in a "(feat. ...)" clause of
+/// its title. A song counts once for each artist. A featured name that
+/// matches an artist-list name elsewhere in the playlist (ignoring case)
+/// counts under that name.
 fn count_artists(tracks: &[Arc<Track>]) -> Vec<(String, usize)> {
+    let mut known: HashMap<String, &str> = HashMap::new();
+    for a in tracks.iter().flat_map(|t| &t.artists) {
+        if !a.name.is_empty() {
+            known.entry(credits::fold(&a.name)).or_insert(&a.name);
+        }
+    }
     let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut names = Vec::new();
     for t in tracks {
-        for (i, a) in t.artists.iter().enumerate() {
-            let repeat = t.artists[..i].iter().any(|b| b.name == a.name);
-            if !a.name.is_empty() && !repeat {
-                *counts.entry(&a.name).or_default() += 1;
-            }
+        names.clear();
+        credits::credited_names(t, &known, &mut names);
+        for &n in &names {
+            *counts.entry(n).or_default() += 1;
         }
     }
     sorted(counts)
@@ -438,6 +449,34 @@ mod tests {
             count_artists(&tracks),
             counts(&[("A", 2), ("B", 2), ("C", 2)])
         );
+    }
+
+    #[test]
+    fn title_features_count_under_the_artist() {
+        let titled = |title: &str, artists: &[&str]| {
+            let mut t = (*track(title, artists, None)).clone();
+            t.title = title.into();
+            Arc::new(t)
+        };
+        let tracks = [
+            titled("Hate Me", &["Lil Yachty", "ian"]),
+            titled("Coffin", &["Lil Yachty"]),
+            titled("Another Late Night (feat. LIL YACHTY)", &["Drake"]),
+            titled("Greed (feat. Lil Yachty)", &["LUCKI"]),
+            // Already credited in the list: counts once.
+            titled("Yacht Club (feat. Lil Yachty)", &["Lil Yachty"]),
+            // A whole-name match only.
+            titled("Song (feat. Lil Yachty Jr)", &["Other"]),
+        ];
+        let got = count_artists(&tracks);
+        assert!(got.contains(&("Lil Yachty".to_owned(), 5)), "{got:?}");
+        assert!(got.contains(&("Lil Yachty Jr".to_owned(), 1)), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "LIL YACHTY"), "{got:?}");
+        // The chip filter shows exactly the counted songs.
+        for (name, n) in &got {
+            let shown = tracks.iter().filter(|t| credits::credits(t, name)).count();
+            assert_eq!(shown, *n, "{name}");
+        }
     }
 
     #[test]
