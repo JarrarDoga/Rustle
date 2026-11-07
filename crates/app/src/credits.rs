@@ -32,7 +32,7 @@ pub fn credited_names<'a>(
             out.push(&a.name);
         }
     }
-    let mut add = |name: &'a str, out: &mut Vec<&'a str>| {
+    let add = |name: &'a str, out: &mut Vec<&'a str>| {
         if !out.iter().any(|n| eq_fold(n, name)) {
             out.push(name);
         }
@@ -206,7 +206,10 @@ mod tests {
 
     #[test]
     fn featuring_forms() {
-        assert_eq!(names("Another Late Night (feat. Lil Yachty)"), ["Lil Yachty"]);
+        assert_eq!(
+            names("Another Late Night (feat. Lil Yachty)"),
+            ["Lil Yachty"]
+        );
         assert_eq!(names("SIDE EFFExT (FEAT. Lil Yachty)"), ["Lil Yachty"]);
         assert_eq!(names("Song [ft. A]"), ["A"]);
         assert_eq!(names("Song (ft A)"), ["A"]);
