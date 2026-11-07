@@ -1010,7 +1010,8 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
     let mut text = ui
         .data(|d| d.get_temp::<String>(hex_id))
         .unwrap_or_else(|| saved::hex_text(c));
-    let resp = ui.put(
+    // Child uis draw into the row without moving the page's cursor.
+    let resp = ui.new_child(UiBuilder::new().max_rect(hex_rect)).put(
         hex_rect,
         TextEdit::singleline(&mut text)
             .font(theme::secondary())
@@ -1032,7 +1033,8 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
     // egui's HSV picker in a popup.
     let held = Id::unique("accent-picker-held");
     let pick_rect = Rect::from_min_size(pos2(x, cy - 13.0), vec2(PICK_W, 26.0));
-    ui.scope_builder(UiBuilder::new().max_rect(pick_rect), |ui| {
+    {
+        let ui = &mut ui.new_child(UiBuilder::new().max_rect(pick_rect));
         ui.spacing_mut().interact_size = vec2(PICK_W, 26.0);
         let mut v = c;
         let _ =
@@ -1046,7 +1048,7 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
                 page.release = true;
             }
         }
-    });
+    }
     if ui.data(|d| d.get_temp::<bool>(held)).unwrap_or(false)
         && !ui.input(|i| i.pointer.primary_down())
     {
