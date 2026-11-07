@@ -379,11 +379,13 @@ mod tests {
         }
         // Prefix names go through `known` only.
         let known: HashMap<String, &str> = [("glaive".to_owned(), "glaive")].into();
+        let intro = track("Intro - Live", &["Band"]);
         let mut out = Vec::new();
-        credited_names(&track("Intro - Live", &["Band"]), &known, &mut out);
+        credited_names(&intro, &known, &mut out);
         assert_eq!(out, ["Band"]);
-        out.clear();
-        credited_names(&track("[clean] GLAIVE - crynomore", &["X"]), &known, &mut out);
+        let clean = track("[clean] GLAIVE - crynomore", &["X"]);
+        let mut out = Vec::new();
+        credited_names(&clean, &known, &mut out);
         assert_eq!(out, ["X", "glaive"]);
     }
 
