@@ -295,7 +295,8 @@ fn facets(ctx: &egui::Context, tracks: &Arc<Vec<Arc<Track>>>) -> Arc<Facets> {
 /// its title. A song counts once for each artist. Names that differ only in
 /// case are one artist ("glaive" and "Glaive"), shown under the spelling
 /// the most artist-list credits use (ties: the first seen). A featured name
-/// that matches an artist-list name counts under that name too.
+/// that matches an artist-list name counts under that name too. A known
+/// name before " - " in a title ("glaive - crynomore") counts as well.
 fn count_artists(tracks: &[Arc<Track>]) -> Vec<(String, usize)> {
     // Each artist-list spelling and how often it appears, in first-seen
     // order.
@@ -321,9 +322,21 @@ fn count_artists(tracks: &[Arc<Track>]) -> Vec<(String, usize)> {
             })
             .or_insert((name, n));
     }
-    let known: HashMap<String, &str> = best.into_iter().map(|(k, (n, _))| (k, n)).collect();
-    let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut known: HashMap<String, &str> = best.into_iter().map(|(k, (n, _))| (k, n)).collect();
+    // Every row name: the artist-list names, then featured names under
+    // their first-seen spelling. A title-prefix name ("glaive - song")
+    // counts only if it is one of these, the same rows a chip can name.
     let mut names = Vec::new();
+    let mut featured: Vec<&str> = Vec::new();
+    for t in tracks {
+        names.clear();
+        credits::credited_names(t, &known, &mut names);
+        featured.extend(&names);
+    }
+    for n in featured {
+        known.entry(credits::fold(n)).or_insert(n);
+    }
+    let mut counts: HashMap<&str, usize> = HashMap::new();
     for t in tracks {
         names.clear();
         credits::credited_names(t, &known, &mut names);
@@ -527,6 +540,50 @@ mod tests {
             let shown = tracks.iter().filter(|t| credits::credits(t, chip)).count();
             assert_eq!(shown, 7, "{chip}");
         }
+        for (name, n) in &got {
+            let shown = tracks.iter().filter(|t| credits::credits(t, name)).count();
+            assert_eq!(shown, *n, "{name}");
+        }
+    }
+
+    #[test]
+    fn title_prefix_names_count_only_when_known() {
+        let titled = |title: &str, artists: &[&str]| {
+            let mut t = (*track(title, artists, None)).clone();
+            t.title = title.into();
+            Arc::new(t)
+        };
+        let tracks = [
+            titled("ik", &["glaive"]),
+            titled("Asheghanistan", &["Glaive"]),
+            titled("its all a waste (feat. glaive)", &["ericdoa"]),
+            titled(
+                "Glaive - hit the function like larry david (Ovine Hall) (Official Audio)",
+                &["Just Mazerz"],
+            ),
+            titled(
+                "ovine hall (glaive) - pree me at the party [가사해석]",
+                &["번역하는 공대생"],
+            ),
+            titled("[clean] glaive - crynomore", &["CROWBAR*"]),
+            titled("glaive - i hate 2 see u cry (lyric video)", &["beads"]),
+            // The uploader is the artist: counts once.
+            titled("glaive - 1984", &["glaive"]),
+            // Not a known artist: nobody is credited.
+            titled("Intro - Live", &["Band"]),
+            // A featured-only name is a row, so a prefix can name it.
+            titled("Hit (feat. Diana Gordon)", &["Lil Yachty"]),
+            titled("Diana Gordon - Wolves", &["uploader"]),
+            // Pieces split on " x " in a prefix.
+            titled("ericdoa x glaive - mmm", &["fan"]),
+        ];
+        let got = count_artists(&tracks);
+        assert!(got.contains(&("glaive".to_owned(), 9)), "{got:?}");
+        assert!(got.contains(&("Diana Gordon".to_owned(), 2)), "{got:?}");
+        assert!(got.contains(&("ericdoa".to_owned(), 2)), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "Intro"), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "ovine hall"), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "clean"), "{got:?}");
         for (name, n) in &got {
             let shown = tracks.iter().filter(|t| credits::credits(t, name)).count();
             assert_eq!(shown, *n, "{name}");

@@ -1,7 +1,8 @@
-//! Who a song credits: its artist list plus anyone named in a featuring
-//! clause of its title ("Another Late Night (feat. Lil Yachty)"). YouTube
-//! Music often lists only the main artist, so the title is the only place a
-//! featured artist shows up.
+//! Who a song credits: its artist list, anyone named in a featuring clause
+//! of its title ("Another Late Night (feat. Lil Yachty)"), and a known
+//! artist named before " - " in the title ("glaive - crynomore", uploaded
+//! by a fan channel). YouTube Music often lists only the main artist or the
+//! uploader, so the title is the only place the real artist shows up.
 //!
 //! The browse panel counts and the artist chip filter both use this module,
 //! so a row's count always equals the number of songs its chip shows.
@@ -10,19 +11,26 @@ use std::collections::HashMap;
 
 use model::Track;
 
-/// True if `track` credits `name`: an artist-list name, or a name in a
-/// featuring clause of the title, compared case-insensitively ("glaive"
-/// and "Glaive" are one artist). A name must match a whole credit:
-/// "Future" does not match "Future Islands".
+/// True if `track` credits `name`: an artist-list name, a name in a
+/// featuring clause of the title, or a name in the title's "ARTIST - SONG"
+/// prefix, compared case-insensitively ("glaive" and "Glaive" are one
+/// artist). A name must match a whole credit: "Future" does not match
+/// "Future Islands".
+///
+/// `name` is a browse-panel row, and every row is a known name, so a
+/// prefix name matches here exactly when [`credited_names`] counts it.
 pub fn credits(track: &Track, name: &str) -> bool {
     track.artists.iter().any(|a| eq_fold(&a.name, name))
         || clauses(&track.title).any(|c| runs(c).iter().any(|r| eq_fold(r, name)))
+        || prefix_runs(&track.title).iter().any(|r| eq_fold(r, name))
 }
 
 /// Every name `track` credits, each once ignoring case, appended to `out`.
-/// Artist-list names come first, then each featured name. A name that
-/// matches one in `known` (folded name to display name) is added under
-/// that display name, otherwise as written.
+/// Artist-list names come first, then each featured name, then names in
+/// the title's "ARTIST - SONG" prefix. A name that matches one in `known`
+/// (folded name to display name) is added under that display name,
+/// otherwise as written. A prefix name counts only if it is in `known`:
+/// "Intro - Live" credits nobody unless "Intro" is an artist.
 pub fn credited_names<'a>(
     track: &'a Track,
     known: &HashMap<String, &'a str>,
@@ -56,6 +64,11 @@ pub fn credited_names<'a>(
             if !covered {
                 add(&clause[s..e], out);
             }
+        }
+    }
+    for run in prefix_runs(&track.title) {
+        if let Some(&display) = known.get(&fold(run)) {
+            add(display, out);
         }
     }
 }
@@ -130,9 +143,71 @@ fn clauses(title: &str) -> impl Iterator<Item = &str> {
     out.into_iter()
 }
 
+/// Candidate names from the part of a title before its first " - " (or
+/// " – ", " — "): "glaive - crynomore" gives "glaive". Leading tags in
+/// brackets ("[clean] glaive") are skipped. Text inside brackets is its own
+/// candidate group ("ovine hall (glaive)" gives "ovine hall" and
+/// "glaive"). Each group is split like a featuring clause, and also on
+/// " x "; every contiguous run of pieces is a candidate. Callers keep only
+/// candidates that are known artist names.
+fn prefix_runs(title: &str) -> Vec<&str> {
+    let Some(end) = [" - ", " – ", " — "]
+        .iter()
+        .filter_map(|d| title.find(d))
+        .min()
+    else {
+        return Vec::new();
+    };
+    let prefix = &title[..end];
+    let b = prefix.as_bytes();
+    let mut groups = Vec::new();
+    let mut i = 0;
+    let mut start = 0;
+    while i < b.len() {
+        let close = match b[i] {
+            b'(' => b')',
+            b'[' => b']',
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        // A bracket with only spaces before it is a leading tag
+        // ("[clean]"), not a name.
+        let leading = prefix[..i].trim().is_empty();
+        groups.push(&prefix[start..i]);
+        let inner = i + 1;
+        let stop = b[inner..]
+            .iter()
+            .position(|&c| c == close)
+            .map_or(b.len(), |n| inner + n);
+        if !leading {
+            groups.push(&prefix[inner..stop]);
+        }
+        i = (stop + 1).min(b.len());
+        start = i;
+    }
+    groups.push(&prefix[start..]);
+    let mut out = Vec::new();
+    for g in groups {
+        let p = split(g, true);
+        for (k, &(s, _)) in p.iter().enumerate() {
+            for &(_, e) in &p[k..] {
+                out.push(&g[s..e]);
+            }
+        }
+    }
+    out
+}
+
 /// Byte ranges of the names in a clause, split on ",", "&" and " and ",
 /// trimmed, empty ones dropped.
 fn pieces(clause: &str) -> Vec<(usize, usize)> {
+    split(clause, false)
+}
+
+/// [`pieces`], also splitting on " x " when `x` is set.
+fn split(clause: &str, x: bool) -> Vec<(usize, usize)> {
     let lower = clause.to_ascii_lowercase();
     let mut out = Vec::new();
     let mut push = |s: usize, e: usize| {
@@ -149,6 +224,7 @@ fn pieces(clause: &str) -> Vec<(usize, usize)> {
         let sep = match lower.as_bytes()[i] {
             b',' | b'&' => 1,
             b' ' if lower[i..].starts_with(" and ") => 5,
+            b' ' if x && lower[i..].starts_with(" x ") => 3,
             _ => 0,
         };
         if sep > 0 {
@@ -267,6 +343,50 @@ mod tests {
         assert!(credits(&t, "Kali Uchis"));
         assert!(!credits(&t, "Tyler, The"));
         assert!(!credits(&t, "Creator"));
+    }
+
+    #[test]
+    fn title_prefix_candidates() {
+        let has = |title: &str, name: &str| prefix_runs(title).contains(&name);
+        let t = "Glaive - hit the function like larry david (Ovine Hall) (Official Audio)";
+        assert_eq!(prefix_runs(t), ["Glaive"]);
+        let t = "ovine hall (glaive) - pree me at the party [가사해석]";
+        assert!(has(t, "ovine hall") && has(t, "glaive"));
+        assert_eq!(prefix_runs("[clean] glaive - crynomore"), ["glaive"]);
+        assert_eq!(
+            prefix_runs("glaive - i hate 2 see u cry (lyric video)"),
+            ["glaive"]
+        );
+        assert_eq!(prefix_runs("A x B - Song"), ["A", "A x B", "B"]);
+        assert_eq!(prefix_runs("A – Song"), ["A"]);
+        assert_eq!(prefix_runs("A — Song - Remix"), ["A"]);
+        assert!(prefix_runs("No Dash").is_empty());
+        assert!(prefix_runs("Half-Life").is_empty());
+    }
+
+    #[test]
+    fn title_prefix_credits() {
+        for title in [
+            "Glaive - hit the function like larry david (Ovine Hall) (Official Audio)",
+            "ovine hall (glaive) - pree me at the party [가사해석]",
+            "[clean] glaive - crynomore",
+            "glaive - i hate 2 see u cry (lyric video)",
+        ] {
+            let t = track(title, &["uploader"]);
+            assert!(credits(&t, "glaive"), "{title}");
+            assert!(credits(&t, "Glaive"), "{title}");
+            assert!(!credits(&t, "glai"), "{title}");
+        }
+        // Prefix names go through `known` only.
+        let known: HashMap<String, &str> = [("glaive".to_owned(), "glaive")].into();
+        let intro = track("Intro - Live", &["Band"]);
+        let mut out = Vec::new();
+        credited_names(&intro, &known, &mut out);
+        assert_eq!(out, ["Band"]);
+        let clean = track("[clean] GLAIVE - crynomore", &["X"]);
+        let mut out = Vec::new();
+        credited_names(&clean, &known, &mut out);
+        assert_eq!(out, ["X", "glaive"]);
     }
 
     #[test]
