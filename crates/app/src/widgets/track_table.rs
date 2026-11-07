@@ -789,8 +789,15 @@ fn row(
 
 /// Horizontal travel at which a swipe commits on release.
 const SWIPE_COMMIT: f32 = 40.0;
-/// Vertical travel past which a drag stops being a swipe until release.
-const SWIPE_SLOP_Y: f32 = 16.0;
+/// Travel from the press at which a drag decides, once, whether it is a
+/// sideways swipe or a vertical drag.
+const SWIPE_DECIDE: f32 = 8.0;
+/// tan(40°): a drag decides as a swipe when it is at most 40° off
+/// horizontal, so a slightly diagonal swipe still counts.
+const SWIPE_ANGLE_TAN: f32 = 0.839;
+/// Vertical drift past which a swipe already under way cancels (about one
+/// row): the row stays put and the drag is dead until release.
+const SWIPE_CANCEL_Y: f32 = 48.0;
 /// How far the row slides at most.
 const SWIPE_MAX: f32 = 96.0;
 
@@ -811,29 +818,58 @@ struct SwipeMove {
     armed: bool,
 }
 
+/// How a row drag has been read so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwipeLock {
+    /// Not yet [`SWIPE_DECIDE`] from the press.
+    Undecided,
+    /// A sideways swipe; vertical drift up to [`SWIPE_CANCEL_Y`] is ignored.
+    Swipe,
+    /// Too steep, or drifted past [`SWIPE_CANCEL_Y`]: dead until release.
+    Vertical,
+}
+
 /// One row drag, kept in egui's temp memory between frames.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SwipeDrag {
     origin: Pos2,
-    /// The drag went past [`SWIPE_SLOP_Y`]; it stays dead until release.
-    vertical: bool,
+    lock: SwipeLock,
 }
 
 impl SwipeDrag {
     fn new(origin: Pos2) -> Self {
         Self {
             origin,
-            vertical: false,
+            lock: SwipeLock::Undecided,
         }
     }
 
+    /// The drag is not (or no longer) a swipe, for the rest of it.
+    fn vertical(&self) -> bool {
+        self.lock == SwipeLock::Vertical
+    }
+
     /// Feeds the pointer position. `None` while the drag is not a sideways
-    /// swipe: not moved, more vertical than horizontal, or past the
-    /// vertical slop at any point.
+    /// swipe: still undecided, decided as more than 40° off horizontal, or
+    /// drifted past [`SWIPE_CANCEL_Y`] at any point. Once a swipe, only the
+    /// horizontal travel moves the row and arms it.
     fn update(&mut self, pos: Pos2) -> Option<SwipeMove> {
         let d = pos - self.origin;
-        self.vertical |= d.y.abs() > SWIPE_SLOP_Y;
-        if self.vertical || d.x.abs() <= d.y.abs() {
+        match self.lock {
+            SwipeLock::Vertical => return None,
+            SwipeLock::Undecided if d.length() < SWIPE_DECIDE => return None,
+            SwipeLock::Undecided if d.y.abs() > d.x.abs() * SWIPE_ANGLE_TAN => {
+                self.lock = SwipeLock::Vertical;
+                return None;
+            }
+            SwipeLock::Undecided => self.lock = SwipeLock::Swipe,
+            SwipeLock::Swipe => {}
+        }
+        if d.y.abs() > SWIPE_CANCEL_Y {
+            self.lock = SwipeLock::Vertical;
+            return None;
+        }
+        if d.x == 0.0 {
             return None;
         }
         Some(SwipeMove {
@@ -887,7 +923,7 @@ fn swipe(
         ui.data_mut(|d| d.insert_temp(key, drag));
         // The row takes drags, so on a touch screen (where the scroll area
         // scrolls by dragging) a vertical one scrolls the list instead.
-        if drag.vertical && ui.input(|i| i.has_touch_screen()) {
+        if drag.vertical() && ui.input(|i| i.has_touch_screen()) {
             let dy = ui.input(|i| i.pointer.delta().y);
             ui.scroll_with_delta_animation(vec2(0.0, dy), egui::style::ScrollAnimation::none());
         }
@@ -1256,12 +1292,53 @@ mod tests {
         assert_eq!(drag_to(&[(0.0, 0.0)]), None);
         // More vertical than horizontal.
         assert_eq!(drag_to(&[(8.0, 10.0)]), None);
-        // Past the slop, even though the horizontal travel is large.
-        assert_eq!(drag_to(&[(80.0, SWIPE_SLOP_Y + 1.0)]), None);
+        // Steeper than 40°.
+        assert_eq!(drag_to(&[(30.0, 52.0)]), None);
+        assert_eq!(drag_to(&[(5.0, 8.66), (40.0, 69.0)]), None);
+        // Past the cancel limit, even though the horizontal travel is large.
+        assert_eq!(drag_to(&[(80.0, SWIPE_CANCEL_Y + 1.0)]), None);
         // Once vertical, the rest of the drag stays dead, even back on the
         // row's line.
         assert_eq!(drag_to(&[(0.0, 30.0), (80.0, 0.0)]), None);
         assert_eq!(drag_to(&[(0.0, -30.0), (-80.0, 2.0)]), None);
+    }
+
+    #[test]
+    fn diagonal_swipes_count() {
+        // 30° off horizontal, decided at once.
+        let m = drag_to(&[(60.0, 34.6)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Add);
+        assert!(m.armed);
+        assert_eq!(m.offset, 60.0);
+        let m = drag_to(&[(-60.0, -34.6)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Remove);
+        assert!(m.armed);
+    }
+
+    #[test]
+    fn drift_after_the_decision_is_ignored_up_to_the_limit() {
+        let m = drag_to(&[(20.0, 0.0), (50.0, 30.0)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Add);
+        assert!(m.armed);
+        assert_eq!(m.offset, 50.0);
+        // Steeper than 40° now, but the drag already decided.
+        assert!(drag_to(&[(10.0, 0.0), (45.0, 45.0)]).unwrap().armed);
+        // Past the limit it cancels and stays dead, even back on the line.
+        assert_eq!(drag_to(&[(20.0, 0.0), (60.0, SWIPE_CANCEL_Y + 1.0)]), None);
+        assert_eq!(
+            drag_to(&[(20.0, 0.0), (60.0, -SWIPE_CANCEL_Y - 1.0), (60.0, 0.0)]),
+            None
+        );
+    }
+
+    #[test]
+    fn short_moves_do_not_decide() {
+        let mut drag = SwipeDrag::new(pos2(0.0, 0.0));
+        // Steep but short: still undecided, so a sideways move after it
+        // becomes a swipe.
+        assert_eq!(drag.update(pos2(1.0, 5.0)), None);
+        assert!(!drag.vertical());
+        assert!(drag.update(pos2(50.0, 5.0)).unwrap().armed);
     }
 
     /// The swipe through real egui input: drags on a headless table.
@@ -1404,7 +1481,21 @@ mod tests {
             r.drag(&state, 1, &[(10.0, 0.0), (60.0, 0.0), (20.0, 0.0)]);
             r.drag(&state, 1, &[(0.0, 10.0), (10.0, 40.0)]);
             r.drag(&state, 1, &[(0.0, 30.0), (60.0, 0.0)]);
+            // A swipe that drifts past the cancel limit.
+            r.drag(&state, 1, &[(20.0, 0.0), (60.0, 60.0)]);
             assert!(r.commands().is_empty(), "{:?}", r.commands());
+        }
+
+        #[test]
+        fn a_diagonal_drag_still_queues_the_row() {
+            let state = State::default();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            r.drag(&state, 1, &[(10.0, 5.0), (40.0, 23.0), (60.0, 30.0)]);
+            match r.commands()[..] {
+                [Command::AddToQueue(t)] => assert_eq!(t.id, "b"),
+                ref other => panic!("{other:?}"),
+            }
         }
 
         #[test]
