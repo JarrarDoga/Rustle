@@ -1234,7 +1234,7 @@ mod tests {
         ];
         for p in PALETTES {
             for a in custom {
-                let on = on_accent_for(&p, a);
+                let on = on_accent_for(p, a);
                 assert!(
                     contrast(on, a) >= 4.5,
                     "{}: on_accent {on:?} on {a:?} is {:.2}",
@@ -1243,7 +1243,7 @@ mod tests {
                 );
             }
             // A light accent keeps the palette's own on_accent.
-            assert_eq!(on_accent_for(&p, p.fallback_accent), p.on_accent);
+            assert_eq!(on_accent_for(p, p.fallback_accent), p.on_accent);
         }
         // Dark custom accents get light text.
         assert_eq!(on_accent_for(&GRAPHITE, hex(0x000000)), Color32::WHITE);
