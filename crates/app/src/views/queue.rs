@@ -573,7 +573,7 @@ fn switch(ui: &mut Ui, rect: Rect, on: bool) -> egui::Response {
     let p = theme::pal();
     let resp = ui.interact(rect, ui.scope_id().with("autoplay"), Sense::click());
     let (track, knob, knob_x) = if on {
-        (theme::accent(), p.on_accent, rect.right() - 8.0)
+        (theme::accent(), theme::on_accent(), rect.right() - 8.0)
     } else {
         (p.surface_3, p.text_2, rect.left() + 8.0)
     };

@@ -313,7 +313,7 @@ pub(crate) fn button_with(
         } else {
             theme::accent()
         };
-        (fill, p.on_accent)
+        (fill, theme::on_accent())
     } else {
         let fill = if down {
             p.surface_3

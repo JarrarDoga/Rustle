@@ -26,7 +26,7 @@ use egui::{
 use crate::icons;
 use crate::settings as saved;
 use crate::shortcuts::{Action as Shortcut, Binding};
-use crate::state::{Command, CustomTheme, Loadable, Settings, State};
+use crate::state::{AccentMode, Command, CustomTheme, Loadable, Settings, State};
 use crate::theme::{self, Palette, Recipe, Tone};
 use crate::views::{Out, View, cmd};
 use crate::widgets::{seed, text_line};
@@ -123,7 +123,8 @@ impl Section {
         match self {
             Self::Appearance => {
                 s.theme = d.theme;
-                s.accent_from_art = d.accent_from_art;
+                // The custom color stays, like saved custom themes.
+                s.accent_mode = d.accent_mode;
                 s.player_tint = d.player_tint;
             }
             Self::Text => {
@@ -582,15 +583,28 @@ fn draw_section(
                 builder(ui, page, &mut view.builder);
             });
             group(ui, page, "Accent", |ui, page| {
-                let mut on = page.draft.accent_from_art;
-                switch(
+                let before = page.draft.accent_mode;
+                let mut mode = before;
+                choice(
                     ui,
                     page,
-                    "Accent from album art",
-                    "Off: the theme's own accent",
-                    &mut on,
+                    "Accent color",
+                    "Album art follows the song; Custom stays on every theme",
+                    &mut mode,
+                    &[
+                        (AccentMode::Art, "Album art"),
+                        (AccentMode::Theme, "Theme"),
+                        (AccentMode::Custom, "Custom"),
+                    ],
                 );
-                page.draft.accent_from_art = on;
+                if mode == AccentMode::Custom && page.draft.accent_custom.is_none() {
+                    // Start from the accent on screen now.
+                    page.draft.accent_custom = Some(rgb(theme::accent()));
+                }
+                page.draft.accent_mode = mode;
+                if mode == AccentMode::Custom {
+                    custom_accent(ui, page);
+                }
                 let mut tint = page.draft.player_tint;
                 slider_u8(
                     ui,
@@ -922,13 +936,126 @@ fn switch(ui: &mut Ui, page: &mut Page, label: &str, hint: &str, on: &mut bool) 
 fn paint_switch(ui: &Ui, rect: Rect, on: bool) {
     let p = theme::pal();
     let (track, knob, knob_x) = if on {
-        (theme::accent(), p.on_accent, rect.right() - SWITCH_H / 2.0)
+        (
+            theme::accent(),
+            theme::on_accent(),
+            rect.right() - SWITCH_H / 2.0,
+        )
     } else {
         (p.surface_3, p.text_2, rect.left() + SWITCH_H / 2.0)
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same((SWITCH_H / 2.0) as u8), track);
     painter.circle_filled(Pos2::new(knob_x, rect.center().y), KNOB_R, knob);
+}
+
+/// Quick picks for the custom accent, starting with a lilac pink.
+const ACCENT_SWATCHES: [[u8; 3]; 7] = [
+    [0xE0, 0xA3, 0xF0],
+    [0xF5, 0x8E, 0xB8],
+    [0xF2, 0x8B, 0x82],
+    [0xF6, 0xC1, 0x77],
+    [0x8F, 0xD6, 0x9A],
+    [0x7F, 0xD3, 0xE0],
+    [0x7A, 0xB0, 0xF5],
+];
+
+/// The "Custom accent" row: swatches, a hex field and egui's color picker.
+/// Dragging in the picker sends without saving; letting go saves.
+fn custom_accent(ui: &mut Ui, page: &mut Page) {
+    const SW: f32 = 18.0;
+    const GAP: f32 = 8.0;
+    const HEX_W: f32 = 78.0;
+    const PICK_W: f32 = 28.0;
+    let Some(mut c) = page.draft.accent_custom else {
+        return;
+    };
+    let w = ACCENT_SWATCHES.len() as f32 * (SW + GAP) + HEX_W + GAP + PICK_W;
+    let Some((_, ctl)) = row(
+        ui,
+        page,
+        "Custom accent",
+        "The same on every theme and every song",
+        w,
+    ) else {
+        return;
+    };
+    let p = theme::pal();
+    let cy = ctl.center().y;
+    let mut x = ctl.left();
+    for (i, &sw) in ACCENT_SWATCHES.iter().enumerate() {
+        let r = Rect::from_center_size(pos2(x + SW / 2.0, cy), vec2(SW, SW));
+        x += SW + GAP;
+        let resp = ui
+            .interact(r, Id::unique(("accent-swatch", i)), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text(saved::hex_text(sw));
+        let painter = ui.painter();
+        painter.circle_filled(r.center(), SW / 2.0, color(sw));
+        if sw == c {
+            painter.circle_stroke(r.center(), SW / 2.0 + 2.5, Stroke::new(1.5, p.text_1));
+        } else if resp.hovered() {
+            painter.circle_stroke(r.center(), SW / 2.0 + 2.5, Stroke::new(1.0, p.text_3));
+        }
+        if resp.clicked() {
+            c = sw;
+            page.release = true;
+        }
+    }
+
+    // Hex field: shows the color unless it is being typed in.
+    let hex_id = Id::unique("accent-hex");
+    let hex_rect = Rect::from_min_size(pos2(x, cy - 13.0), vec2(HEX_W, 26.0));
+    x += HEX_W + GAP;
+    let mut text = ui
+        .data(|d| d.get_temp::<String>(hex_id))
+        .unwrap_or_else(|| saved::hex_text(c));
+    // Child uis draw into the row without moving the page's cursor.
+    let resp = ui.new_child(UiBuilder::new().max_rect(hex_rect)).put(
+        hex_rect,
+        TextEdit::singleline(&mut text)
+            .font(theme::secondary())
+            .char_limit(7)
+            .margin(Margin::symmetric(6, 4)),
+    );
+    if resp.changed()
+        && let Some(v) = saved::parse_hex(&text)
+    {
+        c = v;
+        page.release = true;
+    }
+    if resp.has_focus() {
+        ui.data_mut(|d| d.insert_temp(hex_id, text));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(hex_id));
+    }
+
+    // egui's HSV picker in a popup.
+    let held = Id::unique("accent-picker-held");
+    let pick_rect = Rect::from_min_size(pos2(x, cy - 13.0), vec2(PICK_W, 26.0));
+    {
+        let ui = &mut ui.new_child(UiBuilder::new().max_rect(pick_rect));
+        ui.spacing_mut().interact_size = vec2(PICK_W, 26.0);
+        let mut v = c;
+        let _ =
+            egui::color_picker::color_edit_button_srgb(ui, &mut v).on_hover_text("Pick any color");
+        if v != c {
+            c = v;
+            if ui.input(|i| i.pointer.primary_down()) {
+                page.dragging = true;
+                ui.data_mut(|d| d.insert_temp(held, true));
+            } else {
+                page.release = true;
+            }
+        }
+    }
+    if ui.data(|d| d.get_temp::<bool>(held)).unwrap_or(false)
+        && !ui.input(|i| i.pointer.primary_down())
+    {
+        ui.data_mut(|d| d.remove::<bool>(held));
+        page.release = true;
+    }
+    page.draft.accent_custom = Some(c);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1168,7 +1295,7 @@ fn button(
                 theme::accent()
             }),
             None,
-            p.on_accent,
+            theme::on_accent(),
         ),
         Kind::Plain => (hovered.then_some(p.surface_2), Some(p.stroke_2), p.text_1),
         Kind::Danger => (hovered.then_some(p.surface_2), Some(p.stroke_2), p.danger),

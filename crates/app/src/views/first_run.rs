@@ -166,7 +166,7 @@ fn row(ui: &mut Ui, rect: Rect, i: usize, pl: &PlaylistSummary, lit: bool) -> bo
     let mut text_right = rect.right() - pad;
     if lit {
         let font = egui::FontId::new(12.0, theme::row_strong().family);
-        let galley = painter.layout_no_wrap("Use this".to_owned(), font, p.on_accent);
+        let galley = painter.layout_no_wrap("Use this".to_owned(), font, theme::on_accent());
         let size = vec2(galley.size().x + 2.0 * theme::SPACE_12, theme::ICON_BUTTON);
         let button = Rect::from_min_size(
             egui::pos2(rect.right() - pad - size.x, rect.center().y - size.y / 2.0),
@@ -187,7 +187,7 @@ fn row(ui: &mut Ui, rect: Rect, i: usize, pl: &PlaylistSummary, lit: bool) -> bo
         let pos = Align2::CENTER_CENTER
             .align_size_within_rect(galley.size(), button)
             .min;
-        painter.galley(pos, galley, p.on_accent);
+        painter.galley(pos, galley, theme::on_accent());
         used = resp.clicked();
         text_right = button.left() - pad;
     }
