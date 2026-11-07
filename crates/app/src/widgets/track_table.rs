@@ -1,7 +1,8 @@
 //! The one song table every list uses (D-Tokens track rows, D-Collection,
 //! D-Search, D-Album). Rows are virtualized: only the rows inside the
-//! viewport are laid out and painted. Dragging a row sideways queues its
-//! track (right) or takes one queued copy out (left); see [`swipe`].
+//! viewport are laid out and painted. Dragging a row at any angle queues its
+//! track (leaning right) or takes one queued copy out (leaning left); see
+//! [`swipe`].
 //!
 //! Geometry follows the boards' CSS: the table sits 12 px in from the left
 //! and 8 px in from the right of the region it is given, rows have 8 px
@@ -520,7 +521,7 @@ fn row(
 ) -> Response {
     let p = theme::pal();
     let resp = ui.interact(rect, id, Sense::click_and_drag());
-    // Swipe to queue: while dragged sideways the row slides inside its slot.
+    // Swipe to queue: while dragged the row slides inside its slot.
     let slot = rect;
     let swipe = swipe(ui, &resp, id, ctx.state, track, out);
     let rect = swipe.map_or(rect, |s| rect.translate(vec2(s.offset, 0.0)));
@@ -787,17 +788,15 @@ fn row(
 
 // ------------------------------------------------------------------- swipe
 
-/// Horizontal travel at which a swipe commits on release.
+/// Distance from the press, in any direction, at which a swipe commits on
+/// release.
 const SWIPE_COMMIT: f32 = 40.0;
-/// Travel from the press at which a drag decides, once, whether it is a
-/// sideways swipe or a vertical drag.
-const SWIPE_DECIDE: f32 = 8.0;
-/// tan(40°): a drag decides as a swipe when it is at most 40° off
-/// horizontal, so a slightly diagonal swipe still counts.
-const SWIPE_ANGLE_TAN: f32 = 0.839;
-/// Vertical drift past which a swipe already under way cancels (about one
-/// row): the row stays put and the drag is dead until release.
-const SWIPE_CANCEL_Y: f32 = 48.0;
+/// Sideways travel that gives a drag its direction: right of the press adds,
+/// left removes. A drag at any angle counts once it leans this far.
+const SWIPE_LEAN: f32 = 2.0;
+/// Travel from the press at which a finger drag decides, once, whether it
+/// scrolls the list (steeper than 45°) or swipes. Mouse drags always swipe.
+const TOUCH_DECIDE: f32 = 8.0;
 /// How far the row slides at most.
 const SWIPE_MAX: f32 = 96.0;
 
@@ -818,68 +817,63 @@ struct SwipeMove {
     armed: bool,
 }
 
-/// How a row drag has been read so far.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SwipeLock {
-    /// Not yet [`SWIPE_DECIDE`] from the press.
-    Undecided,
-    /// A sideways swipe; vertical drift up to [`SWIPE_CANCEL_Y`] is ignored.
-    Swipe,
-    /// Too steep, or drifted past [`SWIPE_CANCEL_Y`]: dead until release.
-    Vertical,
-}
-
 /// One row drag, kept in egui's temp memory between frames.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SwipeDrag {
     origin: Pos2,
-    lock: SwipeLock,
+    /// Started by a finger on a touch screen and not yet decided as a
+    /// scroll or a swipe.
+    touch: bool,
+    /// A finger drag decided as a scroll: never a swipe until release.
+    scrolling: bool,
 }
 
 impl SwipeDrag {
     fn new(origin: Pos2) -> Self {
         Self {
             origin,
-            lock: SwipeLock::Undecided,
+            touch: false,
+            scrolling: false,
         }
     }
 
-    /// The drag is not (or no longer) a swipe, for the rest of it.
-    fn vertical(&self) -> bool {
-        self.lock == SwipeLock::Vertical
+    fn touch(origin: Pos2) -> Self {
+        Self {
+            touch: true,
+            ..Self::new(origin)
+        }
     }
 
-    /// Feeds the pointer position. `None` while the drag is not a sideways
-    /// swipe: still undecided, decided as more than 40° off horizontal, or
-    /// drifted past [`SWIPE_CANCEL_Y`] at any point. Once a swipe, only the
-    /// horizontal travel moves the row and arms it.
+    /// The drag scrolls the list instead of swiping, for the rest of it.
+    fn scrolls(&self) -> bool {
+        self.scrolling
+    }
+
+    /// Feeds the pointer position. Any angle counts: the direction is the
+    /// side of the press the pointer is on (once it leans [`SWIPE_LEAN`]),
+    /// and the swipe arms at [`SWIPE_COMMIT`] of travel in any direction, so
+    /// a near-vertical drag with a slight lean still swipes. `None` before
+    /// the drag leans either way, and for a finger drag that scrolls.
     fn update(&mut self, pos: Pos2) -> Option<SwipeMove> {
         let d = pos - self.origin;
-        match self.lock {
-            SwipeLock::Vertical => return None,
-            SwipeLock::Undecided if d.length() < SWIPE_DECIDE => return None,
-            SwipeLock::Undecided if d.y.abs() > d.x.abs() * SWIPE_ANGLE_TAN => {
-                self.lock = SwipeLock::Vertical;
-                return None;
-            }
-            SwipeLock::Undecided => self.lock = SwipeLock::Swipe,
-            SwipeLock::Swipe => {}
+        if self.touch && !self.scrolling && d.length() >= TOUCH_DECIDE {
+            // Decide once, then turn the check off.
+            self.scrolling = d.y.abs() > d.x.abs();
+            self.touch = false;
         }
-        if d.y.abs() > SWIPE_CANCEL_Y {
-            self.lock = SwipeLock::Vertical;
+        if self.scrolling || self.touch || d.x.abs() < SWIPE_LEAN {
             return None;
         }
-        if d.x == 0.0 {
-            return None;
-        }
+        let dist = d.length();
+        let sign = d.x.signum();
         Some(SwipeMove {
-            dir: if d.x > 0.0 {
+            dir: if sign > 0.0 {
                 SwipeDir::Add
             } else {
                 SwipeDir::Remove
             },
-            offset: d.x.clamp(-SWIPE_MAX, SWIPE_MAX),
-            armed: d.x.abs() >= SWIPE_COMMIT,
+            offset: sign * dist.min(SWIPE_MAX),
+            armed: dist >= SWIPE_COMMIT,
         })
     }
 }
@@ -913,7 +907,13 @@ fn swipe(
     if resp.drag_started_by(primary)
         && let Some(origin) = ui.input(|i| i.pointer.press_origin())
     {
-        ui.data_mut(|d| d.insert_temp(key, SwipeDrag::new(origin)));
+        // A finger may scroll the list instead; a mouse always swipes.
+        let drag = if ui.input(|i| i.any_touches()) {
+            SwipeDrag::touch(origin)
+        } else {
+            SwipeDrag::new(origin)
+        };
+        ui.data_mut(|d| d.insert_temp(key, drag));
     }
     let live = |dir| dir == SwipeDir::Add || state.queue.upcoming_position(&track.id).is_some();
     if resp.dragged_by(primary) {
@@ -921,9 +921,9 @@ fn swipe(
         let mut drag = ui.data(|d| d.get_temp::<SwipeDrag>(key))?;
         let m = drag.update(pos);
         ui.data_mut(|d| d.insert_temp(key, drag));
-        // The row takes drags, so on a touch screen (where the scroll area
-        // scrolls by dragging) a vertical one scrolls the list instead.
-        if drag.vertical() && ui.input(|i| i.has_touch_screen()) {
+        // The row takes drags, so a steep finger drag scrolls the list here
+        // (the scroll area itself never sees it).
+        if drag.scrolls() {
             let dy = ui.input(|i| i.pointer.delta().y);
             ui.scroll_with_delta_animation(vec2(0.0, dy), egui::style::ScrollAnimation::none());
         }
@@ -1260,11 +1260,11 @@ mod tests {
 
     #[test]
     fn swipe_arms_at_the_threshold() {
-        let m = drag_to(&[(39.0, 2.0)]).unwrap();
+        let m = drag_to(&[(39.0, 0.0)]).unwrap();
         assert_eq!(m.dir, SwipeDir::Add);
         assert!(!m.armed);
         assert_eq!(m.offset, 39.0);
-        let m = drag_to(&[(20.0, 0.0), (SWIPE_COMMIT, 3.0)]).unwrap();
+        let m = drag_to(&[(20.0, 0.0), (SWIPE_COMMIT, 0.0)]).unwrap();
         assert!(m.armed);
         let m = drag_to(&[(-45.0, -4.0)]).unwrap();
         assert_eq!(m.dir, SwipeDir::Remove);
@@ -1272,11 +1272,46 @@ mod tests {
     }
 
     #[test]
+    fn steep_drags_with_a_slight_lean_swipe() {
+        // 80° off horizontal: 50 px of travel, under 9 px sideways.
+        let (x, y) = (50.0 * 10f32.to_radians().sin(), 50.0 * 10f32.to_radians().cos());
+        let m = drag_to(&[(1.0, 10.0), (x, y)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Add);
+        assert!(m.armed);
+        assert!((m.offset - 50.0).abs() < 0.01);
+        let m = drag_to(&[(-1.0, -10.0), (-x, -y)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Remove);
+        assert!(m.armed);
+        assert!((m.offset + 50.0).abs() < 0.01);
+        // Straight up with the smallest lean still counts.
+        let m = drag_to(&[(SWIPE_LEAN, -60.0)]).unwrap();
+        assert_eq!(m.dir, SwipeDir::Add);
+        assert!(m.armed);
+    }
+
+    #[test]
+    fn drags_without_a_lean_are_not_swipes() {
+        assert_eq!(drag_to(&[(0.0, 0.0)]), None);
+        assert_eq!(drag_to(&[(0.0, 80.0)]), None);
+        assert_eq!(drag_to(&[(SWIPE_LEAN - 0.5, -200.0)]), None);
+        assert_eq!(drag_to(&[(-(SWIPE_LEAN - 0.5), 200.0)]), None);
+    }
+
+    #[test]
     fn swipe_back_below_the_threshold_disarms() {
         let m = drag_to(&[(60.0, 0.0), (30.0, 0.0)]).unwrap();
         assert!(!m.armed);
-        // Crossing over turns it into the other direction.
-        let m = drag_to(&[(60.0, 0.0), (-50.0, 0.0)]).unwrap();
+        let m = drag_to(&[(10.0, 60.0), (10.0, 20.0)]).unwrap();
+        assert!(!m.armed);
+    }
+
+    #[test]
+    fn direction_follows_the_side_of_the_press() {
+        let mut drag = SwipeDrag::new(pos2(0.0, 0.0));
+        assert_eq!(drag.update(pos2(5.0, 50.0)).unwrap().dir, SwipeDir::Add);
+        assert_eq!(drag.update(pos2(-5.0, 50.0)).unwrap().dir, SwipeDir::Remove);
+        assert_eq!(drag.update(pos2(0.0, 50.0)), None);
+        let m = drag.update(pos2(-60.0, 0.0)).unwrap();
         assert_eq!(m.dir, SwipeDir::Remove);
         assert!(m.armed);
     }
@@ -1285,60 +1320,24 @@ mod tests {
     fn row_slides_at_most_swipe_max() {
         assert_eq!(drag_to(&[(400.0, 0.0)]).unwrap().offset, SWIPE_MAX);
         assert_eq!(drag_to(&[(-400.0, 0.0)]).unwrap().offset, -SWIPE_MAX);
+        assert_eq!(drag_to(&[(5.0, 400.0)]).unwrap().offset, SWIPE_MAX);
     }
 
     #[test]
-    fn vertical_drags_are_not_swipes() {
-        assert_eq!(drag_to(&[(0.0, 0.0)]), None);
-        // More vertical than horizontal.
-        assert_eq!(drag_to(&[(8.0, 10.0)]), None);
-        // Steeper than 40°.
-        assert_eq!(drag_to(&[(30.0, 52.0)]), None);
-        assert_eq!(drag_to(&[(5.0, 8.66), (40.0, 69.0)]), None);
-        // Past the cancel limit, even though the horizontal travel is large.
-        assert_eq!(drag_to(&[(80.0, SWIPE_CANCEL_Y + 1.0)]), None);
-        // Once vertical, the rest of the drag stays dead, even back on the
-        // row's line.
-        assert_eq!(drag_to(&[(0.0, 30.0), (80.0, 0.0)]), None);
-        assert_eq!(drag_to(&[(0.0, -30.0), (-80.0, 2.0)]), None);
-    }
-
-    #[test]
-    fn diagonal_swipes_count() {
-        // 30° off horizontal, decided at once.
-        let m = drag_to(&[(60.0, 34.6)]).unwrap();
-        assert_eq!(m.dir, SwipeDir::Add);
-        assert!(m.armed);
-        assert_eq!(m.offset, 60.0);
-        let m = drag_to(&[(-60.0, -34.6)]).unwrap();
-        assert_eq!(m.dir, SwipeDir::Remove);
-        assert!(m.armed);
-    }
-
-    #[test]
-    fn drift_after_the_decision_is_ignored_up_to_the_limit() {
-        let m = drag_to(&[(20.0, 0.0), (50.0, 30.0)]).unwrap();
-        assert_eq!(m.dir, SwipeDir::Add);
-        assert!(m.armed);
-        assert_eq!(m.offset, 50.0);
-        // Steeper than 40° now, but the drag already decided.
-        assert!(drag_to(&[(10.0, 0.0), (45.0, 45.0)]).unwrap().armed);
-        // Past the limit it cancels and stays dead, even back on the line.
-        assert_eq!(drag_to(&[(20.0, 0.0), (60.0, SWIPE_CANCEL_Y + 1.0)]), None);
-        assert_eq!(
-            drag_to(&[(20.0, 0.0), (60.0, -SWIPE_CANCEL_Y - 1.0), (60.0, 0.0)]),
-            None
-        );
-    }
-
-    #[test]
-    fn short_moves_do_not_decide() {
-        let mut drag = SwipeDrag::new(pos2(0.0, 0.0));
-        // Steep but short: still undecided, so a sideways move after it
-        // becomes a swipe.
+    fn steep_finger_drags_scroll_and_never_swipe() {
+        let mut drag = SwipeDrag::touch(pos2(0.0, 0.0));
+        // Short: undecided, nothing yet.
         assert_eq!(drag.update(pos2(1.0, 5.0)), None);
-        assert!(!drag.vertical());
-        assert!(drag.update(pos2(50.0, 5.0)).unwrap().armed);
+        assert!(!drag.scrolls());
+        assert_eq!(drag.update(pos2(3.0, 20.0)), None);
+        assert!(drag.scrolls());
+        // Stays a scroll, even sideways.
+        assert_eq!(drag.update(pos2(80.0, 0.0)), None);
+        // A shallow finger drag swipes, with the any-angle rule after.
+        let mut drag = SwipeDrag::touch(pos2(0.0, 0.0));
+        assert!(drag.update(pos2(10.0, 2.0)).is_some());
+        assert!(drag.update(pos2(10.0, 60.0)).unwrap().armed);
+        assert!(!drag.scrolls());
     }
 
     /// The swipe through real egui input: drags on a headless table.
@@ -1479,11 +1478,24 @@ mod tests {
             r.frame(&state, vec![]);
             r.drag(&state, 1, &[(10.0, 0.0), (30.0, 0.0)]);
             r.drag(&state, 1, &[(10.0, 0.0), (60.0, 0.0), (20.0, 0.0)]);
-            r.drag(&state, 1, &[(0.0, 10.0), (10.0, 40.0)]);
-            r.drag(&state, 1, &[(0.0, 30.0), (60.0, 0.0)]);
-            // A swipe that drifts past the cancel limit.
-            r.drag(&state, 1, &[(20.0, 0.0), (60.0, 60.0)]);
+            // Straight down, no lean.
+            r.drag(&state, 1, &[(0.0, 10.0), (1.0, 40.0), (0.0, 70.0)]);
+            // Past the threshold, then back near the press.
+            r.drag(&state, 1, &[(10.0, 30.0), (10.0, 60.0), (5.0, 10.0)]);
             assert!(r.commands().is_empty(), "{:?}", r.commands());
+        }
+
+        #[test]
+        fn a_near_vertical_drag_with_a_lean_queues_the_row() {
+            let state = State::default();
+            let mut r = Rig::new();
+            r.frame(&state, vec![]);
+            r.drag(&state, 1, &[(1.0, -10.0), (3.0, -30.0), (5.0, -55.0)]);
+            match r.commands()[..] {
+                [Command::AddToQueue(t)] => assert_eq!(t.id, "b"),
+                ref other => panic!("{other:?}"),
+            }
+            assert_eq!(r.view.selected, None);
         }
 
         #[test]
