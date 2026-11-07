@@ -10,33 +10,34 @@ use std::collections::HashMap;
 
 use model::Track;
 
-/// True if `track` credits `name`: an exact artist-list name, or a name in
-/// a featuring clause of the title, compared case-insensitively. A name
-/// must match a whole credit: "Future" does not match "Future Islands".
+/// True if `track` credits `name`: an artist-list name, or a name in a
+/// featuring clause of the title, compared case-insensitively ("glaive"
+/// and "Glaive" are one artist). A name must match a whole credit:
+/// "Future" does not match "Future Islands".
 pub fn credits(track: &Track, name: &str) -> bool {
-    track.artists.iter().any(|a| a.name == name)
+    track.artists.iter().any(|a| eq_fold(&a.name, name))
         || clauses(&track.title).any(|c| runs(c).iter().any(|r| eq_fold(r, name)))
 }
 
-/// Every name `track` credits, each once, appended to `out`. Artist-list
-/// names come first, as written. Then each featured name: when it matches
-/// a name in `known` (folded name to display name) it is added under that
-/// display name, otherwise as written in the title.
+/// Every name `track` credits, each once ignoring case, appended to `out`.
+/// Artist-list names come first, then each featured name. A name that
+/// matches one in `known` (folded name to display name) is added under
+/// that display name, otherwise as written.
 pub fn credited_names<'a>(
     track: &'a Track,
     known: &HashMap<String, &'a str>,
     out: &mut Vec<&'a str>,
 ) {
-    for a in &track.artists {
-        if !a.name.is_empty() && !out.contains(&a.name.as_str()) {
-            out.push(&a.name);
-        }
-    }
     let add = |name: &'a str, out: &mut Vec<&'a str>| {
         if !out.iter().any(|n| eq_fold(n, name)) {
             out.push(name);
         }
     };
+    for a in &track.artists {
+        if !a.name.is_empty() {
+            add(known.get(&fold(&a.name)).copied().unwrap_or(&a.name), out);
+        }
+    }
     for clause in clauses(&track.title) {
         // A run of pieces that is a known name ("Tyler, The Creator")
         // covers its pieces; pieces no known name covers count as written.
@@ -257,8 +258,9 @@ mod tests {
         assert!(!credits(&t, "Future"));
         assert!(!credits(&t, "Islands"));
         assert!(credits(&t, "X"));
-        // Artist-list names stay exact.
-        assert!(!credits(&t, "x"));
+        // Artist-list names ignore case too.
+        assert!(credits(&t, "x"));
+        assert!(!credits(&t, "X Y"));
 
         let t = track("Song (feat. Tyler, The Creator & Kali Uchis)", &["X"]);
         assert!(credits(&t, "Tyler, The Creator"));

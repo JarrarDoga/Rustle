@@ -292,16 +292,36 @@ fn facets(ctx: &egui::Context, tracks: &Arc<Vec<Arc<Track>>>) -> Arc<Facets> {
 
 /// Songs per artist, counting every artist a song credits (see
 /// [`credits`]): its artist list and the names in a "(feat. ...)" clause of
-/// its title. A song counts once for each artist. A featured name that
-/// matches an artist-list name elsewhere in the playlist (ignoring case)
-/// counts under that name.
+/// its title. A song counts once for each artist. Names that differ only in
+/// case are one artist ("glaive" and "Glaive"), shown under the spelling
+/// the most artist-list credits use (ties: the first seen). A featured name
+/// that matches an artist-list name counts under that name too.
 fn count_artists(tracks: &[Arc<Track>]) -> Vec<(String, usize)> {
-    let mut known: HashMap<String, &str> = HashMap::new();
+    // Each artist-list spelling and how often it appears, in first-seen
+    // order.
+    let mut spellings: Vec<(&str, usize)> = Vec::new();
+    let mut index: HashMap<&str, usize> = HashMap::new();
     for a in tracks.iter().flat_map(|t| &t.artists) {
-        if !a.name.is_empty() {
-            known.entry(credits::fold(&a.name)).or_insert(&a.name);
+        if a.name.is_empty() {
+            continue;
         }
+        let i = *index.entry(&a.name).or_insert_with(|| {
+            spellings.push((&a.name, 0));
+            spellings.len() - 1
+        });
+        spellings[i].1 += 1;
     }
+    let mut best: HashMap<String, (&str, usize)> = HashMap::new();
+    for (name, n) in spellings {
+        best.entry(credits::fold(name))
+            .and_modify(|b| {
+                if n > b.1 {
+                    *b = (name, n);
+                }
+            })
+            .or_insert((name, n));
+    }
+    let known: HashMap<String, &str> = best.into_iter().map(|(k, (n, _))| (k, n)).collect();
     let mut counts: HashMap<&str, usize> = HashMap::new();
     let mut names = Vec::new();
     for t in tracks {
@@ -473,6 +493,40 @@ mod tests {
         assert!(got.contains(&("Lil Yachty Jr".to_owned(), 1)), "{got:?}");
         assert!(!got.iter().any(|(n, _)| n == "LIL YACHTY"), "{got:?}");
         // The chip filter shows exactly the counted songs.
+        for (name, n) in &got {
+            let shown = tracks.iter().filter(|t| credits::credits(t, name)).count();
+            assert_eq!(shown, *n, "{name}");
+        }
+    }
+
+    #[test]
+    fn spellings_that_differ_in_case_are_one_artist() {
+        let titled = |title: &str, artists: &[&str]| {
+            let mut t = (*track(title, artists, None)).clone();
+            t.title = title.into();
+            Arc::new(t)
+        };
+        let tracks = [
+            titled("Asheghanistan", &["Glaive"]),
+            titled("ik", &["glaive"]),
+            titled("Live & Direct", &["glaive", "kurtains"]),
+            titled("Modafinil", &["Glaive", "Kurtains", "Kai Angel"]),
+            titled("god is dead", &["glaive"]),
+            titled("its all a waste (feat. GLAIVE)", &["ericdoa"]),
+            // Both spellings on one song count once.
+            titled("Both", &["glaive", "Glaive"]),
+        ];
+        let got = count_artists(&tracks);
+        // "glaive" has 4 list credits, "Glaive" 3: the majority spelling wins.
+        assert!(got.contains(&("glaive".to_owned(), 7)), "{got:?}");
+        assert!(got.contains(&("kurtains".to_owned(), 2)), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "Glaive"), "{got:?}");
+        assert!(!got.iter().any(|(n, _)| n == "Kurtains"), "{got:?}");
+        // A chip for either spelling shows the same songs.
+        for chip in ["glaive", "Glaive"] {
+            let shown = tracks.iter().filter(|t| credits::credits(t, chip)).count();
+            assert_eq!(shown, 7, "{chip}");
+        }
         for (name, n) in &got {
             let shown = tracks.iter().filter(|t| credits::credits(t, name)).count();
             assert_eq!(shown, *n, "{name}");
