@@ -256,7 +256,7 @@ fn chips_match(chips: &[Chip], track: &Track) -> bool {
 
 fn chip_matches(chip: &Chip, track: &Track) -> bool {
     match chip {
-        Chip::Artist(name) => track.artists.iter().any(|a| &a.name == name),
+        Chip::Artist(name) => crate::credits::credits(track, name),
         Chip::Album(name) => track.album.as_ref().is_some_and(|a| &a.name == name),
     }
 }
