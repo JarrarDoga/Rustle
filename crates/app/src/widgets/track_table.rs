@@ -1274,7 +1274,10 @@ mod tests {
     #[test]
     fn steep_drags_with_a_slight_lean_swipe() {
         // 80° off horizontal: 50 px of travel, under 9 px sideways.
-        let (x, y) = (50.0 * 10f32.to_radians().sin(), 50.0 * 10f32.to_radians().cos());
+        let (x, y) = (
+            50.0 * 10f32.to_radians().sin(),
+            50.0 * 10f32.to_radians().cos(),
+        );
         let m = drag_to(&[(1.0, 10.0), (x, y)]).unwrap();
         assert_eq!(m.dir, SwipeDir::Add);
         assert!(m.armed);
