@@ -936,7 +936,11 @@ fn switch(ui: &mut Ui, page: &mut Page, label: &str, hint: &str, on: &mut bool) 
 fn paint_switch(ui: &Ui, rect: Rect, on: bool) {
     let p = theme::pal();
     let (track, knob, knob_x) = if on {
-        (theme::accent(), theme::on_accent(), rect.right() - SWITCH_H / 2.0)
+        (
+            theme::accent(),
+            theme::on_accent(),
+            rect.right() - SWITCH_H / 2.0,
+        )
     } else {
         (p.surface_3, p.text_2, rect.left() + SWITCH_H / 2.0)
     };
@@ -983,7 +987,7 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
         let r = Rect::from_center_size(pos2(x + SW / 2.0, cy), vec2(SW, SW));
         x += SW + GAP;
         let resp = ui
-            .interact(r, Id::new(("accent-swatch", i)), Sense::click())
+            .interact(r, Id::unique(("accent-swatch", i)), Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand)
             .on_hover_text(saved::hex_text(sw));
         let painter = ui.painter();
@@ -1000,7 +1004,7 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
     }
 
     // Hex field: shows the color unless it is being typed in.
-    let hex_id = Id::new("accent-hex");
+    let hex_id = Id::unique("accent-hex");
     let hex_rect = Rect::from_min_size(pos2(x, cy - 13.0), vec2(HEX_W, 26.0));
     x += HEX_W + GAP;
     let mut text = ui
@@ -1026,13 +1030,13 @@ fn custom_accent(ui: &mut Ui, page: &mut Page) {
     }
 
     // egui's HSV picker in a popup.
-    let held = Id::new("accent-picker-held");
+    let held = Id::unique("accent-picker-held");
     let pick_rect = Rect::from_min_size(pos2(x, cy - 13.0), vec2(PICK_W, 26.0));
     ui.scope_builder(UiBuilder::new().max_rect(pick_rect), |ui| {
         ui.spacing_mut().interact_size = vec2(PICK_W, 26.0);
         let mut v = c;
-        let _ = egui::color_picker::color_edit_button_srgb(ui, &mut v)
-            .on_hover_text("Pick any color");
+        let _ =
+            egui::color_picker::color_edit_button_srgb(ui, &mut v).on_hover_text("Pick any color");
         if v != c {
             c = v;
             if ui.input(|i| i.pointer.primary_down()) {

@@ -149,7 +149,10 @@ pub fn save(store: &Store, settings: &Settings) -> store::Result<()> {
         store.set_setting(key, &n.to_string())?;
     }
     store.set_setting(ACCENT_MODE, accent_mode_text(s.accent_mode))?;
-    store.set_setting(ACCENT_CUSTOM, &s.accent_custom.map(hex_text).unwrap_or_default())?;
+    store.set_setting(
+        ACCENT_CUSTOM,
+        &s.accent_custom.map(hex_text).unwrap_or_default(),
+    )?;
     store.set_setting(CUSTOM_THEMES, &custom_themes_text(&s.custom_themes))?;
     for action in Action::ALL {
         store.set_setting(&key_name(action), &s.keys.get(action).text())?;
@@ -417,8 +420,14 @@ mod tests {
         s.accent_mode = AccentMode::Custom;
         assert_eq!(s.accent_source(art), AccentSource::Theme);
         s.accent_custom = Some([0xE0, 0xA3, 0xF0]);
-        assert_eq!(s.accent_source(art), AccentSource::Custom([0xE0, 0xA3, 0xF0]));
-        assert_eq!(s.accent_source(None), AccentSource::Custom([0xE0, 0xA3, 0xF0]));
+        assert_eq!(
+            s.accent_source(art),
+            AccentSource::Custom([0xE0, 0xA3, 0xF0])
+        );
+        assert_eq!(
+            s.accent_source(None),
+            AccentSource::Custom([0xE0, 0xA3, 0xF0])
+        );
     }
 
     #[test]

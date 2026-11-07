@@ -124,7 +124,6 @@ fn bar(ui: &mut Ui, id: &str, fill: egui::Color32, add: impl FnOnce(&mut Ui)) {
 
 /// A 28 px primary button: accent fill, on-accent text, 12 / 600.
 fn primary_small(ui: &mut Ui, label: &str) -> egui::Response {
-    let p = theme::pal();
     let font = egui::FontId::new(12.0, theme::row_strong().family);
     let galley = ui
         .painter()

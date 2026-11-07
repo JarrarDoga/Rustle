@@ -742,7 +742,11 @@ impl Button {
                 _ => theme::accent(),
             };
             painter.rect_filled(rect, radius, fill);
-            if enabled { theme::on_accent() } else { p.text_3 }
+            if enabled {
+                theme::on_accent()
+            } else {
+                p.text_3
+            }
         } else {
             if enabled && (down || resp.hovered()) {
                 let fill = if down { p.surface_3 } else { p.surface_2 };
