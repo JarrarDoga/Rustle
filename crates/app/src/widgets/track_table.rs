@@ -1003,7 +1003,7 @@ impl SwipeHint {
         let (fill, fg) = if !s.live {
             (p.surface_2, p.text_3)
         } else if s.armed {
-            (theme::accent(), p.on_accent)
+            (theme::accent(), theme::on_accent())
         } else {
             (p.surface_3, p.text_1)
         };

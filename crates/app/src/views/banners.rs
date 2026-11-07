@@ -128,7 +128,7 @@ fn primary_small(ui: &mut Ui, label: &str) -> egui::Response {
     let font = egui::FontId::new(12.0, theme::row_strong().family);
     let galley = ui
         .painter()
-        .layout_no_wrap(label.to_owned(), font, p.on_accent);
+        .layout_no_wrap(label.to_owned(), font, theme::on_accent());
     let size = vec2(galley.size().x + 2.0 * theme::SPACE_12, theme::ICON_BUTTON);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let fill = if resp.is_pointer_button_down_on() {
@@ -139,7 +139,7 @@ fn primary_small(ui: &mut Ui, label: &str) -> egui::Response {
         theme::accent()
     };
     ui.painter().rect_filled(rect, theme::RADIUS_CONTROL, fill);
-    paint_centered(ui, rect, galley, p.on_accent);
+    paint_centered(ui, rect, galley, theme::on_accent());
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 

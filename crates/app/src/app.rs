@@ -372,12 +372,11 @@ impl eframe::App for RustleApp {
         }
         self.control.publish(&self.state);
         self.apply_settings(ui.ctx());
-        let accent = self
+        let art = self
             .state
             .current_track()
-            .filter(|_| self.state.settings.accent_from_art)
             .and_then(|t| self.state.art_colors.get(&t.id).copied());
-        theme::set_art_accent(accent);
+        theme::set_accent(self.state.settings.accent_source(art));
         match self.state.session {
             Session::LoggedIn => self.shell(ui),
             _ if self.guest => self.shell(ui),

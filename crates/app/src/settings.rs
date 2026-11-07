@@ -9,11 +9,15 @@ use std::str::FromStr;
 use store::Store;
 
 use crate::shortcuts::{Action, Binding};
-use crate::state::{CustomTheme, Settings};
+use crate::state::{AccentMode, CustomTheme, Settings};
 use crate::theme;
 
 const AUTOPLAY: &str = "autoplay";
+/// Read only, to migrate: `true` became `accent_mode = art`, `false`
+/// became `theme`.
 const ACCENT_FROM_ART: &str = "accent_from_art";
+const ACCENT_MODE: &str = "accent_mode";
+const ACCENT_CUSTOM: &str = "accent_custom";
 const THEME: &str = "theme";
 const CUSTOM_THEMES: &str = "custom_themes";
 const PLAYER_TINT: &str = "player_tint";
@@ -49,7 +53,17 @@ pub fn load(store: &Store) -> Settings {
         }
     };
     flag(AUTOPLAY, &mut s.autoplay);
-    flag(ACCENT_FROM_ART, &mut s.accent_from_art);
+    let mut from_art = true;
+    flag(ACCENT_FROM_ART, &mut from_art);
+    s.accent_mode = read(store, ACCENT_MODE)
+        .as_deref()
+        .and_then(parse_accent_mode)
+        .unwrap_or(if from_art {
+            AccentMode::Art
+        } else {
+            AccentMode::Theme
+        });
+    s.accent_custom = read(store, ACCENT_CUSTOM).as_deref().and_then(parse_hex);
     flag(ROW_ART, &mut s.row_art);
     flag(ALBUM_COLUMN, &mut s.album_column);
     flag(SPINE, &mut s.spine);
@@ -113,7 +127,6 @@ pub fn save(store: &Store, settings: &Settings) -> store::Result<()> {
     let s = settings;
     for (key, on) in [
         (AUTOPLAY, s.autoplay),
-        (ACCENT_FROM_ART, s.accent_from_art),
         (ROW_ART, s.row_art),
         (ALBUM_COLUMN, s.album_column),
         (SPINE, s.spine),
@@ -135,6 +148,8 @@ pub fn save(store: &Store, settings: &Settings) -> store::Result<()> {
     ] {
         store.set_setting(key, &n.to_string())?;
     }
+    store.set_setting(ACCENT_MODE, accent_mode_text(s.accent_mode))?;
+    store.set_setting(ACCENT_CUSTOM, &s.accent_custom.map(hex_text).unwrap_or_default())?;
     store.set_setting(CUSTOM_THEMES, &custom_themes_text(&s.custom_themes))?;
     for action in Action::ALL {
         store.set_setting(&key_name(action), &s.keys.get(action).text())?;
@@ -253,6 +268,23 @@ fn parse_bool(v: &str) -> Option<bool> {
     }
 }
 
+fn accent_mode_text(mode: AccentMode) -> &'static str {
+    match mode {
+        AccentMode::Art => "art",
+        AccentMode::Theme => "theme",
+        AccentMode::Custom => "custom",
+    }
+}
+
+fn parse_accent_mode(v: &str) -> Option<AccentMode> {
+    match v {
+        "art" => Some(AccentMode::Art),
+        "theme" => Some(AccentMode::Theme),
+        "custom" => Some(AccentMode::Custom),
+        _ => None,
+    }
+}
+
 fn bool_text(on: bool) -> &'static str {
     if on { "true" } else { "false" }
 }
@@ -303,7 +335,8 @@ mod tests {
         let dir = TempDir::new("round-trip");
         let mut want = Settings {
             autoplay: false,
-            accent_from_art: false,
+            accent_mode: AccentMode::Custom,
+            accent_custom: Some([0xE0, 0xA3, 0xF0]),
             theme: theme::PALETTES[theme::PALETTES.len() - 1].name.to_owned(),
             custom_themes: vec![CustomTheme {
                 name: "Moss".to_owned(),
@@ -355,7 +388,7 @@ mod tests {
         s.set_setting(ACCENT_FROM_ART, "TRUE").unwrap();
         let got = load(&s);
         assert!(!got.autoplay);
-        assert_eq!(got.accent_from_art, Settings::default().accent_from_art);
+        assert_eq!(got.accent_mode, Settings::default().accent_mode);
         assert_eq!(got.theme, Settings::default().theme);
 
         // Out-of-range numbers and broken themes are dropped too.
@@ -369,6 +402,54 @@ mod tests {
         assert_eq!(got.text_size, 13);
         assert!(got.custom_themes.is_empty());
         assert_eq!(got.keys, Settings::default().keys);
+    }
+
+    #[test]
+    fn accent_source_follows_the_mode() {
+        use crate::theme::AccentSource;
+        let art = Some([1, 2, 3]);
+        let mut s = Settings::default();
+        assert_eq!(s.accent_source(art), AccentSource::Art([1, 2, 3]));
+        assert_eq!(s.accent_source(None), AccentSource::Theme);
+        s.accent_mode = AccentMode::Theme;
+        assert_eq!(s.accent_source(art), AccentSource::Theme);
+        // Custom ignores the art; with no color yet it is the theme's.
+        s.accent_mode = AccentMode::Custom;
+        assert_eq!(s.accent_source(art), AccentSource::Theme);
+        s.accent_custom = Some([0xE0, 0xA3, 0xF0]);
+        assert_eq!(s.accent_source(art), AccentSource::Custom([0xE0, 0xA3, 0xF0]));
+        assert_eq!(s.accent_source(None), AccentSource::Custom([0xE0, 0xA3, 0xF0]));
+    }
+
+    #[test]
+    fn accent_from_art_migrates_to_accent_mode() {
+        let s = Store::open_in_memory().unwrap();
+        s.set_setting(ACCENT_FROM_ART, "true").unwrap();
+        assert_eq!(load(&s).accent_mode, AccentMode::Art);
+        s.set_setting(ACCENT_FROM_ART, "false").unwrap();
+        assert_eq!(load(&s).accent_mode, AccentMode::Theme);
+
+        // A saved mode wins over the old switch.
+        s.set_setting(ACCENT_MODE, "custom").unwrap();
+        assert_eq!(load(&s).accent_mode, AccentMode::Custom);
+
+        // Unreadable values: the old switch, and no custom color.
+        s.set_setting(ACCENT_MODE, "pink").unwrap();
+        s.set_setting(ACCENT_CUSTOM, "#zzzzzz").unwrap();
+        let got = load(&s);
+        assert_eq!(got.accent_mode, AccentMode::Theme);
+        assert_eq!(got.accent_custom, None);
+
+        // Saving writes the mode and the color, and they read back.
+        let want = Settings {
+            accent_mode: AccentMode::Custom,
+            accent_custom: Some([0x12, 0x34, 0x56]),
+            ..Settings::default()
+        };
+        save(&s, &want).unwrap();
+        let got = load(&s);
+        assert_eq!(got.accent_mode, AccentMode::Custom);
+        assert_eq!(got.accent_custom, Some([0x12, 0x34, 0x56]));
     }
 
     #[test]

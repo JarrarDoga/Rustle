@@ -3,11 +3,12 @@
 //!
 //! Colors come from a [`Palette`], read with [`pal`]. Views never hard-code a
 //! neutral: [`PALETTES`] holds Graphite (the default) and well-known dark and
-//! medium themes, and switching one swaps every neutral at once. A palette swaps neutrals only. Album art stays
-//! the only source of hue: [`accent`] is the now-playing art's accent, and a
-//! palette's `fallback_accent` is used only when nothing is playing or the
-//! "accent from album art" setting is off. Accent means playing, active or
-//! primary action; never use it for decoration.
+//! medium themes, and switching one swaps every neutral at once. A palette swaps neutrals only. The
+//! accent is set per frame ([`AccentSource`]): the now-playing art's
+//! accent, the palette's `fallback_accent`, or a custom color that stays
+//! the same on every palette (the "Accent" setting). Accent means playing,
+//! active or primary action; never use it for decoration. Text on an accent
+//! fill uses [`on_accent`], which stays readable on any custom color.
 //!
 //! Sizes, spacing, radii and text styles do not change with the palette, so
 //! they are plain constants.
@@ -665,19 +666,29 @@ fn sized(size: f32) -> f32 {
 
 // ------------------------------------------------------------------- accent
 
+/// Where this frame's accent comes from (`Settings::accent_source`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccentSource {
+    /// The palette's `fallback_accent`.
+    Theme,
+    /// The now-playing art's accent, already at OKLCH L 0.80.
+    Art([u8; 3]),
+    /// A color the user picked, used as is.
+    Custom([u8; 3]),
+}
+
 thread_local! {
-    /// The now-playing art's accent (sRGB), set by the app once per frame.
-    static ART_ACCENT: Cell<Option<[u8; 3]>> = const { Cell::new(None) };
+    /// This frame's accent source, set by the app once per frame.
+    static ACCENT: Cell<AccentSource> = const { Cell::new(AccentSource::Theme) };
 }
 
-/// Sets the accent for this frame: the playing track's art accent, or
-/// `None` for the palette's fallback. Called by `app.rs` before drawing.
-pub fn set_art_accent(rgb: Option<[u8; 3]>) {
-    ART_ACCENT.with(|a| a.set(rgb));
+/// Sets the accent for this frame. Called by `app.rs` before drawing.
+pub fn set_accent(source: AccentSource) {
+    ACCENT.with(|a| a.set(source));
 }
 
-fn art_accent() -> Option<[u8; 3]> {
-    ART_ACCENT.with(Cell::get)
+fn source() -> AccentSource {
+    ACCENT.with(Cell::get)
 }
 
 fn rgb(c: Color32) -> [u8; 3] {
@@ -688,25 +699,54 @@ fn color([r, g, b]: [u8; 3]) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
-/// The accent: OKLCH L 0.80 from the playing art, or the fallback.
+/// The accent: the playing art's, a custom one, or the palette's.
 pub fn accent() -> Color32 {
-    art_accent().map_or(pal().fallback_accent, color)
+    match source() {
+        AccentSource::Art(a) | AccentSource::Custom(a) => color(a),
+        AccentSource::Theme => pal().fallback_accent,
+    }
 }
 
-/// Accent on hover (L 0.86).
+/// `a` with its OKLCH lightness moved by `dl`, keeping hue and chroma.
+fn shifted(a: [u8; 3], dl: f64) -> [u8; 3] {
+    let (l, c, h) = art_color::to_oklch(a);
+    art_color::from_oklch((l + dl).clamp(0.05, 0.98), c, h)
+}
+
+/// Accent on hover (art: L 0.86; custom: 0.06 lighter).
 pub fn accent_hover() -> Color32 {
-    match art_accent() {
-        Some(a) => color(art_color::with_lightness(a, 0.86)),
-        None => pal().fallback_accent,
+    match source() {
+        AccentSource::Art(a) => color(art_color::with_lightness(a, 0.86)),
+        AccentSource::Custom(a) => color(shifted(a, 0.06)),
+        AccentSource::Theme => pal().fallback_accent,
     }
 }
 
-/// Accent while pressed (L 0.72).
+/// Accent while pressed (art: L 0.72; custom: 0.08 darker).
 pub fn accent_pressed() -> Color32 {
-    match art_accent() {
-        Some(a) => color(art_color::with_lightness(a, 0.72)),
-        None => pal().text_2,
+    match source() {
+        AccentSource::Art(a) => color(art_color::with_lightness(a, 0.72)),
+        AccentSource::Custom(a) => color(shifted(a, -0.08)),
+        AccentSource::Theme => pal().text_2,
     }
+}
+
+/// Text and icons on an accent fill: the palette's `on_accent` while it
+/// reads (4.5:1), else whichever of it, `text_1`, black or white reads best.
+/// A custom accent can be any color, so this is what views use.
+pub fn on_accent() -> Color32 {
+    on_accent_for(&pal(), accent())
+}
+
+/// [`on_accent`] for palette `p` and accent fill `a`.
+pub fn on_accent_for(p: &Palette, a: Color32) -> Color32 {
+    if contrast(p.on_accent, a) >= 4.5 {
+        return p.on_accent;
+    }
+    [p.on_accent, p.text_1, Color32::BLACK, Color32::WHITE]
+        .into_iter()
+        .max_by(|x, y| contrast(*x, a).total_cmp(&contrast(*y, a)))
+        .unwrap_or(p.on_accent)
 }
 
 /// The player bar fill: the accent at 14% over `bg`. Player bar only.
@@ -1179,5 +1219,45 @@ mod tests {
                 check("text_1 on player tint", p, contrast(p.text_1, tint), 7.0);
             }
         }
+    }
+
+    #[test]
+    fn on_accent_reads_on_any_custom_accent() {
+        let custom = [
+            hex(0xFFFFFF),
+            hex(0xFFF59D),
+            hex(0xE0A3F0),
+            hex(0x808080),
+            hex(0x1A237E),
+            hex(0x400010),
+            hex(0x000000),
+        ];
+        for p in PALETTES {
+            for a in custom {
+                let on = on_accent_for(&p, a);
+                assert!(
+                    contrast(on, a) >= 4.5,
+                    "{}: on_accent {on:?} on {a:?} is {:.2}",
+                    p.name,
+                    contrast(on, a)
+                );
+            }
+            // A light accent keeps the palette's own on_accent.
+            assert_eq!(on_accent_for(&p, p.fallback_accent), p.on_accent);
+        }
+        // Dark custom accents get light text.
+        assert_eq!(on_accent_for(&GRAPHITE, hex(0x000000)), Color32::WHITE);
+    }
+
+    #[test]
+    fn custom_accent_is_used_as_is() {
+        set_accent(AccentSource::Custom([0x12, 0x34, 0x56]));
+        assert_eq!(accent(), hex(0x123456));
+        let (l, ..) = art_color::to_oklch(rgb(accent()));
+        let (lh, ..) = art_color::to_oklch(rgb(accent_hover()));
+        let (lp, ..) = art_color::to_oklch(rgb(accent_pressed()));
+        assert!(lh > l && lp < l);
+        set_accent(AccentSource::Theme);
+        assert_eq!(accent(), pal().fallback_accent);
     }
 }

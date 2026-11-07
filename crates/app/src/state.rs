@@ -431,15 +431,43 @@ impl State {
     }
 }
 
+/// Where the accent color comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccentMode {
+    /// The now-playing art's accent; the theme's with nothing playing.
+    Art,
+    /// The theme's own accent (`fallback_accent`).
+    Theme,
+    /// [`Settings::accent_custom`], the same on every theme.
+    Custom,
+}
+
+impl Settings {
+    /// The accent for this frame, given the playing art's accent if any.
+    pub fn accent_source(&self, art: Option<[u8; 3]>) -> crate::theme::AccentSource {
+        use crate::theme::AccentSource;
+        match self.accent_mode {
+            AccentMode::Art => art.map_or(AccentSource::Theme, AccentSource::Art),
+            AccentMode::Theme => AccentSource::Theme,
+            AccentMode::Custom => self
+                .accent_custom
+                .map_or(AccentSource::Theme, AccentSource::Custom),
+        }
+    }
+}
+
 /// Saved user settings (the settings page). The store keeps one key per
 /// field as plain text (`settings::load` / `settings::save`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     /// Radio follows when the queue runs out.
     pub autoplay: bool,
-    /// Take the accent from the playing art; off means the palette's
-    /// fallback accent, as with nothing playing.
-    pub accent_from_art: bool,
+    /// Where the accent comes from: the playing art, the theme, or
+    /// [`Settings::accent_custom`].
+    pub accent_mode: AccentMode,
+    /// The "Custom" accent (sRGB). `None` until first chosen; picking
+    /// "Custom" then starts from the accent on screen.
+    pub accent_custom: Option<[u8; 3]>,
     /// The palette's name: a preset (`theme::PALETTES`) or one of
     /// `custom_themes`. Unknown names fall back to the default.
     pub theme: String,
@@ -480,7 +508,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             autoplay: true,
-            accent_from_art: true,
+            accent_mode: AccentMode::Art,
+            accent_custom: None,
             theme: "Graphite".to_owned(),
             custom_themes: Vec::new(),
             player_tint: 14,

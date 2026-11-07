@@ -343,11 +343,11 @@ fn primary_button(ui: &mut Ui, label: &str, enabled: bool) -> egui::Response {
     let (fill, text) = if !enabled {
         (p.surface_3, p.text_3)
     } else if resp.is_pointer_button_down_on() {
-        (theme::accent_pressed(), p.on_accent)
+        (theme::accent_pressed(), theme::on_accent())
     } else if resp.hovered() {
-        (theme::accent_hover(), p.on_accent)
+        (theme::accent_hover(), theme::on_accent())
     } else {
-        (theme::accent(), p.on_accent)
+        (theme::accent(), theme::on_accent())
     };
     ui.painter().rect_filled(rect, theme::RADIUS_CONTROL, fill);
     ui.painter().text(
