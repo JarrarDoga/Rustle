@@ -23,7 +23,7 @@ use crate::state::State;
 
 /// The "Rustle" application in the Discord developer portal. Discord shows
 /// its name on the card. Client IDs are public.
-const CLIENT_ID: &str = "0";
+const CLIENT_ID: &str = "1569033941820768367";
 /// How often to look for Discord again while it is not running.
 const RETRY: Duration = Duration::from_secs(15);
 /// Discord takes about 5 activity updates per 20 s; this keeps well under.
