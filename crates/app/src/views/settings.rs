@@ -139,6 +139,7 @@ impl Section {
             Self::Playback => {
                 s.autoplay = d.autoplay;
                 s.volume_step = d.volume_step;
+                s.discord = d.discord;
             }
             Self::Lyrics => {
                 s.lyrics_size = d.lyrics_size;
@@ -716,6 +717,17 @@ fn draw_section(
                     &[(2, "2%"), (5, "5%"), (10, "10%")],
                 );
                 page.draft.volume_step = step;
+            });
+            group(ui, page, "Sharing", |ui, page| {
+                let mut on = page.draft.discord;
+                switch(
+                    ui,
+                    page,
+                    "Show on Discord",
+                    "Your Discord profile shows the playing song while Discord runs",
+                    &mut on,
+                );
+                page.draft.discord = on;
             });
         }
         Section::Lyrics => {

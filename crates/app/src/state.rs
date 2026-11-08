@@ -501,6 +501,8 @@ pub struct Settings {
     pub not_heard_months: u8,
     /// Coming back to the window refreshes the library if it is stale.
     pub refresh_on_focus: bool,
+    /// The playing song shows on the user's Discord profile.
+    pub discord: bool,
     pub keys: crate::shortcuts::Keys,
 }
 
@@ -526,6 +528,7 @@ impl Default for Settings {
             lyrics_accent: false,
             not_heard_months: 3,
             refresh_on_focus: true,
+            discord: true,
             keys: crate::shortcuts::Keys::default(),
         }
     }

@@ -34,6 +34,7 @@ const LYRICS_CENTER: &str = "lyrics_center";
 const LYRICS_ACCENT: &str = "lyrics_accent";
 const NOT_HEARD_MONTHS: &str = "not_heard_months";
 const REFRESH_ON_FOCUS: &str = "refresh_on_focus";
+const DISCORD: &str = "discord_presence";
 
 /// The allowed values of the settings that are a choice, not a range.
 pub const ROW_HEIGHTS: [u8; 3] = [26, 32, 40];
@@ -71,6 +72,7 @@ pub fn load(store: &Store) -> Settings {
     flag(LYRICS_CENTER, &mut s.lyrics_center);
     flag(LYRICS_ACCENT, &mut s.lyrics_accent);
     flag(REFRESH_ON_FOCUS, &mut s.refresh_on_focus);
+    flag(DISCORD, &mut s.discord);
     let number = |key: &str, ok: &dyn Fn(u8) -> bool, v: &mut u8| {
         if let Some(n) = read(store, key)
             .and_then(|t| u8::from_str(&t).ok())
@@ -134,6 +136,7 @@ pub fn save(store: &Store, settings: &Settings) -> store::Result<()> {
         (LYRICS_CENTER, s.lyrics_center),
         (LYRICS_ACCENT, s.lyrics_accent),
         (REFRESH_ON_FOCUS, s.refresh_on_focus),
+        (DISCORD, s.discord),
     ] {
         store.set_setting(key, bool_text(on))?;
     }
