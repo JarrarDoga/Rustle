@@ -8,6 +8,7 @@ use tokio::runtime::Handle;
 
 use crate::backend::{self, Client, Keyring, Setup};
 use crate::control::{self, Control};
+use crate::discord::Discord;
 use crate::media_keys::MediaKeys;
 use crate::playback::{self, SimulatedPlayback};
 use crate::state::{Command, Session, State, apply};
@@ -38,6 +39,7 @@ pub struct RustleApp {
     /// Art colors known at the last `rustle: art colors` line (perf only).
     colors_reported: usize,
     media_keys: MediaKeys,
+    discord: Discord,
     control: Control,
 }
 
@@ -109,6 +111,8 @@ impl RustleApp {
             focus_refresh_at: Instant::now(),
             colors_reported: 0,
             media_keys: MediaKeys::new(cc.egui_ctx.clone()),
+            // Fixture songs from `--demo` stay off the user's profile.
+            discord: Discord::new(!demo || std::env::var_os("RUSTLE_DISCORD_DEMO").is_some()),
             control: Control::start(rt, cc.egui_ctx.clone(), demo),
         }
     }
@@ -367,6 +371,7 @@ impl eframe::App for RustleApp {
             self.send(command);
         }
         self.media_keys.sync(&self.state);
+        self.discord.sync(&self.state);
         for command in self.control.poll() {
             self.send(command);
         }

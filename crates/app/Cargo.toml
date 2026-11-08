@@ -24,6 +24,8 @@ keyring = { version = "3.6.3", default-features = false, features = ["sync-secre
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_dbus"] }
 # Already pulled in by souvlaki; used directly to wake its service loop after each update.
 dbus = { version = "0.9", default-features = false }
+# Discord Rich Presence frames (discord.rs); already in the tree via store and ytm-core.
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 # Thumbnail fetches on the thumbs worker threads; same build as the player crate's.
 ureq = { version = "3.5.0", default-features = false, features = ["rustls"] }
 # Thumbnail decoding; only the formats YouTube serves, no rayon.

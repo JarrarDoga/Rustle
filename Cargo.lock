@@ -3282,6 +3282,7 @@ dependencies = [
  "mimalloc",
  "model",
  "player",
+ "serde_json",
  "souvlaki",
  "store",
  "tokio",
