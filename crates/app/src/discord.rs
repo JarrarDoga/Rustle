@@ -26,6 +26,8 @@ use crate::state::State;
 const CLIENT_ID: &str = "0";
 /// How often to look for Discord again while it is not running.
 const RETRY: Duration = Duration::from_secs(15);
+/// Discord takes about 5 activity updates per 20 s; this keeps well under.
+const MIN_GAP: Duration = Duration::from_secs(2);
 /// How long one read or write on the socket may take.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 /// A start time this far from the last one sent counts as a seek.
@@ -246,6 +248,7 @@ fn serve(updates: &Receiver<Option<Activity>>) {
     let mut want: Option<Activity> = None;
     // Whether Discord shows `want` already.
     let mut done = true;
+    let mut sent_at: Option<Instant> = None;
     loop {
         // Wait without a timeout unless a song is waiting for Discord.
         let next = if done {
@@ -254,17 +257,32 @@ fn serve(updates: &Receiver<Option<Activity>>) {
             updates.recv_timeout(RETRY)
         };
         match next {
-            // Only the newest one matters.
-            Ok(first) => want = updates.try_iter().last().unwrap_or(first),
+            Ok(first) => want = first,
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
+        // Skipping through tracks sends only where it lands: wait out the
+        // gap since the last send, keeping only the newest update.
+        if let Some(at) = sent_at {
+            let until = at + MIN_GAP;
+            while let Some(left) = until.checked_duration_since(Instant::now()) {
+                match updates.recv_timeout(left) {
+                    Ok(newer) => want = newer,
+                    Err(RecvTimeoutError::Timeout) => break,
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
+            }
+        }
+        want = updates.try_iter().last().unwrap_or(want);
         // With nothing to show and no connection, Discord shows nothing.
         if want.is_none() && conn.is_none() {
             done = true;
             continue;
         }
         done = publish(&mut conn, want.as_ref());
+        if done {
+            sent_at = Some(Instant::now());
+        }
     }
 }
 
