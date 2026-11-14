@@ -52,6 +52,7 @@ pub enum SearchTab {
     Albums,
     Artists,
     Playlists,
+    Videos,
 }
 
 pub enum Action {

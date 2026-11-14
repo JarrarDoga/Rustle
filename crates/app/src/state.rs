@@ -311,6 +311,8 @@ pub enum Session {
 #[derive(Debug, Clone, Default)]
 pub struct SearchView {
     pub tracks: Arc<Vec<Arc<Track>>>,
+    /// The Videos tab's rows, moved out of `results.videos`.
+    pub videos: Arc<Vec<Arc<Track>>>,
     pub results: SearchResults,
 }
 
@@ -402,6 +404,7 @@ impl State {
             page.map(|v| &v.tracks[..]),
             self.liked.ready().map(|l| &l[..]),
             self.search.ready().map(|s| &s.tracks[..]),
+            self.search.ready().map(|s| &s.videos[..]),
         ];
         self.queue
             .entries()
@@ -1757,6 +1760,7 @@ fn fold_event(state: &mut State, event: Event, now: Instant) -> Vec<Effect> {
             state.search = match result {
                 Ok(mut results) => Loadable::Ready(Arc::new(SearchView {
                     tracks: arc_tracks(std::mem::take(&mut results.tracks)),
+                    videos: arc_tracks(std::mem::take(&mut results.videos)),
                     results,
                 })),
                 Err(e) => Loadable::Failed(describe(&e, state)),
@@ -2819,6 +2823,7 @@ pub(crate) mod tests {
         let mut s = with_liked_main(&["a", "b"], &["a", "b"]);
         s.search = Loadable::Ready(Arc::new(SearchView {
             tracks: list(&["x"]),
+            videos: list(&["v"]),
             results: SearchResults::default(),
         }));
         assert_eq!(
@@ -2830,6 +2835,12 @@ pub(crate) mod tests {
             like_result(&mut s, "x", true, Ok(())),
             [refetch_liked_main()]
         );
+        // A Videos-tab result is found and liked like a song.
+        apply(&mut s, &Command::Like("v".into()), now);
+        assert_eq!(main_ids(&s), ["v", "x", "a", "b"]);
+        like_result(&mut s, "v", true, Ok(()));
+        apply(&mut s, &Command::Unlike("v".into()), now);
+        like_result(&mut s, "v", false, Ok(()));
 
         apply(&mut s, &Command::Unlike("a".into()), now);
         assert_eq!(liked_ids(&s), ["x", "b"]);

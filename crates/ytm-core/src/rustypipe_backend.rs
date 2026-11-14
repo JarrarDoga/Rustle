@@ -217,20 +217,23 @@ impl MusicBackend for RustyPipeBackend {
         // 0.11.4 misparses the main page's top-result card (artist "Song",
         // no duration or album) and it returns only a few items per type.
         let q = self.rp.query();
-        let (tracks, albums, artists, playlists) = tokio::try_join!(
+        let (tracks, albums, artists, playlists, videos) = tokio::try_join!(
             q.music_search_tracks(query),
             q.music_search_albums(query),
             q.music_search_artists(query),
             q.music_search_playlists(query, false),
+            q.music_search_videos(query),
         )
         .map_err(map_error)?;
-        Ok(map_search(
+        let mut res = map_search(
             query,
             tracks.items.items,
             albums.items.items,
             artists.items.items,
             playlists.items.items,
-        ))
+        );
+        res.videos = map_videos(videos.items.items);
+        Ok(res)
     }
 
     async fn library_playlists(&self) -> Result<Vec<PlaylistSummary>> {
@@ -761,7 +764,18 @@ fn map_search(
         albums,
         artists: artists.into_iter().map(map_artist).collect(),
         playlists: playlists.into_iter().map(map_playlist_item).collect(),
+        videos: Vec::new(),
     }
+}
+
+/// The Videos search page as tracks. Rows without a video id are skipped;
+/// a video has no album.
+fn map_videos(videos: Vec<rp::TrackItem>) -> Vec<Track> {
+    videos
+        .into_iter()
+        .filter(|v| is_video_id(&v.id))
+        .map(map_track)
+        .collect()
 }
 
 /// A YouTube video id: 11 chars of `[A-Za-z0-9_-]`. Unavailable rows have
@@ -1480,9 +1494,13 @@ mod tests {
         }
         let s: RecordedSearch =
             serde_json::from_str(include_str!("../fixtures/rp_search.json")).unwrap();
+        // Written by `spike record-videos`: the Videos page of the same query.
+        let videos: Vec<rp::TrackItem> =
+            serde_json::from_str(include_str!("../fixtures/rp_search_videos.json")).unwrap();
         let playlist: rp::MusicPlaylist =
             serde_json::from_str(include_str!("../fixtures/rp_playlist.json")).unwrap();
-        let search = map_search("daft punk", s.tracks, s.albums, s.artists, s.playlists);
+        let mut search = map_search("daft punk", s.tracks, s.albums, s.artists, s.playlists);
+        search.videos = map_videos(videos);
         let playlist = map_playlist(playlist);
 
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
@@ -1510,8 +1528,15 @@ mod tests {
         assert!(!search.tracks.is_empty());
         assert!(!search.albums.is_empty());
         assert!(!search.artists.is_empty());
+        assert!(!search.videos.is_empty());
+        assert!(search.videos.iter().all(|v| v.album.is_none()));
         assert!(playlist.tracks.len() > 10);
-        for t in search.tracks.iter().chain(&playlist.tracks) {
+        for t in search
+            .tracks
+            .iter()
+            .chain(&search.videos)
+            .chain(&playlist.tracks)
+        {
             assert_eq!(t.id.len(), 11, "{t:?}");
             assert!(!t.artists.is_empty(), "{t:?}");
             assert!(t.thumbnails.windows(2).all(|w| w[0].width <= w[1].width));

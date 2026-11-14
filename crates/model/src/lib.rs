@@ -128,6 +128,11 @@ pub struct SearchResults {
     pub albums: Vec<AlbumSummary>,
     pub artists: Vec<ArtistSummary>,
     pub playlists: Vec<PlaylistSummary>,
+    /// YouTube Music's Videos results: music videos, live takes, covers and
+    /// other uploads the Songs results leave out. They play audio-only like
+    /// any track.
+    #[serde(default)]
+    pub videos: Vec<Track>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

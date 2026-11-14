@@ -1946,5 +1946,655 @@
         }
       ]
     }
+  ],
+  "videos": [
+    {
+      "id": "cp1jJmSbOpQ",
+      "title": "Daft Punk - Veridick Quo (IGADIMB Original Vocalizer Demo)",
+      "artists": [
+        {
+          "id": "UC3POl2JOTNPFzvsanOfsgHg",
+          "name": "Ed Russek"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 337,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/cp1jJmSbOpQ/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/cp1jJmSbOpQ/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/cp1jJmSbOpQ/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nrep8z8r8WCLpPPL5MkkTbXHdcPQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "0fllyJTBsRU",
+      "title": "Around the World / Harder, Better, Faster, Stronger (Live)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 343,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/0fllyJTBsRU/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/0fllyJTBsRU/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/0fllyJTBsRU/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kPD84twlWPTG9yEjgsDtTs07HVEQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "Mjpu0-o9iek",
+      "title": "Aerodynamic",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 213,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/Mjpu0-o9iek/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Mjpu0-o9iek/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Mjpu0-o9iek/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mZIYJF6OJI24X9YQVOANeCKPy-XA",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "5glDAaCaazc",
+      "title": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+      "artists": [
+        {
+          "id": "UCThde8ccpEr6sP8dIHZ-ceQ",
+          "name": "Nile Rodgers"
+        },
+        {
+          "id": "UCJw8VyO6e3v6S0327AsgwcQ",
+          "name": "Pharrell"
+        },
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 246,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/5glDAaCaazc/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/5glDAaCaazc/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/5glDAaCaazc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3l4fWypnSTG9IELG17oc_BTlInLXg",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "L93-7vRfxNs",
+      "title": "Aerodynamic",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 213,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/L93-7vRfxNs/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/L93-7vRfxNs/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/L93-7vRfxNs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nhFF5KYrmgE7jIVPsyHThOAw_TzA",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "UBGfS7S9BYg",
+      "title": "Superheroes",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 238,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/UBGfS7S9BYg/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/UBGfS7S9BYg/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/UBGfS7S9BYg/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kH55qar5cxZJ-BNOhkhOVDXnlGlw",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "1hA9vyUeKRs",
+      "title": "Instant Crush (radio edit) (feat. Julian Casablancas)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 330,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/1hA9vyUeKRs/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/1hA9vyUeKRs/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/1hA9vyUeKRs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kwcJfF5Okzk6TS0YuYtvBXGRBO4w",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "PXYeARRyDWk",
+      "title": "Human After All",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 320,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/PXYeARRyDWk/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/PXYeARRyDWk/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/PXYeARRyDWk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lXIvrngkn6BS9RFzQZC0i4UQ0SpA",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "Q5l2ChAqRDg",
+      "title": "Daft Punk - Within",
+      "artists": [
+        {
+          "id": "UC-L8sbkj8DxzCbK80MEySXQ",
+          "name": "John Schroter"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 241,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/Q5l2ChAqRDg/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Q5l2ChAqRDg/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Q5l2ChAqRDg/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mrOCN_pSuHSoL_L31P8HC7PqI9Cw",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "StACmxSQKY8",
+      "title": "Television Rules the Nation",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 193,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/StACmxSQKY8/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/StACmxSQKY8/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/StACmxSQKY8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n-QXBnDN8f0aNQh0pNY7w-ZXoaIg",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "Hg3G1E2tNCA",
+      "title": "Television Rules the Nation / Crescendolls (Live)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 291,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/Hg3G1E2tNCA/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Hg3G1E2tNCA/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Hg3G1E2tNCA/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3msjywFLz6faFNmXZu3St60EObfcQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "DvE7O3bLQgE",
+      "title": "Daft Punk - Get Lucky (Feat. Pharrell Williams)",
+      "artists": [
+        {
+          "id": "UCjnU8DWcBQmmQyHETrOuniw",
+          "name": "EXPO STORY"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 369,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/DvE7O3bLQgE/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/DvE7O3bLQgE/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/DvE7O3bLQgE/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3na1i2uLx3n-YGsx9X0dfqM_8RlQQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "HhZaHf8RP6g",
+      "title": "Veridis Quo",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 407,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/HhZaHf8RP6g/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/HhZaHf8RP6g/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/HhZaHf8RP6g/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kwKnIxHHFYbd2Wn6r-bhxn_6bvUA",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "34Na4j8AVgA",
+      "title": "Starboy ft. Daft Punk (Official Video) (feat. Daft Punk)",
+      "artists": [
+        {
+          "id": "UClYV6hHlupm_S_ObS1W-DYw",
+          "name": "The Weeknd"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 274,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/34Na4j8AVgA/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/34Na4j8AVgA/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/34Na4j8AVgA/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nIC7d1SOq9BBgMkRglnHI-OXWXLw",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "6S3ISlvlEbs",
+      "title": "Daft Punk - Crescendolls (Official Video)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 235,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/6S3ISlvlEbs/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/6S3ISlvlEbs/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/6S3ISlvlEbs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lN2iFpS4TPcGlmysHa_tImrgitEw",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "AHGvaQMClEo",
+      "title": "Daft Punk - End of Line HQ",
+      "artists": [
+        {
+          "id": "UCX647JDlYlVule9_hR7d3jQ",
+          "name": "serpensism"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 185,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/AHGvaQMClEo/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/AHGvaQMClEo/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/AHGvaQMClEo/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nLdjLvN3TQ6u2QaF_eXv8bUyMh6w",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "oor2uIqys8M",
+      "title": "Daft Punk - Crescendolls (Official Audio)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 212,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/oor2uIqys8M/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/oor2uIqys8M/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/oor2uIqys8M/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kVYmQOEn55S_WQkDfFEvpsEPpefg",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "Wtd6DvLoCsU",
+      "title": "Revolution 909 (Rifhes Remix)",
+      "artists": [
+        {
+          "id": "UCRr1xG_2WIDs18a6cIiCxeA",
+          "name": "Daft Punk"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 335,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/Wtd6DvLoCsU/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Wtd6DvLoCsU/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/Wtd6DvLoCsU/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3l9rKKtBd1CyGeNrXo35tE59OYqjQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "9sjWU5dGcGI",
+      "title": "Daft Punk - Harder, Better, Faster, Stronger (Far Out Remix)",
+      "artists": [
+        {
+          "id": "UCa10nxShhzNrCE1o2ZOPztg",
+          "name": "Trap Nation"
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 229,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/9sjWU5dGcGI/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/9sjWU5dGcGI/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/9sjWU5dGcGI/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nfEHhAfJJus1nMbOtZ43MFAAamLQ",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    },
+    {
+      "id": "oowqkd8fs-A",
+      "title": "Top 10 songs from Daft Punk 🧑‍🚀",
+      "artists": [
+        {
+          "id": "UCKkDgzhbcEq7nWLJMkOc7jw",
+          "name": "Landry Music "
+        }
+      ],
+      "album": null,
+      "duration": {
+        "secs": 76,
+        "nanos": 0
+      },
+      "thumbnails": [
+        {
+          "url": "https://i.ytimg.com/vi/oowqkd8fs-A/default.jpg",
+          "width": 120,
+          "height": 90
+        },
+        {
+          "url": "https://i.ytimg.com/vi/oowqkd8fs-A/mqdefault.jpg",
+          "width": 320,
+          "height": 180
+        },
+        {
+          "url": "https://i.ytimg.com/vi/oowqkd8fs-A/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nq-UMekG__j9L2Jw0xBuHeCasQGA",
+          "width": 400,
+          "height": 225
+        }
+      ]
+    }
   ]
 }

@@ -22,8 +22,9 @@ use crate::{icons, theme};
 const FIELD_W: f32 = 560.0;
 const TAB_H: f32 = 44.0;
 
-const TABS: [(SearchTab, &str); 4] = [
+const TABS: [(SearchTab, &str); 5] = [
     (SearchTab::Songs, "Songs"),
+    (SearchTab::Videos, "Videos"),
     (SearchTab::Albums, "Albums"),
     (SearchTab::Artists, "Artists"),
     (SearchTab::Playlists, "Playlists"),
@@ -41,7 +42,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
         Loadable::Idle => {
             return note(
                 ui,
-                "Search YouTube Music for songs, albums, artists and playlists, then press Enter.",
+                "Search YouTube Music for songs, videos, albums, artists and playlists, then press Enter.",
             );
         }
         Loadable::Loading => return note(ui, "Searching…"),
@@ -80,6 +81,24 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, out: &mut Out) {
                         tracks: &data.tracks,
                         rows: None,
                         columns: track_table::OUTSIDE,
+                        scroll_to: None,
+                    },
+                    out,
+                )
+            });
+        }
+        SearchTab::Videos => {
+            ui.add_space(theme::SPACE_4);
+            bleed(ui, 0.0, 0.0, |ui| {
+                track_table::show(
+                    ui,
+                    state,
+                    view,
+                    track_table::Table {
+                        salt: "search-videos",
+                        tracks: &data.videos,
+                        rows: None,
+                        columns: track_table::VIDEOS,
                         scroll_to: None,
                     },
                     out,
@@ -275,7 +294,7 @@ fn field(ui: &mut Ui, view: &mut View, out: &mut Out) {
     ui.add_space(theme::SPACE_16);
 }
 
-/// Songs / Albums / Artists / Playlists with result counts once results
+/// Songs / Videos / Albums / Artists / Playlists with result counts once results
 /// are in.
 fn tabs(ui: &mut Ui, view: &mut View, data: Option<&SearchView>) {
     let p = theme::pal();
@@ -345,6 +364,7 @@ fn type_label(t: model::AlbumType) -> &'static str {
 fn count(d: &SearchView, tab: SearchTab) -> usize {
     match tab {
         SearchTab::Songs => d.tracks.len(),
+        SearchTab::Videos => d.videos.len(),
         SearchTab::Albums => d.results.albums.len(),
         SearchTab::Artists => d.results.artists.len(),
         SearchTab::Playlists => d.results.playlists.len(),

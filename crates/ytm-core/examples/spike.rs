@@ -222,6 +222,9 @@ async fn main() -> AnyResult<()> {
             }
         }
         ["record", dir, rest @ ..] => record(Path::new(dir), rest.first().copied()).await?,
+        ["record-videos", dir, query @ ..] if !query.is_empty() => {
+            record_videos(Path::new(dir), &query.join(" ")).await?
+        }
         ["record-search", dir, name, query @ ..] if !query.is_empty() => {
             record_search(Path::new(dir), name, &query.join(" ")).await?
         }
@@ -234,7 +237,7 @@ async fn main() -> AnyResult<()> {
                  | record-owned <dir> <playlist_id> | record-radio <dir> <id> \
                  | album <id> [--json] | artist <id> [--json] \
                  | record-pages <dir> <artist_id> [album_id] | lyrics <id> \
-                 | record-lyrics <dir> <id>"
+                 | record-lyrics <dir> <id> | record-videos <dir> <query>"
             );
             std::process::exit(2);
         }
@@ -507,6 +510,29 @@ async fn record_search(dir: &Path, name: &str, query: &str) -> AnyResult<()> {
         "recorded search {query:?} ({} tracks, {} albums)",
         tracks.items.items.len(),
         albums.items.items.len()
+    );
+    Ok(())
+}
+
+/// Saves the raw Videos page of one search, no cookies.
+async fn record_videos(dir: &Path, query: &str) -> AnyResult<()> {
+    let rp = rustypipe::client::RustyPipe::builder()
+        .no_storage()
+        .no_reporter()
+        .no_botguard()
+        .build()?;
+    let videos = rp
+        .query()
+        .unauthenticated()
+        .music_search_videos(query)
+        .await?;
+    std::fs::write(
+        dir.join("rp_search_videos.json"),
+        serde_json::to_string_pretty(&videos.items.items)? + "\n",
+    )?;
+    println!(
+        "recorded videos for {query:?} ({} videos)",
+        videos.items.items.len()
     );
     Ok(())
 }

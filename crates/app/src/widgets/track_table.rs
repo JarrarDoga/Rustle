@@ -37,8 +37,9 @@ pub enum Column {
     /// it becomes a play button that plays on a single click; on the
     /// playing row, a speaker, and on hover a pause/play toggle.
     Index,
-    /// Art (24 px) and title. The album set (no [`Column::Album`]) leaves
-    /// the art out, since every row shares it.
+    /// Art (24 px) and title. An album page (the album set, no
+    /// [`Column::Album`], on tracks with an album) leaves the art out, since
+    /// every row shares it; search videos have no album and keep theirs.
     Title,
     Artist,
     Album,
@@ -59,6 +60,9 @@ pub const COLLECTION: &[Column] = &[Index, Title, Artist, Album, LastPlayed, Tim
 pub const OUTSIDE: &[Column] = &[Index, Title, Artist, Album, InEverything, Time];
 /// D-Album.
 pub const ALBUM: &[Column] = &[Index, Title, Artist, InEverything, Time];
+/// D-Search's Videos tab: a video has no album. Rows keep their art (see
+/// [`shows_art`]).
+pub const VIDEOS: &[Column] = &[Index, Title, Artist, InEverything, Time];
 
 /// One table to draw.
 pub struct Table<'a> {
@@ -140,6 +144,12 @@ impl Cell {
 /// The album page's set: no Album column, a wider title.
 fn is_album_set(columns: &[Column]) -> bool {
     !columns.contains(&Album)
+}
+
+/// Row art is left out only on an album page, where every row shares it.
+/// The album page's tracks all carry the album; videos carry none.
+fn shows_art(columns: &[Column], tracks: &[Arc<Track>]) -> bool {
+    !is_album_set(columns) || tracks.first().is_none_or(|t| t.album.is_none())
 }
 
 /// Fixed width, or `None` for a column that shares the free space.
@@ -421,7 +431,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View, table: Table<'_>, out: 
         let ctx = RowCtx {
             state,
             cells: &cells,
-            art: !is_album_set(columns) && sizes.row_art,
+            art: shows_art(columns, tracks) && sizes.row_art,
             now: unix_now(),
             current,
             liked: &liked,
@@ -1200,6 +1210,27 @@ mod tests {
         assert!((title.w - 664.0 * 3.0 / 7.0).abs() < 0.01);
         let time = cells[6];
         assert!((time.x + time.w - (936.0 - 8.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn album_pages_drop_row_art_and_videos_keep_it() {
+        let song = |album: bool| {
+            Arc::new(Track {
+                id: "aaaaaaaaaaa".into(),
+                title: "t".into(),
+                artists: Vec::new(),
+                album: album.then(|| model::AlbumRef {
+                    id: "MPREb_x".into(),
+                    name: "x".into(),
+                }),
+                duration: None,
+                thumbnails: Vec::new(),
+            })
+        };
+        assert!(!shows_art(ALBUM, &[song(true)]));
+        assert!(shows_art(VIDEOS, &[song(false)]));
+        assert!(shows_art(OUTSIDE, &[song(true)]));
+        assert!(shows_art(VIDEOS, &[]));
     }
 
     #[test]

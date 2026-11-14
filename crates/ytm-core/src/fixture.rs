@@ -238,6 +238,12 @@ impl MusicBackend for FixtureBackend {
                 .filter(|p| hit(&p.name))
                 .cloned()
                 .collect(),
+            videos: s
+                .videos
+                .iter()
+                .filter(|t| hit(&t.title) || t.artists.iter().any(|a| hit(&a.name)))
+                .cloned()
+                .collect(),
         })
     }
 
